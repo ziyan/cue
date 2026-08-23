@@ -39,7 +39,7 @@ export function device(main) {
     if (good) body.append(h("div", { class: "notice good", text: good }));
     if (bad) body.append(h("div", { class: "notice bad", text: bad }));
 
-    body.append(identityCard(), connectorsCard(), displayCard(), remoteCard(), actionsCard(), logCard());
+    body.append(identityCard(), connectorsCard(), displayCard(), soundAndClockCard(), remoteCard(), actionsCard(), logCard());
 
     body.append(h("div", { class: "actions" },
       h("button", { class: "primary", onClick: save }, "Save"),
@@ -109,6 +109,43 @@ export function device(main) {
           h("label", {},
             h("span", { text: "Extra X server configuration" }),
             textarea(configuration.display.xorgConfiguration, (value) => { configuration.display.xorgConfiguration = value; })))));
+  }
+
+  function soundAndClockCard() {
+    const clock = status.clock || {};
+    const devices = status.sound || [];
+
+    return h("div", { class: "card" },
+      h("h2", { text: "Sound and time" }),
+      h("div", { class: "row" },
+        h("div", {},
+          checkbox("Play sound", configuration.audio.enabled, (value) => { configuration.audio.enabled = value; })),
+        field("Sound card", "text", configuration.audio.sink, (value) => { configuration.audio.sink = value; },
+          devices.length ? `Empty lets ALSA choose. Available: ${devices.map((one) => one.alsaName || `plughw:${one.identifier}`).join(", ")}` : "This machine reports no sound cards"),
+        field("Time servers", "text", (configuration.time.servers || []).join(", "), (value) => {
+          configuration.time.servers = value.split(",").map((one) => one.trim()).filter(Boolean);
+        })),
+      devices.length
+        ? devices.map((one) => h("div", { class: "readout" },
+            h("span", { class: "label", text: one.name || one.identifier }),
+            h("span", { class: "value dim" },
+              h("span", { class: "mono", text: `plughw:${one.identifier}` }),
+              " ",
+              one.playback ? "out" : "",
+              one.capture ? " in" : "")))
+        : null,
+      h("div", { class: "readout" },
+        h("span", { class: "label", text: "Clock" }),
+        h("span", { class: "value" },
+          clock.enabled
+            ? h("span", { class: `pill ${clock.synchronised ? "good" : "warn"}`, text: clock.synchronised ? `synchronised with ${clock.reference}` : "not synchronised yet" })
+            : h("span", { class: "pill", text: "not managed here" }))),
+      clock.enabled && clock.synchronised
+        ? h("div", { class: "readout" },
+            h("span", { class: "label", text: "Off by" }),
+            h("span", { class: "value", text: `${(clock.offsetSeconds * 1000).toFixed(0)} ms` }))
+        : null,
+      clock.problem ? h("div", { class: "notice bad", text: clock.problem }) : null);
   }
 
   function remoteCard() {

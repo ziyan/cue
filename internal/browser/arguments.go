@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os/user"
 	"strconv"
+
+	"github.com/ziyan/cue/internal/audio"
 )
 
 // arguments builds Chromium's command line.
@@ -106,6 +108,9 @@ func (self *Browser) arguments() []string {
 	// instead is slower and always works; the compose file also raises the
 	// limit, and this is the belt to that pair of braces.
 	arguments = append(arguments, "--disable-dev-shm-usage")
+
+	// Where the sound comes out, or whether there is any. See internal/audio.
+	arguments = append(arguments, audio.OutputArguments(&self.configuration.Audio)...)
 
 	arguments = append(arguments, settings.ExtraArguments...)
 	return arguments

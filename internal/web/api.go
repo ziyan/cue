@@ -9,11 +9,13 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/ziyan/cue/internal/audio"
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/supervise"
+	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/drm"
 	"github.com/ziyan/cue/internal/util/security"
 	"github.com/ziyan/cue/internal/version"
@@ -32,6 +34,8 @@ type Status struct {
 	Connectors []drm.Connector    `json:"connectors"`
 	Outputs    []display.Output   `json:"outputs"`
 	Screen     display.Screen     `json:"screen"`
+	Clock      timesync.State     `json:"clock"`
+	Sound      []audio.Device     `json:"sound"`
 }
 
 // DeviceStatus is who this device is.
@@ -99,6 +103,13 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 	if connectors, err := drm.Connectors(); err == nil {
 		status.Connectors = connectors
 	}
+	if devices, err := audio.Devices(); err == nil {
+		status.Sound = devices
+	}
+
+	clockContext, clockCancel := context.WithTimeout(request.Context(), 3*time.Second)
+	defer clockCancel()
+	status.Clock = self.device.TimeSync().State(clockContext)
 
 	if connection, err := display.Open(configuration.Display.Number, self.device.XServer().Cookie()); err == nil {
 		defer connection.Close()

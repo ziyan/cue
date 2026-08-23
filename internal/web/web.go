@@ -24,6 +24,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/supervise"
+	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/xserver"
 )
@@ -55,6 +56,9 @@ type Device interface {
 
 	// XServer is the X server, for the display report and its log.
 	XServer() *xserver.Server
+
+	// TimeSync is the time client, for the clock report.
+	TimeSync() *timesync.Client
 
 	// Restart restarts one supervised program by name.
 	Restart(ctx context.Context, name string) error

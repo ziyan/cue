@@ -18,10 +18,12 @@ import (
 
 	"github.com/op/go-logging"
 
+	"github.com/ziyan/cue/internal/audio"
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/supervise"
+	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/deferutil"
 	"github.com/ziyan/cue/internal/util/reaper"
 	"github.com/ziyan/cue/internal/vncserver"
@@ -39,13 +41,15 @@ type Daemon struct {
 	xserver   *xserver.Server
 	browser   *browser.Browser
 	vncserver *vncserver.Server
+	timesync  *timesync.Client
 	watchdog  *watchdog.Watchdog
 
 	web *web.Server
 
-	xProcess       *supervise.Process
-	browserProcess *supervise.Process
-	vncProcess     *supervise.Process
+	xProcess        *supervise.Process
+	browserProcess  *supervise.Process
+	vncProcess      *supervise.Process
+	timesyncProcess *supervise.Process
 
 	mutex sync.Mutex
 
@@ -74,6 +78,7 @@ func New(store *config.Store) (*Daemon, error) {
 
 	self.browser = browser.New(configuration, server.DisplayName(), server.AuthorityFilename())
 	self.vncserver = vncserver.New(configuration, server.DisplayName(), server.AuthorityFilename())
+	self.timesync = timesync.New(configuration)
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,
@@ -96,6 +101,11 @@ func (self *Daemon) Browser() *browser.Browser {
 // Watchdog is the running watchdog, for the web interface.
 func (self *Daemon) Watchdog() *watchdog.Watchdog {
 	return self.watchdog
+}
+
+// TimeSync is the time client, for the interface's clock report.
+func (self *Daemon) TimeSync() *timesync.Client {
+	return self.timesync
 }
 
 // VNCAddress is where the VNC server listens, for the web interface's bridge.
@@ -123,6 +133,12 @@ func (self *Daemon) Restart(ctx context.Context, name string) error {
 		return self.restartBrowser(ctx)
 	case "xorg", "xvfb", "display", "x":
 		return self.restartDisplay(ctx)
+	case "chronyd", "time", "clock":
+		if self.timesyncProcess == nil {
+			return fmt.Errorf("daemon: time synchronisation is switched off")
+		}
+		self.timesyncProcess.Restart()
+		return nil
 	case "x11vnc", "vnc":
 		if self.vncProcess == nil {
 			return fmt.Errorf("daemon: the VNC server is not running")
@@ -168,6 +184,19 @@ func (self *Daemon) Run(ctx context.Context) error {
 		defer cancel()
 		self.web.Stop(stopContext)
 	}()
+
+	// The clock comes up first and independently of the screen. A browser
+	// cannot validate a certificate with a wrong clock, so on a device whose
+	// battery has died this is what has to happen before anything else will
+	// work — and it has nothing to wait for.
+	if configuration.Time.Enabled {
+		self.timesyncProcess = supervise.New(self.timesync.Settings())
+		self.timesyncProcess.Start(ctx)
+	}
+
+	if devices, err := audio.Devices(); err == nil {
+		log.Noticef("%s", audio.Describe(&configuration.Audio, devices))
+	}
 
 	self.startProcesses(ctx, configuration)
 
@@ -244,7 +273,7 @@ func (self *Daemon) stopProcesses() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	for _, process := range []*supervise.Process{self.vncProcess, self.browserProcess, self.xProcess} {
+	for _, process := range []*supervise.Process{self.timesyncProcess, self.vncProcess, self.browserProcess, self.xProcess} {
 		if process != nil {
 			process.Stop(ctx)
 		}
@@ -253,8 +282,8 @@ func (self *Daemon) stopProcesses() {
 
 // Statuses reports what every supervised program is doing, for the interface.
 func (self *Daemon) Statuses() []supervise.Status {
-	statuses := make([]supervise.Status, 0, 3)
-	for _, process := range []*supervise.Process{self.xProcess, self.browserProcess, self.vncProcess} {
+	statuses := make([]supervise.Status, 0, 4)
+	for _, process := range []*supervise.Process{self.xProcess, self.browserProcess, self.vncProcess, self.timesyncProcess} {
 		if process != nil {
 			statuses = append(statuses, process.Status())
 		}
