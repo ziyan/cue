@@ -116,8 +116,10 @@ docker-test: docker ## Run the tests inside the image, where the programs they n
 		echo "==> $$package, inside $(DOCKER_TAG)"; \
 		docker run --rm -e TMPDIR=/tmp \
 			-v $(PWD)/build/tests/$$name.test:/$$name.test:ro \
-			--entrypoint /$$name.test $(DOCKER_TAG) -test.v 2>&1 \
-			| grep -E "^(---|ok|FAIL|PASS|\s+---)" || exit 1; \
+			--entrypoint /$$name.test $(DOCKER_TAG) -test.v > build/tests/$$name.out 2>&1; \
+		status=$$?; \
+		grep -E "^(---|ok|FAIL|PASS)" build/tests/$$name.out || true; \
+		if [ $$status -ne 0 ]; then cat build/tests/$$name.out; exit 1; fi; \
 	done
 
 # The packages whose tests depend on something only the image has.

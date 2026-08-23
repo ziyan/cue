@@ -181,10 +181,29 @@ func TestDarkModeIsAskedForByDefaultAndCanBeTurnedOff(t *testing.T) {
 	// A screen on a wall is usually in a room where a page of white at full
 	// brightness is the brightest thing in it.
 	on := commandLine(t, newTestBrowser(t, nil))
-	for _, flag := range []string{"--force-dark-mode", "--force-prefers-color-scheme=dark"} {
-		if !strings.Contains(on, flag) {
-			t.Errorf("%s is missing; pages will render light by default", flag)
-		}
+	if !strings.Contains(on, "--force-dark-mode") {
+		t.Error("--force-dark-mode is missing; pages will render light by default")
+	}
+
+	// One flag, not the three this used to pass. The other two do not exist
+	// in this Chromium and were doing nothing; see
+	// TestOnlyFlagsThisChromiumKnowsArePassed. What proves the remaining one
+	// works is a screenshot, which is why make docker-smoke measures the
+	// brightness of a real one.
+	if strings.Contains(on, "--force-prefers-color-scheme") {
+		t.Error("--force-prefers-color-scheme is back; this Chromium does not know it")
+	}
+
+	// Darkening a page that ignores the preference is a separate decision,
+	// because it inverts a page its author drew light on purpose.
+	if strings.Contains(on, "WebContentsForceDark") {
+		t.Error("pages are force-darkened by default; that should be opt-in")
+	}
+	forced := commandLine(t, newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.ForceDarkContent = true
+	}))
+	if !strings.Contains(forced, "WebContentsForceDark") {
+		t.Errorf("forceDarkContent is on and nothing asks for it:\n%s", forced)
 	}
 
 	off := commandLine(t, newTestBrowser(t, func(configuration *config.Configuration) {
@@ -218,7 +237,7 @@ func TestFeaturesAreOneFlagBecauseChromiumKeepsOnlyTheLast(t *testing.T) {
 	if len(features) != 1 {
 		t.Fatalf("got %d --enable-features flags, want exactly 1: %q", len(features), features)
 	}
-	for _, wanted := range []string{"WebUIDarkMode", "OverlayScrollbar", "SomethingElse"} {
+	for _, wanted := range []string{"OverlayScrollbar", "SomethingElse"} {
 		if !strings.Contains(features[0], wanted) {
 			t.Errorf("%q is missing from %q", wanted, features[0])
 		}
@@ -231,7 +250,7 @@ func TestFeaturesAreOneFlagBecauseChromiumKeepsOnlyTheLast(t *testing.T) {
 func TestAFeatureIsNotListedTwice(t *testing.T) {
 	browser := newTestBrowser(t, func(configuration *config.Configuration) {
 		configuration.Browser.DarkMode = true
-		configuration.Browser.ExtraArguments = []string{"--enable-features=WebUIDarkMode,OverlayScrollbar"}
+		configuration.Browser.ExtraArguments = []string{"--enable-features=OverlayScrollbar,OverlayScrollbar"}
 	})
 
 	for _, argument := range browser.arguments() {
