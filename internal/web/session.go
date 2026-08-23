@@ -62,7 +62,8 @@ func (self *Server) clearSession(response http.ResponseWriter) {
 func (self *Server) signSession(issuedAt int64) string {
 	secret := self.store.Current().Web.SessionSecret.Reveal()
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "session:%d", issuedAt)
+	// Writing to an HMAC cannot fail; hash.Hash says so explicitly.
+	_, _ = fmt.Fprintf(mac, "session:%d", issuedAt)
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 

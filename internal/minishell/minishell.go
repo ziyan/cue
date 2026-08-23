@@ -53,13 +53,13 @@ func IsInvokedAsShell(argumentZero string) bool {
 func Run(arguments []string, errorOutput io.Writer) int {
 	command, err := commandFrom(arguments)
 	if err != nil {
-		fmt.Fprintf(errorOutput, "sh: %s\n", err)
+		_, _ = fmt.Fprintf(errorOutput, "sh: %s\n", err)
 		return 127
 	}
 
 	words, err := split(command)
 	if err != nil {
-		fmt.Fprintf(errorOutput, "sh: %s\n", err)
+		_, _ = fmt.Fprintf(errorOutput, "sh: %s\n", err)
 		return 127
 	}
 	if len(words) == 0 {
@@ -68,7 +68,7 @@ func Run(arguments []string, errorOutput io.Writer) int {
 
 	path, err := exec.LookPath(words[0])
 	if err != nil {
-		fmt.Fprintf(errorOutput, "sh: %s: not found\n", words[0])
+		_, _ = fmt.Fprintf(errorOutput, "sh: %s: not found\n", words[0])
 		return 127
 	}
 
@@ -76,7 +76,7 @@ func Run(arguments []string, errorOutput io.Writer) int {
 	// process and reading or writing its pipe. Replacing the process keeps
 	// both the descriptors and the process identity it is waiting for.
 	if err := syscall.Exec(path, words, os.Environ()); err != nil {
-		fmt.Fprintf(errorOutput, "sh: %s: %s\n", words[0], err)
+		_, _ = fmt.Fprintf(errorOutput, "sh: %s: %s\n", words[0], err)
 		return 126
 	}
 	return 0

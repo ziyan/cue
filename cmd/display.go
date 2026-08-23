@@ -58,7 +58,7 @@ func probeDisplay(ctx context.Context, command *cli.Command) error {
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "CONNECTOR\tSTATUS\tMONITOR\tMODES")
+	_, _ = fmt.Fprintln(writer, "CONNECTOR\tSTATUS\tMONITOR\tMODES")
 	for _, connector := range connectors {
 		status := "disconnected"
 		if connector.Connected {
@@ -72,7 +72,7 @@ func probeDisplay(ctx context.Context, command *cli.Command) error {
 		if monitor == "" {
 			monitor = "-"
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", connector.Name, status, monitor, modes)
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", connector.Name, status, monitor, modes)
 	}
 	return writer.Flush()
 }
@@ -107,7 +107,7 @@ func showOutputs(ctx context.Context, command *cli.Command) error {
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "OUTPUT\tSTATUS\tGEOMETRY\tROTATION\tPREFERRED")
+	_, _ = fmt.Fprintln(writer, "OUTPUT\tSTATUS\tGEOMETRY\tROTATION\tPREFERRED")
 	for _, output := range outputs {
 		status := "disconnected"
 		switch {
@@ -128,7 +128,7 @@ func showOutputs(ctx context.Context, command *cli.Command) error {
 		if output.Primary {
 			name += " *"
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", name, status, geometry, output.Rotation, preferred)
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", name, status, geometry, output.Rotation, preferred)
 	}
 	return writer.Flush()
 }

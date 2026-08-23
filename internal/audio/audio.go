@@ -20,12 +20,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/op/go-logging"
-
 	"github.com/ziyan/cue/internal/config"
 )
-
-var log = logging.MustGetLogger("audio")
 
 // Device is one sound card, as the kernel reports it.
 type Device struct {

@@ -344,7 +344,53 @@ being plugged in — with a `/sys` poll as the always-available fallback.
 
 ## Outcomes & Retrospective
 
-To be written at the end of each milestone.
+**As of 2026-08-23.** Everything in the Purpose section works except the last
+step of it: a picture on a real screen, driven by Xorg on real graphics
+hardware. The machine set aside for that (`carbon`) answered at the start of
+the work and went off the network an hour in; it has not come back. Everything
+else is proved, and proved by running rather than by reading:
+
+- The whole daemon runs in the distroless image against a virtual screen and
+  puts a picture on it. `make docker-smoke` checks that on every change: every
+  program running, a screenshot of the configured size, the playlist rotating,
+  the watchdog satisfied.
+- The login rule was run against the real dashboard it was built for. It
+  recognised the login page, filled the fields, ticked "remember my
+  credentials", waited out a submit button that starts disabled, and landed on
+  the camera dashboard showing four live feeds.
+- The web interface was exercised by having the daemon sign itself into its
+  own interface with a login rule, which is a pleasing way to test both halves
+  at once.
+- The clock synchronises: stratum 3, eighty microseconds out, reported through
+  the API.
+- The fleet tunnel was proved against a stub service: the device enrols, the
+  token is cleared, the tunnel comes up, and the service makes an HTTP request
+  back down it that reaches the device's own handler.
+- `cue display probe` was run against real graphics hardware and correctly
+  reported the connectors, the monitors' names from their EDID, and their
+  modes.
+
+**What is left.** Real-hardware Xorg, which needs `carbon` back. The X server's
+command line and the container's device access are written and reasoned about
+but have never been run against a graphics card, and that is exactly the sort
+of thing that is wrong the first time. Also outstanding: mapping a touch device
+to one output on a multi-screen or rotated machine, which needs XInput2.
+
+**What was learned.** Two lessons, both of which cost time and both of which
+are worth repeating to whoever works on this next.
+
+The first: test the defaults. Every early test used the development
+configuration, and the first run with the daemon's own defaults broke four
+different ways at once — the X server was a shell script, chronyd was not on
+the PATH, chronyd wanted an account that did not exist, and chronyd refused the
+directory it was given. None of those would have been found by any amount of
+reading.
+
+The second: a supervisor that discards a child's output is a supervisor that
+cannot be debugged. Three separate rounds of this began with "exited before it
+was ready" and nothing else, because the output was logged at DEBUG and the
+level was INFO. Keeping the last twenty lines and printing them when a program
+fails to start would have saved most of an hour, and now does.
 
 ## Context and Orientation
 

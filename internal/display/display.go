@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"net"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/jezek/xgb"
@@ -296,10 +295,6 @@ func (self mode) String() string {
 	return fmt.Sprintf("%dx%d@%.0f", self.width, self.height, self.rate)
 }
 
-func (self mode) size() string {
-	return fmt.Sprintf("%dx%d", self.width, self.height)
-}
-
 func indexModes(resources *randr.GetScreenResourcesCurrentReply) map[randr.Mode]mode {
 	modes := map[randr.Mode]mode{}
 	names := resources.Names
@@ -391,20 +386,4 @@ func settingsFor(settings *config.Display, name string) *config.Output {
 		}
 	}
 	return wildcard
-}
-
-// describeOutputs is used in log lines, where a list of names is enough.
-func describeOutputs(outputs []Output) string {
-	names := make([]string, 0, len(outputs))
-	for _, output := range outputs {
-		state := "disconnected"
-		if output.Connected {
-			state = output.CurrentMode
-			if !output.Enabled {
-				state = "connected but off"
-			}
-		}
-		names = append(names, fmt.Sprintf("%s (%s)", output.Name, state))
-	}
-	return strings.Join(names, ", ")
 }
