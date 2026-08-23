@@ -31,6 +31,10 @@ All notable changes to this project are recorded here, in the categories of
   holds one connection open, over which the service reaches the same interface
   an operator would; nothing is opened on the network in front of the screen,
   and none of it is contacted until an operator turns it on.
+- The browser is started in the groups that own the graphics and sound
+  devices, read from those devices at run time, so that it can use the
+  hardware. Their group numbers come from the host and differ between
+  machines, so they cannot be written into the image.
 - `display.virtualTerminal` names the console the X server draws on, so that a
   container needs one console device passed through rather than all of them.
 - Touchscreens are found and reported, and the browser is told touch exists —

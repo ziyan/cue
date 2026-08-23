@@ -256,6 +256,29 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   words, "(EE) Screen 0 deleted because of no matching config section", which
   says exactly what is wrong.
 
+- Observation: the browser would have rendered in software on every real
+  device, silently. It runs as an unprivileged account — it must, because
+  Chromium refuses its own sandbox as root — and the graphics devices are
+  owned by groups whose numbers come from the host: `render` is 992 on this
+  machine and a different number on the next, and no such group existed in the
+  image at all. The account was therefore in none of them.
+  Evidence: `/dev/dri/renderD128` is `root:render` mode 660; the browser
+  process's `/proc/<pid>/status` showed `Groups: 1000`. The daemon now reads
+  the numbers off the device files at run time and starts the browser in them,
+  and the same line reads `Groups: 44 992 1000`. Nothing would have failed
+  outright — Chromium falls back to software rendering and says so only in a
+  log nobody reads — which is why this had to be looked for rather than waited
+  for.
+
+- Observation: the layout ignored a written output position. The default
+  configuration's wildcard entry says `0x0` and every output was laid out left
+  to right regardless, so a laptop with something in its HDMI socket — which
+  is exactly what the test device is — would have got a drawing surface twice
+  as wide and one browser window spanning both screens.
+  Evidence: `TestAWrittenPositionIsHonoured`. Every output at `0x0` now means
+  they are mirrored, which is what a display appliance wants and what the
+  system this replaces did.
+
 ## Decision Log
 
 - Decision: the module path is `github.com/ziyan/cue`, the binary is `cue`, the

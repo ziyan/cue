@@ -22,6 +22,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/util/cdp"
+	"github.com/ziyan/cue/internal/util/devices"
 	"github.com/ziyan/cue/internal/util/executable"
 )
 
@@ -112,9 +113,21 @@ func (self *Browser) Settings() *supervise.Settings {
 		binary = self.configuration.Browser.Binary
 	}
 
+	// The browser runs as an unprivileged account, so it is only allowed to
+	// open the graphics and sound devices if it is in the groups that own
+	// them — and those group numbers come from the host, not from this
+	// image. Without this Chromium renders in software, which on a screen
+	// showing video is the difference between smooth and unwatchable, and
+	// which reports itself only as a line in a log nobody reads.
+	hardwareGroups := devices.Groups(devices.Hardware...)
+	if self.configuration.Browser.User != "" {
+		log.Noticef("%s", devices.Describe(devices.Hardware))
+	}
+
 	return &supervise.Settings{
 		Name:          "chromium",
 		Path:          binary,
+		ExtraGroups:   hardwareGroups,
 		Arguments:     self.arguments(),
 		Restart:       true,
 		User:          self.configuration.Browser.User,

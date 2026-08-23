@@ -78,6 +78,13 @@ type Settings struct {
 	// means "stay as we are".
 	User string
 
+	// ExtraGroups are added to the account's own groups. They exist for the
+	// hardware: the graphics and sound devices are owned by groups whose
+	// numbers come from the host and are not in the container's own group
+	// file, so they are read from the device files at run time. See
+	// internal/util/devices.
+	ExtraGroups []uint32
+
 	// Ready is an optional check run repeatedly after the process starts,
 	// until it returns nil or ReadyTimeout passes. Until it passes, the
 	// process is "starting" and anything waiting on it waits. This is how the
@@ -422,6 +429,7 @@ func (self *Process) runOnce(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		credential.Groups = mergeGroups(credential.Groups, self.settings.ExtraGroups)
 		command.SysProcAttr.Credential = credential
 	}
 
@@ -727,6 +735,22 @@ func lookupCredential(name string) (*syscall.Credential, error) {
 	}
 
 	return &syscall.Credential{Uid: uint32(userId), Gid: uint32(groupId), Groups: groups}, nil
+}
+
+// mergeGroups combines two lists of group numbers without duplicates. The
+// order is not meaningful to the kernel, but a stable one makes two runs on
+// the same machine comparable.
+func mergeGroups(first, second []uint32) []uint32 {
+	seen := make(map[uint32]bool, len(first)+len(second))
+	merged := make([]uint32, 0, len(first)+len(second))
+	for _, group := range append(append([]uint32{}, first...), second...) {
+		if seen[group] {
+			continue
+		}
+		seen[group] = true
+		merged = append(merged, group)
+	}
+	return merged
 }
 
 // Environ builds an environment from a base plus overrides, which is what
