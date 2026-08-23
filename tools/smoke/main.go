@@ -17,10 +17,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func main() {
@@ -193,6 +197,15 @@ func run(image string, port int, keep bool) error {
 		return withLogs(err)
 	}
 
+	// The remote view of the screen. Nothing else exercises it: the VNC server
+	// listens on the loopback address and only this bridge reaches it, so a
+	// change that broke the bridge would show up as a blank Screen page and
+	// nothing in any log.
+	step("checking that the screen can be watched over the bridge")
+	if err := checkVNCBridge(base, client); err != nil {
+		return withLogs(err)
+	}
+
 	tabs, _ := status["browser"].(map[string]interface{})["tabs"].([]interface{})
 	for _, entry := range tabs {
 		tab, _ := entry.(map[string]interface{})
@@ -211,6 +224,85 @@ func run(image string, port int, keep bool) error {
 	}
 
 	return nil
+}
+
+// checkVNCBridge opens the WebSocket the browser's viewer uses and speaks
+// enough of the remote framebuffer protocol to prove that bytes reach the VNC
+// server and come back.
+//
+// The protocol opens with the server stating its version as twelve bytes,
+// "RFB 003.008\n". That single exchange is enough: it can only arrive if the
+// WebSocket upgraded, the origin check passed, the session was accepted, the
+// bridge dialled the VNC server, and the VNC server is attached to a running
+// X display.
+func checkVNCBridge(base string, self *client) error {
+	address := "ws" + strings.TrimPrefix(base, "http") + "/api/v1/vnc"
+
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return err
+	}
+
+	headers := http.Header{}
+	for _, cookie := range self.http.Jar.Cookies(parsed) {
+		headers.Add("Cookie", cookie.Name+"="+cookie.Value)
+	}
+	// The bridge refuses an origin that is not its own host, so that a page
+	// elsewhere cannot use a browser's session to watch the screen. Sending
+	// the right one also exercises that check.
+	headers.Set("Origin", base)
+
+	dialer := websocket.Dialer{HandshakeTimeout: 15 * time.Second, Subprotocols: []string{"binary"}}
+	connection, response, err := dialer.Dial(address, headers)
+	if err != nil {
+		if response != nil {
+			return fmt.Errorf("cannot open the VNC bridge: %s: %w", response.Status, err)
+		}
+		return fmt.Errorf("cannot open the VNC bridge: %w", err)
+	}
+	defer func() { _ = connection.Close() }()
+
+	_ = connection.SetReadDeadline(time.Now().Add(15 * time.Second))
+
+	greeting, err := readAtLeast(connection, 12)
+	if err != nil {
+		return fmt.Errorf("the VNC server said nothing through the bridge: %w", err)
+	}
+	if !strings.HasPrefix(string(greeting), "RFB ") {
+		return fmt.Errorf("what came back through the bridge is not the remote framebuffer protocol: %q", greeting)
+	}
+	fmt.Printf("    the screen answered %q\n", strings.TrimSpace(string(greeting[:12])))
+
+	// Answer with the same version, which proves the other direction works:
+	// a server that never hears from the client closes the connection.
+	if err := connection.WriteMessage(websocket.BinaryMessage, greeting[:12]); err != nil {
+		return fmt.Errorf("cannot write to the VNC bridge: %w", err)
+	}
+
+	// The server replies with the security types it will accept, which it
+	// only sends after reading the version. One byte is enough.
+	if _, err := readAtLeast(connection, 1); err != nil {
+		return fmt.Errorf("the VNC server did not answer the version the viewer sent: %w", err)
+	}
+	return nil
+}
+
+// readAtLeast collects binary frames until it has the wanted number of bytes.
+// A WebSocket frame is not a fixed slice of the byte stream, so the twelve
+// bytes of a greeting may arrive as one frame or several.
+func readAtLeast(connection *websocket.Conn, wanted int) ([]byte, error) {
+	var collected []byte
+	for len(collected) < wanted {
+		messageType, data, err := connection.ReadMessage()
+		if err != nil {
+			return collected, err
+		}
+		if messageType != websocket.BinaryMessage {
+			continue
+		}
+		collected = append(collected, data...)
+	}
+	return collected, nil
 }
 
 // tabTitle finds one playlist item's tab in a status response and returns the

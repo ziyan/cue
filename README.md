@@ -7,14 +7,23 @@ install with nothing on it but Docker becomes a screen showing whatever you
 point it at — a dashboard, a camera wall, a video — and a web interface for
 running it from your desk.
 
-    docker run -d --name cue --network host \
-      --device /dev/dri --device /dev/tty0 --device /dev/input \
-      --cap-add SYS_TTY_CONFIG --cap-add SYS_TIME --shm-size 1g \
+    docker run -d --name cue --network host --shm-size 1g \
+      --device /dev/dri --device /dev/tty0 --device /dev/tty2 --device /dev/input \
+      --cap-add SYS_TTY_CONFIG --cap-add SYS_TIME --cap-add SYS_ADMIN \
       -v /etc/cue:/etc/cue -v /var/lib/cue:/var/lib/cue \
       ghcr.io/ziyan/cue:latest
 
 The screen lights up within about fifteen seconds showing its own address.
 Open that from a laptop, set a password, and type in the pages you want shown.
+
+Two of those flags are not obvious and both produce a black screen if they are
+wrong. `/dev/tty2` is the console the X server draws on and has to match
+`display.virtualTerminal`; left to itself the server picks a console that is
+not in the container. `SYS_ADMIN` is what lets the browser keep its own
+sandbox — it creates namespaces the default seccomp policy refuses without it
+— and granting it leaves seccomp on for everything else.
+`deploy/docker-compose.yml` says all of this at length, and
+`make deploy HOST=...` does it for you.
 
 ## What it does
 
@@ -62,7 +71,14 @@ exactly the files those packages own, and copying that onto
 ## Getting started
 
 `deploy/docker-compose.yml` is the same thing with the reasoning written down,
-including what to pass through and what to do when the screen stays black.
+including what to pass through and what to do when the screen stays black. Or,
+from a checkout:
+
+    make deploy HOST=display-1 DISPLAY_MANAGER=stop
+
+which stops whatever is holding the graphics device, sends this build over
+ssh, starts it with the flags above, waits for it to report itself healthy,
+and prints what the machine ended up driving.
 
 Two things about the host, and they are the only two:
 

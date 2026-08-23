@@ -330,6 +330,12 @@ func TestTheInterfaceIsServedAndUnknownPathsFallBackToIt(t *testing.T) {
 
 const testPassword = "a long test password"
 
+// defaultConfigurationForTest is the default with the parts that would reach
+// the network or a display switched off; every test here uses it.
+func defaultConfigurationForTest() *config.Configuration {
+	return config.Default()
+}
+
 func setUp(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()
 	response := do(server, http.MethodPost, "/api/v1/setup", map[string]string{

@@ -450,7 +450,14 @@ a virtual screen instead of Xorg — changed:
     screen   : 1920x1080
 
 That is the browser sandboxed, in the host's hardware groups, signed into the
-real dashboard, with the clock right and nothing having had to be restarted. The machine set aside for that (`carbon`) answered at the start of
+real dashboard, with the clock right and nothing having had to be restarted.
+
+The remote view was then proved too, which nothing else exercises: the smoke
+test opens the WebSocket the browser's viewer uses and reads
+`RFB 003.008` back through it, then answers with the same version and reads
+the server's reply. That single exchange can only happen if the WebSocket
+upgraded, the origin check passed, the session was accepted, the bridge
+dialled the VNC server, and the VNC server is attached to a running display. The machine set aside for that (`carbon`) answered at the start of
 the work and went off the network an hour in; it has not come back. Everything
 else is proved, and proved by running rather than by reading:
 
