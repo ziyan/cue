@@ -115,16 +115,26 @@ func (self *Browser) arguments() []string {
 	)
 
 	if settings.DarkMode {
-		// Three things, because they do different jobs and a screen wants all
-		// three: the first sets the preference a page reads through
-		// prefers-color-scheme, the second darkens the browser's own pages
-		// (the error page, the print dialogue), and the third stops a light
-		// theme being inferred from a desktop that is not there.
-		arguments = append(arguments,
-			"--force-dark-mode",
-			"--force-prefers-color-scheme=dark",
-		)
-		features = append(features, "WebUIDarkMode")
+		// One flag, and it was three. Chromium ignores a switch it does not
+		// know without a word, so --force-prefers-color-scheme and the
+		// WebUIDarkMode feature — both inherited from older setups, neither
+		// present in this Chromium — looked like they were doing the work and
+		// were doing nothing at all. Checked against the binary before being
+		// written here.
+		//
+		// This one does the job on its own: it darkens the browser's own
+		// pages and makes prefers-color-scheme report dark, which is verified
+		// against a live browser in TestDarkModeReachesThePage.
+		arguments = append(arguments, "--force-dark-mode")
+
+		if settings.ForceDarkContent {
+			// Telling a page we prefer dark only helps if the page is
+			// listening. Plenty are not — they have a theme of their own, set
+			// somewhere in an account, and they render light on a wall in a
+			// dark room whatever the browser says. This darkens them anyway,
+			// by inverting the page's own colours.
+			features = append(features, "WebContentsForceDark")
+		}
 	}
 
 	if !settings.Sandbox {

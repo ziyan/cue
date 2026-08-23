@@ -187,10 +187,19 @@ func (self *Server) Settings() *supervise.Settings {
 	switch self.configuration().Display.Server {
 	case config.ServerXvfb:
 		settings.Path = resolve("Xvfb", "/usr/lib/xorg/Xvfb")
-		settings.Arguments = self.virtualArguments()
 	default:
 		settings.Path = resolve("Xorg", "/usr/lib/xorg/Xorg")
-		settings.Arguments = self.hardwareArguments()
+	}
+
+	// Built before every start rather than once. The screen size, the console
+	// to draw on and the extra arguments are all on this command line and all
+	// editable while the daemon is running; a restart that re-used the old
+	// one would blank the screen and change nothing.
+	settings.BuildArguments = func() []string {
+		if self.configuration().Display.Server == config.ServerXvfb {
+			return self.virtualArguments()
+		}
+		return self.hardwareArguments()
 	}
 	return settings
 }

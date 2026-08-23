@@ -99,6 +99,7 @@ applied, and reapplies the layout when they differ.
       sandbox: true            # turning it off is a real reduction in safety
       ignoreCertificateErrors: false
       darkMode: true           # a wall in a dark room at full brightness
+      forceDarkContent: false  # darken pages that ignore the above
       ephemeralCache: true     # empty the disk cache at every start
       closeUnexpectedTabs: true
       extraArguments: []
@@ -122,6 +123,27 @@ and by then nothing could bind it, so the browser never came up at all.
 
 An old `debuggingPort:` left in a configuration file is ignored, and removed the
 next time the file is written.
+
+`darkMode` tells pages this browser prefers dark, through
+`prefers-color-scheme`. A page that offers a dark theme takes it, and one that
+does not is left as its author drew it.
+
+`forceDarkContent` is for the second kind. Plenty of dashboards have a theme
+setting of their own — kept in an account somewhere, defaulting to light — and
+take no notice of what the browser prefers; on a wall in a dark room that page
+is the brightest thing in the room. This inverts its colours anyway. It leaves
+photographs and video alone, so a camera dashboard keeps its pictures and loses
+its white chrome. It is not as good as a page's own dark theme, which is why it
+is off by default: turn it on when the screen is still bright with `darkMode`
+already on.
+
+There used to be three dark-mode flags here and two of them did not exist.
+Chromium ignores a switch it does not know without a word, so
+`--force-prefers-color-scheme` and the `WebUIDarkMode` feature — both inherited
+from setups running an older Chromium — sat on the command line doing nothing,
+and the screen stayed white while every setting said dark. `make docker-smoke`
+now measures the average brightness of an actual screenshot, because nothing
+short of looking at the pixels catches that.
 
 `closeUnexpectedTabs` gets rid of windows the daemon did not open. A page that
 calls `window.open` gets a window of its own, and with no window manager it is

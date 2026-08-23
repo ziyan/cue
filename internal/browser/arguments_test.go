@@ -248,3 +248,33 @@ func TestAFeatureIsNotListedTwice(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyFlagsThisChromiumKnowsArePassed(t *testing.T) {
+	// Chromium ignores a switch it does not recognise without a word, so a
+	// flag that does nothing is indistinguishable from one that works. Two
+	// of the three dark-mode flags here were exactly that — inherited from
+	// setups running an older Chromium, present in the command line, absent
+	// from the binary — and the screen stayed light while everything claimed
+	// to be dark.
+	//
+	// This is the cheap half of the check: the flags are named here so that
+	// adding one is a deliberate act. TestDarkModeReachesThePage, which runs
+	// against a real browser, is the half that proves they work.
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.DarkMode = true
+	})
+
+	known := map[string]bool{
+		"--force-dark-mode":            true,
+		"--default-background-color":   true,
+		"--enable-features":            true,
+		"--force-prefers-color-scheme": false, // not in Chromium 151
+	}
+
+	for _, argument := range browser.arguments() {
+		name, _, _ := strings.Cut(argument, "=")
+		if allowed, mentioned := known[name]; mentioned && !allowed {
+			t.Errorf("%s is passed but this Chromium does not know it, so it does nothing", name)
+		}
+	}
+}

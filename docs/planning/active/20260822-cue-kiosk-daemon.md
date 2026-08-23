@@ -273,6 +273,44 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   Implication: `browser.certificateAuthorities` trusts a pasted certificate by
   name and leaves every other check in place.
 
+- Observation: dark mode was on, and the screen was white.
+  Evidence: three flags were passed for it. Grepping the Chromium binary in
+  the image for each: `force-dark-mode` present, `force-prefers-color-scheme`
+  absent, `WebUIDarkMode` absent. The two absent ones were inherited from the
+  older setups this project replaces, and Chromium ignores a switch it does
+  not know without a word. Evaluating `matchMedia('(prefers-color-scheme:
+  dark)')` in the live page on carbon returned true — so the one real flag was
+  doing its job — while `getComputedStyle(document.body).backgroundColor` was
+  `rgb(255,255,255)`: the dashboard has a theme of its own and ignores the
+  preference entirely.
+  Implication: two things, not one. `darkMode` tells a page we prefer dark;
+  `forceDarkContent` inverts a page that will not listen. And a flag list is
+  not evidence: `make docker-smoke` now measures the average brightness of a
+  real screenshot, which went 237.6 → 40.4 out of 255 on the same page when
+  the second was turned on.
+
+- Observation: a restart applied nothing.
+  Evidence: `Settings()` computed `Arguments: self.arguments()` once, when the
+  process was created; `Restart()` re-execs the stored list. Changing
+  `extraArguments` on carbon logged "the change needs the browser restarted",
+  restarted it, and the new command line was identical to the old one.
+  Implication: every setting that is only readable from a command line —
+  dark mode, the sandbox, certificate errors, the VNC listen address, the
+  screen size — could be saved, reported as applied, and not be in force.
+  `Settings.BuildArguments` is called before every start instead. This is the
+  same failure as the debugging port and the dead dark-mode flags: something
+  that reports success and does nothing.
+
+- Observation: the "On the screen" card blinked, and cost 110 MB a minute.
+  Evidence: reported by the user. Measured in a real browser driven over CDP:
+  four new `<img>` elements created in ten seconds, one per refresh, because
+  the page is rebuilt from scratch and a fresh `<img>` holds nothing until its
+  picture arrives. The picture itself was a full-resolution lossless PNG of
+  the screen — 5.6 MB on carbon — fetched every three seconds.
+  Implication: the element is kept across redraws and the next picture is
+  decoded before being swapped in (measured again afterwards: zero new
+  elements, zero blank frames), and the interface asks for a scaled JPEG.
+
 ## Not done, and why
 
 - **Forcing a disconnected output on.** `pendant` writes `on` to

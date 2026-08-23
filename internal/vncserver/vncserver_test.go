@@ -26,7 +26,7 @@ func newTestServer(t *testing.T, change func(*config.Configuration)) *Server {
 
 func arguments(t *testing.T, server *Server) string {
 	t.Helper()
-	return strings.Join(server.Settings().Arguments, " ")
+	return strings.Join(server.Settings().CommandLine(), " ")
 }
 
 func TestTheServerStaysUpWhenTheLastViewerLeaves(t *testing.T) {

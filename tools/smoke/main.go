@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -156,6 +157,40 @@ func run(image string, port int, keep bool) error {
 	fmt.Printf("    a %dx%d PNG of %d bytes\n", width, height, len(image_))
 	if width < 1000 || height < 500 {
 		return withLogs(fmt.Errorf("the screenshot is %dx%d, which is not the configured screen", width, height))
+	}
+
+	step("checking that the small screenshot really is smaller")
+	small, err := fetch(client, base+"/api/v1/screenshot.png?small=1")
+	if err != nil {
+		return withLogs(err)
+	}
+	// The interface asks for a new one every few seconds. On a 4K screen the
+	// full-size lossless picture was 5.6 MB, which is a hundred megabytes a
+	// minute to leave a browser tab open on.
+	fmt.Printf("    full %d bytes, small %d bytes\n", len(image_), len(small))
+	if len(small) >= len(image_) {
+		return withLogs(fmt.Errorf("the small screenshot is %d bytes against the full %d, so it is not smaller",
+			len(small), len(image_)))
+	}
+
+	step("checking that dark mode reaches the page")
+	// This measures what is painted, not what a flag says. Two of the three
+	// dark-mode flags this daemon used to pass do not exist in this Chromium,
+	// and Chromium ignores a switch it does not know without a word: the
+	// command line said dark, every setting said dark, and the screen was
+	// white. Nothing short of looking at the pixels would have caught it.
+	//
+	// The page on screen is the daemon's own interface, which honours
+	// prefers-color-scheme — so a dark screen here means the browser really
+	// is telling pages to be dark.
+	brightness, err := averageBrightness(image_)
+	if err != nil {
+		return withLogs(err)
+	}
+	fmt.Printf("    the screen averages %.0f/255\n", brightness)
+	if brightness > 128 {
+		return withLogs(fmt.Errorf("the screen averages %.0f/255, which is not dark: "+
+			"darkMode is on and the page is painted light", brightness))
 	}
 
 	step("checking that the playlist rotates")
@@ -339,10 +374,15 @@ display:
 browser:
   user: cue
   sandbox: false
+  darkMode: true
 playlist:
   interval: 5s
   items:
-    - url: "data:text/html,<title>First</title><body style='background:silver'>"
+    # The daemon's own interface. A real page over HTTP that honours
+    # prefers-color-scheme, which is what the dark-mode check below measures —
+    # a data: URL would not do, because Chromium's own dark handling treats
+    # those differently.
+    - url: "http://127.0.0.1:8080/"
     - url: "data:text/html,<title>Second</title><body style='background:teal'>"
     - identifier: awkwardpagexxxxx
       title: An awkward page
@@ -495,4 +535,29 @@ func pngSize(data []byte) (int, int, error) {
 	width := binary.BigEndian.Uint32(data[16:20])
 	height := binary.BigEndian.Uint32(data[20:24])
 	return int(width), int(height), nil
+}
+
+// averageBrightness decodes a PNG and returns the mean channel value. It is
+// how the smoke test tells a dark screen from a flag that claims one.
+func averageBrightness(data []byte) (float64, error) {
+	picture, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return 0, fmt.Errorf("cannot read the screenshot: %w", err)
+	}
+	bounds := picture.Bounds()
+	var total float64
+	var count float64
+	// Every eighth pixel in each direction: enough of a sample for an average
+	// over a whole screen, and a great deal quicker.
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += 8 {
+		for x := bounds.Min.X; x < bounds.Max.X; x += 8 {
+			red, green, blue, _ := picture.At(x, y).RGBA()
+			total += float64(red>>8) + float64(green>>8) + float64(blue>>8)
+			count += 3
+		}
+	}
+	if count == 0 {
+		return 0, fmt.Errorf("the screenshot has no pixels")
+	}
+	return total / count, nil
 }

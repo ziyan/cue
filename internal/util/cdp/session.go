@@ -376,7 +376,16 @@ func (self *Session) Evaluate(ctx context.Context, expression string, awaitPromi
 // CaptureScreenshot returns a PNG of the tab as it is being shown. This is
 // what the web interface displays and what makes it possible to see, from
 // somewhere else, exactly what is on the screen.
-func (self *Session) CaptureScreenshot(ctx context.Context) ([]byte, error) {
+// CaptureScreenshot takes a picture of what the tab is showing.
+//
+// A quality between 1 and 100 asks for a JPEG at that quality, and a scale
+// below 1 asks for a smaller picture. Both matter more than they look: the
+// screens this drives are 4K, and a PNG of a camera dashboard at full size is
+// several megabytes — a picture nobody can wait for and, on a page that asks
+// for a new one every few seconds, more traffic than everything else this
+// daemon does put together. A zero quality asks for a PNG, which is the right
+// choice for a dashboard of flat colour and text, and the wrong one for video.
+func (self *Session) CaptureScreenshot(ctx context.Context, quality int, scale float64) ([]byte, error) {
 	var reply struct {
 		Data string `json:"data"`
 	}
@@ -385,6 +394,30 @@ func (self *Session) CaptureScreenshot(ctx context.Context) ([]byte, error) {
 		// captureBeyondViewport false: the screen is the viewport, and a
 		// full-page capture of a scrolling dashboard is not what is on it.
 		"captureBeyondViewport": false,
+	}
+	if quality > 0 && quality <= 100 {
+		parameters["format"] = "jpeg"
+		parameters["quality"] = quality
+	}
+	if scale > 0 && scale < 1 {
+		// Chromium scales the capture itself, so what crosses the protocol is
+		// already the smaller picture. A clip needs its own dimensions, which
+		// is what the extra round trip is for.
+		var metrics struct {
+			CSSVisualViewport struct {
+				ClientWidth  float64 `json:"clientWidth"`
+				ClientHeight float64 `json:"clientHeight"`
+			} `json:"cssVisualViewport"`
+		}
+		if err := self.Call(ctx, "Page.getLayoutMetrics", nil, &metrics); err == nil &&
+			metrics.CSSVisualViewport.ClientWidth > 0 {
+			parameters["clip"] = map[string]interface{}{
+				"x": 0, "y": 0,
+				"width":  metrics.CSSVisualViewport.ClientWidth,
+				"height": metrics.CSSVisualViewport.ClientHeight,
+				"scale":  scale,
+			}
+		}
 	}
 	if err := self.Call(ctx, "Page.captureScreenshot", parameters, &reply); err != nil {
 		return nil, err

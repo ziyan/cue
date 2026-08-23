@@ -8,6 +8,12 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- `browser.forceDarkContent`, which darkens pages that ignore
+  `prefers-color-scheme`. Plenty of dashboards have a theme of their own, kept
+  in an account and defaulting to light, and on a wall in a dark room that page
+  is the brightest thing in the room. It leaves photographs and video alone, so
+  a camera dashboard keeps its pictures and loses its white chrome.
+
 - Certificates a device trusts. An appliance on a private network that signs
   its own certificate can now be trusted by name, so the page opens with no
   warning and every other page goes on being checked — which is the difference
@@ -97,6 +103,35 @@ All notable changes to this project are recorded here, in the categories of
   `debuggingPort:` in a configuration file is ignored.
 
 ### Fixed
+
+- Dark mode reaches the page. Of the three flags passed for it, two did not
+  exist in this Chromium — `--force-prefers-color-scheme` and the
+  `WebUIDarkMode` feature, both inherited from setups running an older one.
+  Chromium ignores a switch it does not know without a word, so the command
+  line said dark, every setting said dark, and the screen was white. Only
+  `--force-dark-mode` is passed now, checked against the binary, and
+  `make docker-smoke` measures the average brightness of a real screenshot,
+  because nothing short of looking at the pixels catches this.
+
+- A program's command line is rebuilt before every start. It was captured once,
+  when the process was first created, so a change that asks for a restart —
+  dark mode, the sandbox, certificate errors, extra arguments, the VNC listen
+  address, the screen size — restarted the program into exactly the command
+  line it already had. The screen blanked, every log line said the change had
+  been applied, and the setting was not in force.
+
+- The "On the screen" card no longer blinks. The page was rebuilt from scratch
+  every three seconds, and with it the `<img>`: a fresh one holds nothing until
+  its picture arrives, so the card emptied and refilled twenty times a minute.
+  The element is now kept and the next picture is decoded before it is swapped
+  in. Measured in a real browser: four new elements per ten seconds before, and
+  none after.
+
+- That picture was also the full screen, losslessly. On a 2560x1440 device it
+  was 5.6 MB, fetched every three seconds — 110 MB a minute to leave a browser
+  tab open on, and the card was empty for as long as each one took. The
+  interface now asks for a smaller JPEG; the full-size PNG is still there for
+  anyone who wants it.
 
 - A setting the running version does not have no longer stops the daemon. Every
   device in service has the settings of the version that wrote its file, so a

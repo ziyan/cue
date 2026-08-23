@@ -241,3 +241,33 @@ func TestEnvironOverridesRatherThanAppends(t *testing.T) {
 		t.Errorf("DISPLAY appears %d times, want once; a duplicate is resolved differently by different programs", found)
 	}
 }
+
+func TestTheCommandLineIsRebuiltForEveryStart(t *testing.T) {
+	// A program's command line comes from the configuration, and the
+	// configuration changes while the daemon runs. Captured once, a change
+	// that asks for a restart restarts the program into exactly the command
+	// line it already had: the screen blanks, every log line says the change
+	// was applied, and the setting is not in force.
+	current := []string{"--first"}
+	settings := &Settings{
+		Name:           "test",
+		Path:           "/bin/true",
+		BuildArguments: func() []string { return current },
+	}
+
+	if got := strings.Join(settings.CommandLine(), " "); got != "--first" {
+		t.Fatalf("first start got %q", got)
+	}
+
+	current = []string{"--second", "--third"}
+	if got := strings.Join(settings.CommandLine(), " "); got != "--second --third" {
+		t.Errorf("after the configuration changed the command line was still %q", got)
+	}
+}
+
+func TestAStaticCommandLineStillWorks(t *testing.T) {
+	settings := &Settings{Name: "test", Arguments: []string{"--only"}}
+	if got := strings.Join(settings.CommandLine(), " "); got != "--only" {
+		t.Errorf("a program with fixed arguments got %q", got)
+	}
+}

@@ -156,6 +156,7 @@ label.inline input { width: auto; }
 
 .screenshot { width: 100%; border-radius: 8px; border: 1px solid var(--border); background: #000; display: block; aspect-ratio: 16 / 9; object-fit: contain; }
 
+.screenshot.stale { opacity: 0.55; }
 .viewer { flex: 1; min-height: 60vh; background: #000; border-radius: var(--radius); border: 1px solid var(--border); position: relative; overflow: hidden; display: flex; }
 .viewer > div { flex: 1; }
 

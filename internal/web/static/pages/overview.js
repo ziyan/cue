@@ -12,11 +12,47 @@ export function overview(main) {
 
   let stopped = false;
 
+  // The screenshot element is made once and kept, and every redraw puts this
+  // same element back into the page.
+  //
+  // The page is rebuilt from scratch every few seconds, and a fresh <img> has
+  // nothing in it until its picture arrives: the card went blank, then filled
+  // in, three times a minute, for as long as anybody watched it. On a 2560x1440
+  // screen the picture is large enough for that gap to be the most obvious
+  // thing on the page.
+  const screenshot = h("img", {
+    class: "screenshot",
+    alt: "What the screen is showing",
+  });
+  let screenshotFailed = false;
+
+  // And the new picture is decoded before it is shown, so that swapping it in
+  // replaces one complete image with another rather than clearing the first.
+  const refreshScreenshot = () => {
+    const incoming = new Image();
+    incoming.onload = () => {
+      if (stopped) return;
+      screenshot.src = incoming.src;
+      screenshotFailed = false;
+      screenshot.classList.remove("stale");
+    };
+    incoming.onerror = () => {
+      if (stopped) return;
+      // Keep whatever is already there. A screenshot that failed once is
+      // usually a browser that is restarting, and a card that empties itself
+      // says less than the last picture and a note that it is old.
+      screenshotFailed = true;
+      if (screenshot.src) screenshot.classList.add("stale");
+    };
+    incoming.src = `/api/v1/screenshot.png?small=1&at=${Date.now()}`;
+  };
+
   const refresh = async () => {
     if (stopped) return;
+    refreshScreenshot();
     try {
       const status = await api.status();
-      if (!stopped) draw(body, status);
+      if (!stopped) draw(body, status, screenshot, () => screenshotFailed && !screenshot.src);
     } catch (error) {
       if (!stopped) {
         clear(body);
@@ -34,12 +70,12 @@ export function overview(main) {
   };
 }
 
-function draw(body, status) {
+function draw(body, status, screenshot, hasNoPicture) {
   clear(body);
 
   body.append(
     h("div", { class: "grid" },
-      screenshotCard(status),
+      screenshotCard(status, screenshot, hasNoPicture),
       h("div", {},
         programsCard(status),
         watchdogCard(status))),
@@ -50,21 +86,14 @@ function draw(body, status) {
 
 // The screenshot is the single most useful thing on this page: it answers
 // "what is it showing" without a VNC connection and without leaving the desk.
-function screenshotCard(status) {
-  const image = h("img", {
-    class: "screenshot",
-    alt: "What the screen is showing",
-    src: `/api/v1/screenshot.png?at=${Date.now()}`,
-  });
-  image.addEventListener("error", () => {
-    image.replaceWith(h("div", { class: "notice", text: "No picture yet — the browser is still starting." }));
-  });
-
+function screenshotCard(status, image, hasNoPicture) {
   const showing = status.browser.currentTitle || status.browser.currentUrl || "nothing yet";
 
   return h("div", { class: "card" },
     h("h2", { text: "On the screen" }),
-    image,
+    hasNoPicture()
+      ? h("div", { class: "notice", text: "No picture yet — the browser is still starting." })
+      : image,
     h("div", { class: "readout" },
       h("span", { class: "label", text: "Showing" }),
       h("span", { class: "value truncate", text: showing })),

@@ -322,7 +322,7 @@ func (self *Browser) navigateTab(ctx context.Context, target, address string) er
 }
 
 // Screenshot returns a PNG of what is on the screen.
-func (self *Browser) Screenshot(ctx context.Context) ([]byte, error) {
+func (self *Browser) Screenshot(ctx context.Context, quality int, scale float64) ([]byte, error) {
 	self.mutex.Lock()
 	target, found := self.tabs[self.current]
 	self.mutex.Unlock()
@@ -333,7 +333,7 @@ func (self *Browser) Screenshot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return session.CaptureScreenshot(ctx)
+	return session.CaptureScreenshot(ctx, quality, scale)
 }
 
 // enabledItems is the playlist without the items an operator has switched off.

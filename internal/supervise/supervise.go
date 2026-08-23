@@ -69,9 +69,18 @@ type Settings struct {
 	// Path is the executable, looked up on PATH when it has no slash in it.
 	Path string
 
-	Arguments   []string
-	Environment []string
-	Directory   string
+	Arguments []string
+
+	// BuildArguments, when set, is called before every start and replaces
+	// Arguments. A program's command line is built from the configuration,
+	// and the configuration changes while the daemon runs: without this the
+	// arguments are whatever they were when the process was first created,
+	// and a change that asks for a restart restarts the program into exactly
+	// the command line it already had. The screen blanks, everything reports
+	// success, and the setting is not in force.
+	BuildArguments func() []string
+	Environment    []string
+	Directory      string
 
 	// User is an account name to run as. The daemon and the X server have to
 	// be root to touch the graphics hardware; the browser must not be. Empty
@@ -429,7 +438,7 @@ func (self *Process) runOnce(ctx context.Context) error {
 		}
 	}
 
-	command := exec.Command(self.settings.Path, self.settings.Arguments...)
+	command := exec.Command(self.settings.Path, self.settings.CommandLine()...)
 	command.Env = self.settings.Environment
 	command.Dir = self.settings.Directory
 	// Its own process group, so that stopping it stops the tree it spawned.
@@ -707,6 +716,15 @@ func (self *Process) logOutput(line string) {
 	default:
 		log.Debugf("%s: %s", self.settings.Name, line)
 	}
+}
+
+// CommandLine is the arguments for the start about to happen: whatever
+// BuildArguments returns now, or the static list if there is none.
+func (self *Settings) CommandLine() []string {
+	if self.BuildArguments == nil {
+		return self.Arguments
+	}
+	return self.BuildArguments()
 }
 
 func trimLine(line string) string {

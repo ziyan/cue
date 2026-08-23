@@ -174,10 +174,14 @@ func (self *Browser) Settings() *supervise.Settings {
 	}
 
 	return &supervise.Settings{
-		Name:           "chromium",
-		Path:           binary,
-		ExtraGroups:    hardwareGroups,
-		Arguments:      self.arguments(),
+		Name:        "chromium",
+		Path:        binary,
+		ExtraGroups: hardwareGroups,
+		// Built before every start, not once: DarkMode, Sandbox,
+		// IgnoreCertificateErrors and ExtraArguments are all only readable
+		// from the command line, and all of them can be changed from the web
+		// interface while the daemon is running.
+		BuildArguments: self.arguments,
 		Restart:        true,
 		User:           self.configuration.Browser.User,
 		BeforeStart:    self.prepare,

@@ -61,15 +61,18 @@ func (self *Server) Address() string {
 // Settings builds the supervisor settings for x11vnc.
 func (self *Server) Settings() *supervise.Settings {
 	return &supervise.Settings{
-		Name:          "x11vnc",
-		Path:          "x11vnc",
-		Arguments:     self.arguments(),
-		Restart:       true,
-		BeforeStart:   self.prepare,
-		Ready:         self.probe,
-		ReadyTimeout:  30 * time.Second,
-		CaptureOutput: true,
-		OutputLevel:   logging.DEBUG,
+		Name: "x11vnc",
+		Path: "x11vnc",
+		// Built before every start rather than once: the listen address, the
+		// password and whether viewers may type are all on this command line
+		// and all editable from the web interface.
+		BuildArguments: self.arguments,
+		Restart:        true,
+		BeforeStart:    self.prepare,
+		Ready:          self.probe,
+		ReadyTimeout:   30 * time.Second,
+		CaptureOutput:  true,
+		OutputLevel:    logging.DEBUG,
 		Environment: supervise.Environ(supervise.Inherit(), map[string]string{
 			"DISPLAY":    self.displayName,
 			"XAUTHORITY": self.authorityFilename,

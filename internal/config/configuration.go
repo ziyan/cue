@@ -210,6 +210,17 @@ type Browser struct {
 	// own is unaffected; a page that has one follows it.
 	DarkMode bool `yaml:"darkMode" json:"darkMode"`
 
+	// ForceDarkContent darkens pages that have no dark theme of their own, by
+	// inverting their colours.
+	//
+	// DarkMode on its own tells a page we would prefer dark and leaves the
+	// page to decide. A page with a theme setting of its own — stored in an
+	// account somewhere, defaulting to light — ignores that entirely, and on
+	// a wall in a dark room it is the brightest thing in the room. This is
+	// the hammer for that case: it is not as good as a page's own dark theme
+	// where one exists, which is why it is off by default.
+	ForceDarkContent bool `yaml:"forceDarkContent" json:"forceDarkContent"`
+
 	// CertificateAuthorities are PEM certificates the browser should trust in
 	// addition to the public ones, for the appliances on private networks
 	// that sign their own. This is the answer to a dashboard a browser will

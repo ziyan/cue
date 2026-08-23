@@ -287,13 +287,33 @@ func (self *Server) screenshot(response http.ResponseWriter, request *http.Reque
 	ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
 	defer cancel()
 
-	image, err := self.device.Browser().Screenshot(ctx)
+	// A full-size lossless picture of a 4K screen is several megabytes. That
+	// is the right thing to hand somebody who asked for a screenshot, and the
+	// wrong thing entirely to put on a page that asks for a new one every
+	// three seconds: on the first real device this ran on, the picture was
+	// 5.6 MB, which is 110 MB a minute to leave a browser tab open on, and
+	// the card it goes in was empty for as long as each one took to arrive.
+	//
+	// So the interface asks for a small one, and says so in the request.
+	quality, scale := 0, 0.0
+	if request.URL.Query().Get("small") != "" {
+		// A dashboard seen in a card a few hundred pixels wide. JPEG because
+		// most of what is on these screens is video from a camera, which PNG
+		// stores appallingly.
+		quality, scale = 70, 0.5
+	}
+
+	image, err := self.device.Browser().Screenshot(ctx, quality, scale)
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 
-	response.Header().Set("Content-Type", "image/png")
+	contentType := "image/png"
+	if quality > 0 {
+		contentType = "image/jpeg"
+	}
+	response.Header().Set("Content-Type", contentType)
 	// A screenshot is out of date the moment it is taken.
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusOK)

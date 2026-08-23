@@ -28,7 +28,7 @@ func newTestServer(t *testing.T, change func(*config.Configuration)) *Server {
 
 func arguments(t *testing.T, server *Server) string {
 	t.Helper()
-	return strings.Join(server.Settings().Arguments, " ")
+	return strings.Join(server.Settings().CommandLine(), " ")
 }
 
 func TestTheXServerIsToldTheConsoleToDrawOn(t *testing.T) {
@@ -138,7 +138,7 @@ func TestExtraArgumentsComeLastSoTheyCanOverride(t *testing.T) {
 	server := newTestServer(t, func(configuration *config.Configuration) {
 		configuration.Display.ExtraArguments = []string{"-novtswitch"}
 	})
-	list := server.Settings().Arguments
+	list := server.Settings().CommandLine()
 	if list[len(list)-1] != "-novtswitch" {
 		t.Errorf("the extra argument is not last: %v", list)
 	}

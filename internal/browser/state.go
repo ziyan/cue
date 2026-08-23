@@ -124,6 +124,7 @@ func restartNeeded(previous, updated *config.Configuration) bool {
 	case before.IgnoreCertificateErrors != after.IgnoreCertificateErrors:
 	case before.EphemeralCache != after.EphemeralCache:
 	case before.DarkMode != after.DarkMode:
+	case before.ForceDarkContent != after.ForceDarkContent:
 	case !sameStrings(before.CertificateAuthorities, after.CertificateAuthorities):
 	case !sameStrings(before.ExtraArguments, after.ExtraArguments):
 	default:
