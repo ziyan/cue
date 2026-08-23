@@ -8,6 +8,15 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- Network management, off by default. `cue` can hold a static address or join a
+  wireless network, on interfaces it is explicitly told to manage, and reconcile
+  them every half minute. The Network page in the web interface scans for
+  wireless networks and joins one, so a screen carried into a room with no
+  keyboard and no network can be put on it.
+
+- Chromium defaults to dark mode. A dashboard on a wall in a dark room at
+  full brightness is the thing people complain about first.
+
 - Proved on real hardware: a laptop with its display manager stopped, driving
   its own panel at 2560x1440 through Xorg, showing a UniFi Protect dashboard
   full screen and signed in by the login rule.
@@ -58,3 +67,13 @@ All notable changes to this project are recorded here, in the categories of
   without which Chromium in a container often renders a desktop layout with
   buttons too small for a finger.
 - `cue config`, `cue display probe`, `cue health` and `cue version`.
+
+### Fixed
+
+- The browser's debugging port is now chosen by the browser rather than fixed
+  at 9222, and read back out of `DevToolsActivePort`. On a host already running
+  another Chromium with 9222 published, `cue` connected to *that* browser and
+  drove it instead of its own: the screen appeared frozen, screenshots came
+  from the wrong machine and the window would not go full screen. Nothing in
+  the logs said anything was wrong, because from the daemon's side everything
+  it asked for succeeded.

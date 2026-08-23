@@ -172,7 +172,34 @@ being plugged in — with a `/sys` poll as the always-available fallback.
       That leaves only the last step unproved — a server that actually gets
       the device — and it found two container faults on the way.
 
+- **Milestone 12 — dark mode and network management (2026-08-23).** Chromium
+  now defaults to dark mode. `internal/network` manages wired and wireless
+  interfaces: it reads them from netlink, drives `wpa_supplicant` over its
+  control socket to scan and join, applies static addresses or takes a DHCP
+  lease, and reconciles every 30 seconds. Off by default, and only interfaces
+  named in the configuration are touched, so turning it on cannot take a
+  working device off the network. A Network page in the web interface scans
+  and joins. It needs the host network namespace and `CAP_NET_ADMIN`, which
+  the deployment already grants; where it does not have them the page says so
+  instead of showing the container's own interfaces as if they were the
+  machine's.
+
 ## Surprises & Discoveries
+
+- Observation: a fixed `--remote-debugging-port=9222` made `cue` drive a
+  *different* browser.
+  Evidence: on carbon, `teanode-chrome-1` publishes 9222 on the host. With
+  `--network host`, the daemon's CDP client connected to that container's
+  Chromium. Every call succeeded, so nothing was logged as wrong; what was
+  visible was a screen that never changed, screenshots of the wrong machine,
+  a certificate error for a page this browser had never been asked to load,
+  and a window stuck at 800x600.
+  Implication: a debugging port must never be a fixed number. `cue` now passes
+  `--remote-debugging-port=0` and reads the port the browser chose out of
+  `DevToolsActivePort` in its own profile directory, which cannot resolve to
+  anybody else's browser. The general lesson is broader than this one flag:
+  when a component addresses a peer by a well-known port on a shared network
+  namespace, "it answered" is not evidence that the right thing answered.
 
 - Observation: kernel uevent netlink sockets are scoped to a network
   namespace, so a container on Docker's default bridge network receives no

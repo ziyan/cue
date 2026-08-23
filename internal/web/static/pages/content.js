@@ -121,6 +121,10 @@ export function content(main) {
         field("Username", "text", item.login.username, (value) => { item.login.username = value; }),
         field("Password", "password", item.login.password, (value) => { item.login.password = value; }, "Never shown again once saved")),
       h("div", { class: "row" },
+        field("Also click these first", "text", (item.login.alsoClick || []).join(", "), (value) => {
+          item.login.alsoClick = value.split(",").map((one) => one.trim()).filter(Boolean);
+        }, "CSS selectors, clicked after the fields are filled. A “remember me” box here is the difference between signing in every few hours and every few weeks")),
+      h("div", { class: "row" },
         field("Signed in when the address matches", "text", item.login.expectUrlMatches, (value) => { item.login.expectUrlMatches = value; }, "Optional, but it is how a wrong password gets reported"),
         field("Wait at least this long between attempts", "number", secondsOf(item.login.minimumInterval), (value) => {
           const seconds = Math.max(0, parseInt(value, 10) || 0);
@@ -137,6 +141,7 @@ export function content(main) {
             usernameSelector: "input[name=username]",
             passwordSelector: "input[name=password]",
             submitSelector: "",
+            alsoClick: [],
             username: "",
             password: "",
             expectUrlMatches: "",

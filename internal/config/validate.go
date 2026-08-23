@@ -122,8 +122,8 @@ func (self *Configuration) Validate() error {
 	if self.Browser.Binary == "" {
 		add("browser.binary", "must not be empty")
 	}
-	if self.Browser.DebuggingPort <= 0 || self.Browser.DebuggingPort > 65535 {
-		add("browser.debuggingPort", "must be a port number between 1 and 65535")
+	if self.Browser.DebuggingPort < 0 || self.Browser.DebuggingPort > 65535 {
+		add("browser.debuggingPort", "must be a port number between 1 and 65535, or 0 to let the browser choose")
 	}
 
 	if self.Playlist.Interval < 0 {
@@ -212,6 +212,57 @@ func (self *Configuration) Validate() error {
 	}
 	if self.Web.SessionLifetime <= 0 {
 		add("web.sessionLifetime", "must be greater than zero")
+	}
+
+	if self.Network.Manage {
+		if self.Network.ReconcileInterval < 0 {
+			add("network.reconcileInterval", "must not be negative")
+		}
+		seenInterfaces := map[string]bool{}
+		for index, netInterface := range self.Network.Interfaces {
+			path := fmt.Sprintf("network.interfaces[%d]", index)
+			if netInterface.Name == "" {
+				add(path+".name", "must name an interface, for example eth0 or wlan0")
+			}
+			if seenInterfaces[netInterface.Name] {
+				add(path+".name", "%q appears more than once", netInterface.Name)
+			}
+			seenInterfaces[netInterface.Name] = true
+
+			switch netInterface.Method {
+			case AddressMethodDHCP, AddressMethodStatic, "":
+			default:
+				add(path+".method", "must be %q or %q, not %q", AddressMethodDHCP, AddressMethodStatic, netInterface.Method)
+			}
+
+			if netInterface.Method == AddressMethodStatic {
+				if netInterface.Address == "" {
+					add(path+".address", "a static interface needs an address, for example 192.0.2.10/24")
+				} else if _, _, err := net.ParseCIDR(netInterface.Address); err != nil {
+					add(path+".address", "%q is not an address and prefix length like 192.0.2.10/24", netInterface.Address)
+				}
+			} else if netInterface.Address != "" {
+				add(path+".address", "an address is only used with the %q method", AddressMethodStatic)
+			}
+
+			if netInterface.Gateway != "" && net.ParseIP(netInterface.Gateway) == nil {
+				add(path+".gateway", "%q is not an address", netInterface.Gateway)
+			}
+			for serverIndex, server := range netInterface.Nameservers {
+				if net.ParseIP(server) == nil {
+					add(fmt.Sprintf("%s.nameservers[%d]", path, serverIndex), "%q is not an address", server)
+				}
+			}
+
+			if netInterface.Wireless != nil {
+				if netInterface.Wireless.SSID == "" {
+					add(path+".wireless.ssid", "must name the network to join")
+				}
+				if length := len(netInterface.Wireless.Passphrase); length > 0 && (length < 8 || length > 63) {
+					add(path+".wireless.passphrase", "must be between 8 and 63 characters, or empty for an open network")
+				}
+			}
+		}
 	}
 
 	if self.Audio.Volume < 0 || self.Audio.Volume > 100 {

@@ -14,6 +14,7 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/fleet"
+	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/watchdog"
@@ -57,6 +58,7 @@ func (self *fakeDevice) StartedAt() time.Time                  { return self.sta
 func (self *fakeDevice) XServer() *xserver.Server              { return self.xserver }
 func (self *fakeDevice) TimeSync() *timesync.Client            { return self.timesync }
 func (self *fakeDevice) Fleet() *fleet.Tunnel                  { return nil }
+func (self *fakeDevice) Network() *network.Manager             { return nil }
 func (self *fakeDevice) Restart(context.Context, string) error { return nil }
 
 func newTestServer(t *testing.T, configuration *config.Configuration) *Server {

@@ -20,15 +20,15 @@ func TestTheContainerGetsTheConsoleItIsToldToDrawOn(t *testing.T) {
 	}
 }
 
-func TestTheContainerDoesNotUseTheHostsNetwork(t *testing.T) {
-	// Chromium does not honour --ignore-certificate-errors in the host's
-	// network namespace, so a self-signed certificate — which is what every
-	// appliance on a private network has — is refused. Public certificates
-	// still work, so nothing looks broken until the one page that matters
-	// will not load.
+func TestTheContainerCanManageTheMachinesNetwork(t *testing.T) {
+	// The machine's interfaces live in the host's network namespace and
+	// nowhere else, so managing them needs that namespace and the capability
+	// to change what is in it.
 	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
-	if strings.Contains(joined, "--network host") {
-		t.Errorf("the container uses the host's network:\n%s", joined)
+	for _, expected := range []string{"--network host", "--cap-add NET_ADMIN"} {
+		if !strings.Contains(joined, expected) {
+			t.Errorf("%q is missing:\n%s", expected, joined)
+		}
 	}
 }
 
@@ -38,7 +38,7 @@ func TestTheGraphicsDeviceAndTheStateAreAlwaysThere(t *testing.T) {
 		"--device /dev/dri:/dev/dri",
 		"-v /etc/cue:/etc/cue",
 		"-v /var/lib/cue:/var/lib/cue",
-		"-p 8080:8080",
+		"--network host",
 		"--shm-size 1g",
 		"--cap-add SYS_TTY_CONFIG",
 		"--cap-add SYS_TIME",

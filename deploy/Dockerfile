@@ -49,6 +49,7 @@ ENV PACKAGES="\
     xvfb \
     x11vnc \
     chrony \
+    wpasupplicant iw wireless-regdb \
     libgl1-mesa-dri mesa-va-drivers libglx-mesa0 libvulkan1 \
     fonts-liberation2 fonts-dejavu-core fonts-noto-color-emoji fontconfig \
     ca-certificates tzdata"

@@ -23,6 +23,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/fleet"
+	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/deferutil"
@@ -43,6 +44,7 @@ type Daemon struct {
 	browser   *browser.Browser
 	vncserver *vncserver.Server
 	timesync  *timesync.Client
+	network   *network.Manager
 	watchdog  *watchdog.Watchdog
 
 	web   *web.Server
@@ -81,6 +83,7 @@ func New(store *config.Store) (*Daemon, error) {
 	self.browser = browser.New(configuration, server.DisplayName(), server.AuthorityFilename())
 	self.vncserver = vncserver.New(store, server.DisplayName(), server.AuthorityFilename())
 	self.timesync = timesync.New(store)
+	self.network = network.New(store)
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,
@@ -108,6 +111,11 @@ func (self *Daemon) Watchdog() *watchdog.Watchdog {
 // Fleet is the enrolment tunnel, for the interface's report of it.
 func (self *Daemon) Fleet() *fleet.Tunnel {
 	return self.fleet
+}
+
+// Network is the network manager, for the interface's Network page.
+func (self *Daemon) Network() *network.Manager {
+	return self.network
 }
 
 // TimeSync is the time client, for the interface's clock report.
@@ -235,6 +243,11 @@ func (self *Daemon) Run(ctx context.Context) error {
 		self.keepSomethingFocused(ctx)
 	}()
 
+	go func() {
+		defer deferutil.Recover()
+		self.network.Run(ctx)
+	}()
+
 	self.watchdog.Start(ctx)
 
 	for {
@@ -303,11 +316,16 @@ func (self *Daemon) stopProcesses() {
 
 // Statuses reports what every supervised program is doing, for the interface.
 func (self *Daemon) Statuses() []supervise.Status {
-	statuses := make([]supervise.Status, 0, 4)
+	statuses := make([]supervise.Status, 0, 6)
 	for _, process := range []*supervise.Process{self.xProcess, self.browserProcess, self.vncProcess, self.timesyncProcess} {
 		if process != nil {
 			statuses = append(statuses, process.Status())
 		}
+	}
+	// The wireless programs come and go with the interfaces they belong to,
+	// so they are asked for rather than held here.
+	if self.network != nil {
+		statuses = append(statuses, self.network.Statuses()...)
 	}
 	return statuses
 }

@@ -213,6 +213,54 @@ and the daemon says so at every start.
       sessionLifetime: 30d
       trustedOrigins: []       # extra origins allowed to open the VNC WebSocket
 
+## network
+
+Off by default. A screen plugged into a wired network gets an address without
+being asked, and there is nothing here to do. Turn `manage` on to join a
+wireless network or to hold a fixed address.
+
+    network:
+      manage: false
+      interfaces:
+        - name: wlan0
+          method: dhcp         # or static
+          wireless:
+            ssid: Office
+            passphrase: ""     # empty for an open network
+        - name: enp0s31f6
+          method: static
+          address: 192.0.2.10/24
+          gateway: 192.0.2.1
+          nameservers: [192.0.2.1]
+          searchDomain: example.invalid
+
+Only the interfaces listed are touched. An interface the machine already set up
+and which is not named here is left exactly as it is, so turning `manage` on
+cannot take a working device off the network.
+
+The daemon reconciles every 30 seconds: it checks each listed interface still
+has a usable address and, for wireless, that the supplicant is still associated
+with the network asked for. A self-assigned `169.254` address does not count as
+usable, which is what makes a device that came up before the DHCP server did
+retry rather than sit there.
+
+Wireless needs `wpa_supplicant`, which the image ships. The daemon runs and
+supervises one per wireless interface and writes its configuration itself;
+there is no file on the host to edit. Joining a network removes every other
+network from the supplicant, because a screen that quietly falls back to a
+network somebody configured months ago is worse than one that fails — it works,
+on the wrong network, and nothing says so.
+
+This needs the host's network namespace and `CAP_NET_ADMIN`. `cue` says so
+rather than failing obscurely: with `manage` on inside a private network
+namespace, the Network page explains that the interfaces it can see are the
+container's own and not the machine's.
+
+The Network page in the web interface shows every interface, its addresses, its
+signal strength if wireless, and offers a scan-and-join. It is the one page
+that has to work when nothing else does — a screen carried into a room, plugged
+in and switched on, with no keyboard and no network.
+
 ## audio
 
     audio:

@@ -210,22 +210,22 @@ func containerArguments(image, name string, terminal int, optionalDevices []stri
 		"docker", "run", "-d",
 		"--name", name,
 		"--restart", "unless-stopped",
-		// Published ports rather than the host's network namespace. Host
-		// networking looks like the obvious choice for an appliance and was
-		// the first thing tried, but Chromium does not honour
-		// --ignore-certificate-errors in it: a self-signed certificate — which
-		// is what every appliance on a private network has — is refused with
-		// ERR_CERT_AUTHORITY_INVALID, while the same image on a bridge
-		// network loads the same page. Public certificates work either way,
-		// so nothing about it looks broken until the one page that matters
-		// will not load.
+		// The host's network namespace. The interface and the VNC server then
+		// answer on the machine's own address, kernel hotplug events arrive,
+		// and — the reason it is not optional — the daemon can manage the
+		// machine's own network interfaces, which live in that namespace and
+		// nowhere else.
 		//
-		// Nothing is lost: the interface and the VNC server answer on the
-		// machine's address through these, and hotplug is noticed by polling
-		// /sys rather than by kernel events, which a container never receives
-		// on a bridge network anyway.
-		"-p", "8080:8080",
-		"-p", "5900:5900",
+		// It costs one thing, and it is worth knowing about: the browser's
+		// debugging port is then on a namespace shared with everything else
+		// on the machine. That is why the daemon lets the browser choose its
+		// own port and reads it back from the profile rather than assuming
+		// one. Assuming 9222 meant driving a headless Chrome that something
+		// unrelated had left there, while the screen showed a page nobody had
+		// ever navigated.
+		"--network", "host",
+		// Configuring interfaces, and joining wireless networks.
+		"--cap-add", "NET_ADMIN",
 		// Chromium exhausts Docker's default 64 megabytes and then crashes
 		// tabs with no explanation anybody can act on.
 		"--shm-size", "1g",

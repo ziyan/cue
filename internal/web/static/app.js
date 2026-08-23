@@ -8,11 +8,13 @@ import { overview } from "./pages/overview.js";
 import { content } from "./pages/content.js";
 import { screen } from "./pages/screen.js";
 import { device } from "./pages/device.js";
+import { network } from "./pages/network.js";
 
 const pages = [
   { path: "", title: "Overview", render: overview },
   { path: "content", title: "Content", render: content },
   { path: "screen", title: "Screen", render: screen },
+  { path: "network", title: "Network", render: network },
   { path: "device", title: "Device", render: device },
 ];
 

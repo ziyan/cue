@@ -84,6 +84,9 @@ func (self *Browser) arguments() []string {
 		// to the loopback interface and nothing outside the container can
 		// reach it.
 		"--remote-debugging-address=127.0.0.1",
+		// Zero asks Chromium to pick a free port and write it into the
+		// profile, which is the only way to be sure the daemon is talking to
+		// the browser it started. See config.Browser.DebuggingPort.
 		"--remote-debugging-port=" + strconv.Itoa(settings.DebuggingPort),
 	}
 
@@ -92,6 +95,19 @@ func (self *Browser) arguments() []string {
 	self.mutex.Unlock()
 	if width > 0 && height > 0 {
 		arguments = append(arguments, fmt.Sprintf("--window-size=%d,%d", width, height))
+	}
+
+	if settings.DarkMode {
+		// Three flags, because they do different things and a screen wants
+		// all three: the first sets the preference a page reads through
+		// prefers-color-scheme, the second darkens the browser's own pages
+		// (the error page, the print dialogue), and the third stops a light
+		// theme being inferred from a desktop that is not there.
+		arguments = append(arguments,
+			"--force-dark-mode",
+			"--enable-features=WebUIDarkMode",
+			"--force-prefers-color-scheme=dark",
+		)
 	}
 
 	if !settings.Sandbox {

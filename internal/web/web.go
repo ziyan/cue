@@ -24,6 +24,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
+	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/watchdog"
@@ -64,6 +65,9 @@ type Device interface {
 	// Fleet is the enrolment tunnel, or nil when the daemon was built without
 	// one. Its state is reported and it is what unenrolling acts on.
 	Fleet() *fleet.Tunnel
+
+	// Network is the machine's own network, for the Network page.
+	Network() *network.Manager
 
 	// Restart restarts one supervised program by name.
 	Restart(ctx context.Context, name string) error
@@ -177,6 +181,8 @@ func (self *Server) addRoutes() {
 	guarded.Path("/navigate").Methods(http.MethodPost).HandlerFunc(self.navigate)
 	guarded.Path("/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.restart)
 	guarded.Path("/logs/xorg").Methods(http.MethodGet).HandlerFunc(self.xorgLog)
+	guarded.Path("/network").Methods(http.MethodGet).HandlerFunc(self.networkState)
+	guarded.Path("/network/scan/{interface}").Methods(http.MethodPost).HandlerFunc(self.scanWireless)
 	guarded.Path("/fleet").Methods(http.MethodPost).HandlerFunc(self.enrolInFleet)
 	guarded.Path("/fleet").Methods(http.MethodDelete).HandlerFunc(self.leaveFleet)
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)

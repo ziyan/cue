@@ -176,3 +176,21 @@ func TestARestartIsOnlyNeededForWhatCannotBeChangedWhileRunning(t *testing.T) {
 		t.Error("changing the command line was accepted without a restart, so it would have done nothing")
 	}
 }
+
+func TestDarkModeIsAskedForByDefaultAndCanBeTurnedOff(t *testing.T) {
+	// A screen on a wall is usually in a room where a page of white at full
+	// brightness is the brightest thing in it.
+	on := commandLine(t, newTestBrowser(t, nil))
+	for _, flag := range []string{"--force-dark-mode", "--force-prefers-color-scheme=dark"} {
+		if !strings.Contains(on, flag) {
+			t.Errorf("%s is missing; pages will render light by default", flag)
+		}
+	}
+
+	off := commandLine(t, newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.DarkMode = false
+	}))
+	if strings.Contains(off, "--force-dark-mode") {
+		t.Errorf("dark mode was turned off and still asked for:\n%s", off)
+	}
+}

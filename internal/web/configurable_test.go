@@ -1,0 +1,125 @@
+package web
+
+import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/ziyan/cue/internal/config"
+)
+
+// deliberatelyNotInTheInterface names the settings an operator is not offered a
+// control for, and why. Everything else must be reachable from the web
+// interface: a screen on a wall is set up by somebody who has a browser and no
+// shell, and a setting that can only be reached by editing a file on a machine
+// with no shell is a setting that does not exist.
+//
+// The entries here are all of one kind — knobs for somebody debugging the
+// daemon itself, who has already got a terminal open.
+var deliberatelyNotInTheInterface = map[string]string{
+	"binary":         "which executable to run; for testing a different build",
+	"extraArguments": "arbitrary browser flags; an escape hatch, not a setting",
+	"paths":          "where state is kept; fixed by the image's layout",
+	"runtime":        "where the runtime directory is; fixed by the image's layout",
+	"debuggingPort":  "0 lets the browser choose, which is the only correct answer",
+	"virtualTerminal": "which console the X server draws on; has to match the " +
+		"device the container was given, so it belongs with the deployment",
+	"level":          "log verbosity; for somebody reading the log",
+	"browserOutput":  "whether to log the browser's own stderr; likewise",
+	"source":         "the microphone; nothing reads it yet",
+	"trustedOrigins": "for a reverse proxy in front of the device",
+	"enrollmentToken": "typed into the fleet dialog, which sends it to a " +
+		"different endpoint rather than saving it as a setting",
+	"reconcileInterval": "how often the network is checked; the default is right " +
+		"and a wrong value here is a device that stops recovering",
+	"modeName": "read from the hardware, not chosen",
+	"rate":     "part of the mode, which is chosen as one string",
+}
+
+func TestEverySettingIsReachableFromTheInterface(t *testing.T) {
+	static := readTheInterface(t)
+
+	var missing []string
+	walk(reflect.TypeOf(config.Configuration{}), func(name string) {
+		if _, allowed := deliberatelyNotInTheInterface[name]; allowed {
+			return
+		}
+		if !strings.Contains(static, name) {
+			missing = append(missing, name)
+		}
+	})
+
+	for _, name := range missing {
+		t.Errorf("nothing in the web interface mentions %q: either add a control "+
+			"for it, or say in deliberatelyNotInTheInterface why an operator "+
+			"should have to edit a file on a machine with no shell", name)
+	}
+}
+
+// The allowlist is itself a thing that rots: a setting that is removed leaves
+// an entry behind, and the next person reads it as a decision that was made
+// about a setting that exists.
+func TestTheAllowlistNamesOnlySettingsThatExist(t *testing.T) {
+	names := map[string]bool{}
+	walk(reflect.TypeOf(config.Configuration{}), func(name string) { names[name] = true })
+
+	for name := range deliberatelyNotInTheInterface {
+		if !names[name] {
+			t.Errorf("deliberatelyNotInTheInterface names %q, which is not a setting any more", name)
+		}
+	}
+}
+
+// walk calls report with the JSON name of every field in the configuration,
+// following structs, pointers and slices.
+func walk(kind reflect.Type, report func(name string)) {
+	for kind.Kind() == reflect.Pointer || kind.Kind() == reflect.Slice {
+		kind = kind.Elem()
+	}
+	if kind.Kind() != reflect.Struct {
+		return
+	}
+	for index := 0; index < kind.NumField(); index++ {
+		field := kind.Field(index)
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "-" || name == "" {
+			continue
+		}
+		report(name)
+		walk(field.Type, report)
+	}
+}
+
+// readTheInterface concatenates every module the interface is built from. The
+// vendored VNC client is not ours and mentions nothing of ours.
+func readTheInterface(t *testing.T) string {
+	t.Helper()
+
+	var builder strings.Builder
+	err := filepath.WalkDir("static", func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() && entry.Name() == "novnc" {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".js" {
+			return nil
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		builder.Write(content)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("cannot read the interface: %s", err)
+	}
+	if builder.Len() == 0 {
+		t.Fatal("read no modules at all, so this test would pass for the wrong reason")
+	}
+	return builder.String()
+}

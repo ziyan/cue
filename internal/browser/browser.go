@@ -66,7 +66,6 @@ type Browser struct {
 func New(configuration *config.Configuration, displayName, authorityFilename string) *Browser {
 	return &Browser{
 		configuration:     configuration,
-		client:            cdp.New("127.0.0.1:" + strconv.Itoa(configuration.Browser.DebuggingPort)),
 		displayName:       displayName,
 		authorityFilename: authorityFilename,
 		sessions:          map[string]*cdp.Session{},
@@ -86,10 +85,47 @@ func (self *Browser) SetScreenSize(width, height int) {
 	self.screenWidth, self.screenHeight = width, height
 }
 
-// Client is the DevTools client, for the parts of the daemon that need to ask
-// the browser something directly.
+// Client is the protocol client, for the parts of the daemon that need to ask
+// the browser something directly. It is nil until the browser has started and
+// said which port it is listening on.
 func (self *Browser) Client() *cdp.Client {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return self.client
+}
+
+// activePortFilename is where Chromium writes the port it chose. The file is
+// in the profile, so it belongs to this browser and to no other: reading it
+// is how the daemon knows it is talking to the browser it started rather than
+// to whatever else happens to be listening.
+func (self *Browser) activePortFilename() string {
+	return filepath.Join(self.profileDirectory(), "DevToolsActivePort")
+}
+
+// resolveClient works out where this browser is listening and points a client
+// at it.
+//
+// When a port is configured, that is where it listens and there is nothing to
+// work out. When it is not — which is the default — Chromium picks a free one
+// and writes it as the first line of DevToolsActivePort in its profile. The
+// file is removed before each start, so a stale one from a browser that has
+// gone cannot be mistaken for a live one.
+func (self *Browser) resolveClient() (*cdp.Client, error) {
+	if port := self.configuration.Browser.DebuggingPort; port > 0 {
+		return cdp.New("127.0.0.1:" + strconv.Itoa(port)), nil
+	}
+
+	content, err := os.ReadFile(self.activePortFilename())
+	if err != nil {
+		return nil, fmt.Errorf("browser: it has not said which port it is listening on yet: %w", err)
+	}
+
+	line, _, _ := strings.Cut(string(content), "\n")
+	port, err := strconv.Atoi(strings.TrimSpace(line))
+	if err != nil || port <= 0 {
+		return nil, fmt.Errorf("browser: %s does not hold a port number", self.activePortFilename())
+	}
+	return cdp.New("127.0.0.1:" + strconv.Itoa(port)), nil
 }
 
 // Settings builds the supervisor settings for Chromium.
@@ -202,8 +238,8 @@ func (self *Browser) explainFailure(process *supervise.Process) {
 	}
 }
 
-// probe is the readiness check: the browser answers on its debugging port and
-// has opened its first window.
+// probe is the readiness check: the browser has said where it is listening,
+// answers there, and has opened its first window.
 //
 // The second half matters more than it looks. Chromium answers on the port a
 // moment before it has a page, and a daemon that asks for the tab list in that
@@ -216,12 +252,17 @@ func (self *Browser) explainFailure(process *supervise.Process) {
 // This was found on a real device, by taking a picture of the screen from the
 // X server and noticing it did not match what the browser said it was showing.
 func (self *Browser) probe(ctx context.Context) error {
-	version, err := self.client.Version(ctx)
+	client, err := self.resolveClient()
 	if err != nil {
 		return err
 	}
 
-	pages, err := self.client.Pages(ctx)
+	version, err := client.Version(ctx)
+	if err != nil {
+		return err
+	}
+
+	pages, err := client.Pages(ctx)
 	if err != nil {
 		return err
 	}
@@ -229,7 +270,11 @@ func (self *Browser) probe(ctx context.Context) error {
 		return fmt.Errorf("browser: %s is up but has not opened a window yet", version.Browser)
 	}
 
-	log.Debugf("the browser is %s, with %d page(s) open", version.Browser, len(pages))
+	self.mutex.Lock()
+	self.client = client
+	self.mutex.Unlock()
+
+	log.Debugf("the browser is %s on %s, with %d page(s) open", version.Browser, client.Address(), len(pages))
 	return nil
 }
 
@@ -265,6 +310,13 @@ func (self *Browser) prepare(ctx context.Context) error {
 
 	if err := self.clearProfileLock(); err != nil {
 		log.Warningf("%s", err)
+	}
+
+	// A port file left by a browser that has gone would otherwise be read as
+	// the live one, and the daemon would spend its time talking to a port
+	// that answers for somebody else.
+	if err := os.Remove(self.activePortFilename()); err != nil && !os.IsNotExist(err) {
+		log.Warningf("cannot remove the stale debugging port file: %s", err)
 	}
 
 	if err := self.giveProfileToBrowserUser(); err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/input"
+	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/drm"
@@ -40,6 +41,7 @@ type Status struct {
 	Sound      []audio.Device     `json:"sound"`
 	Input      []input.Device     `json:"input"`
 	Fleet      fleet.State        `json:"fleet"`
+	Network    network.State      `json:"network"`
 }
 
 // DeviceStatus is who this device is.
@@ -120,6 +122,9 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 
 	if tunnel := self.device.Fleet(); tunnel != nil {
 		status.Fleet = tunnel.State()
+	}
+	if manager := self.device.Network(); manager != nil {
+		status.Network = manager.State()
 	}
 
 	displayContext, displayCancel := context.WithTimeout(request.Context(), 5*time.Second)
@@ -338,6 +343,40 @@ func (self *Server) restart(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// networkState is the machine's own network: what interfaces it has, what
+// addresses they hold, and which wireless network each is on.
+func (self *Server) networkState(response http.ResponseWriter, request *http.Request) {
+	manager := self.device.Network()
+	if manager == nil {
+		writeError(response, http.StatusServiceUnavailable, "this daemon has no network manager")
+		return
+	}
+	writeJSON(response, http.StatusOK, manager.State())
+}
+
+// scanWireless looks for wireless networks within reach of one interface.
+//
+// It is a POST because it is not free: the radio stops carrying traffic while
+// it sweeps the bands, so a screen already on a network flickers off it for a
+// second. That is worth a deliberate act rather than a page refresh.
+func (self *Server) scanWireless(response http.ResponseWriter, request *http.Request) {
+	manager := self.device.Network()
+	if manager == nil {
+		writeError(response, http.StatusServiceUnavailable, "this daemon has no network manager")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(request.Context(), 45*time.Second)
+	defer cancel()
+
+	networks, err := manager.Scan(ctx, mux.Vars(request)["interface"])
+	if err != nil {
+		writeError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]interface{}{"networks": networks})
 }
 
 // enrolInFleet turns on fleet management and stores the token. The daemon's

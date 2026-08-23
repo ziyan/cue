@@ -17,6 +17,7 @@ type Configuration struct {
 	Watchdog Watchdog `yaml:"watchdog" json:"watchdog"`
 	VNC      VNC      `yaml:"vnc" json:"vnc"`
 	Web      Web      `yaml:"web" json:"web"`
+	Network  Network  `yaml:"network" json:"network"`
 	Audio    Audio    `yaml:"audio" json:"audio"`
 	Time     Time     `yaml:"time" json:"time"`
 	Fleet    Fleet    `yaml:"fleet" json:"fleet"`
@@ -187,6 +188,16 @@ type Browser struct {
 	// the reason this is here, and it is off by default because it silently
 	// removes the protection TLS was there to give.
 	IgnoreCertificateErrors bool `yaml:"ignoreCertificateErrors" json:"ignoreCertificateErrors"`
+
+	// DarkMode asks pages to render dark. It is on by default, because a
+	// screen on a wall is usually in a room where a page of white at full
+	// brightness is the brightest thing in it — and because a dashboard that
+	// blinds people at night gets unplugged.
+	//
+	// It sets the browser's own preference, which a page reads through the
+	// prefers-color-scheme media query. A page with no dark styling of its
+	// own is unaffected; a page that has one follows it.
+	DarkMode bool `yaml:"darkMode" json:"darkMode"`
 
 	// EphemeralCache puts the browser's disk cache under the runtime
 	// directory and empties it at every start. On by default: a corrupted
@@ -383,6 +394,74 @@ type Web struct {
 	// reverse proxy in front of it.
 	TrustedOrigins []string `yaml:"trustedOrigins,omitempty" json:"trustedOrigins"`
 }
+
+// Network is the machine's own network interfaces.
+//
+// It is empty by default and empty is the right answer for most devices: a
+// screen plugged into a wired network gets an address without being asked,
+// and there is nothing to configure. It exists for the two cases that cannot
+// work that way — a screen on a wireless network, which has to be told which
+// one and given the password, and a screen that has to be at a fixed address.
+//
+// Nothing here is touched unless an interface is named. An interface with no
+// entry is left exactly as the machine set it up.
+type Network struct {
+	// Manage turns the whole of it on. Off by default, because a daemon that
+	// reconfigures the network of a machine it was only asked to put a
+	// picture on is a surprise nobody wants.
+	Manage bool `yaml:"manage" json:"manage"`
+
+	// ReconcileInterval is how often the interfaces are compared with this
+	// configuration and any difference put right. It is what brings a screen
+	// back after a cable is replugged or a wireless network returns.
+	ReconcileInterval Duration `yaml:"reconcileInterval" json:"reconcileInterval"`
+
+	Interfaces []Interface `yaml:"interfaces,omitempty" json:"interfaces"`
+}
+
+// Interface is how one network interface should be set up.
+type Interface struct {
+	// Name is what the kernel calls it: eth0, enp2s0, wlan0, wlp4s0.
+	// "cue display probe" and the Network page both list them.
+	Name string `yaml:"name" json:"name"`
+
+	// Method is "dhcp" to ask a server for an address, or "static" to be
+	// told one here.
+	Method string `yaml:"method" json:"method"`
+
+	// Address is the address and prefix length, for example
+	// "192.0.2.10/24". Only for the static method.
+	Address string `yaml:"address,omitempty" json:"address"`
+
+	// Gateway is the router that reaches everything else.
+	Gateway string `yaml:"gateway,omitempty" json:"gateway"`
+
+	// Nameservers override whatever the network offers. Setting these on a
+	// screen that shows an internal dashboard is often the difference
+	// between it resolving and not.
+	Nameservers []string `yaml:"nameservers,omitempty" json:"nameservers"`
+
+	SearchDomain string `yaml:"searchDomain,omitempty" json:"searchDomain"`
+
+	// Wireless is the network to join, for a wireless interface.
+	Wireless *Wireless `yaml:"wireless,omitempty" json:"wireless"`
+}
+
+// Wireless is the network a wireless interface should join.
+type Wireless struct {
+	SSID string `yaml:"ssid" json:"ssid"`
+
+	// Passphrase is empty for an open network. Anything else is stored here
+	// in the clear, like every other credential this file holds, and the file
+	// is written 0600.
+	Passphrase Secret `yaml:"passphrase,omitempty" json:"passphrase"`
+}
+
+// The ways an interface can be given an address.
+const (
+	AddressMethodDHCP   = "dhcp"
+	AddressMethodStatic = "static"
+)
 
 // Audio is sound. A screen showing a camera feed usually wants none; one
 // showing a video usually wants some.

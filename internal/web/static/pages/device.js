@@ -4,7 +4,7 @@
 
 import { h, clear } from "../dom.js";
 import { api } from "../api.js";
-import { field, checkbox } from "./content.js";
+import { field, checkbox, secondsOf } from "./content.js";
 
 export function device(main) {
   const body = h("div");
@@ -39,7 +39,7 @@ export function device(main) {
     if (good) body.append(h("div", { class: "notice good", text: good }));
     if (bad) body.append(h("div", { class: "notice bad", text: bad }));
 
-    body.append(identityCard(), connectorsCard(), displayCard(), inputCard(), soundAndClockCard(), remoteCard(), fleetCard(), actionsCard(), logCard());
+    body.append(identityCard(), connectorsCard(), displayCard(), browserCard(), watchdogCard(), inputCard(), soundAndClockCard(), remoteCard(), fleetCard(), actionsCard(), logCard());
 
     body.append(h("div", { class: "actions" },
       h("button", { class: "primary", onClick: save }, "Save"),
@@ -101,7 +101,11 @@ export function device(main) {
       h("div", { class: "row" },
         field("Force the drawing surface size", "text", configuration.display.framebuffer, (value) => { configuration.display.framebuffer = value; }, "Empty fits the screens; 1920x1080 for a television that lies"),
         h("div", {},
-          checkbox("Show the mouse pointer", configuration.display.cursor, (value) => { configuration.display.cursor = value; }))),
+          checkbox("Show the mouse pointer", configuration.display.cursor, (value) => { configuration.display.cursor = value; })),
+        field("Blank the screen after", "number", secondsOf(configuration.display.blankAfter), (value) => {
+          const seconds = Math.max(0, parseInt(value, 10) || 0);
+          configuration.display.blankAfter = `${seconds}s`;
+        }, "Seconds of no input. 0 never blanks, which is what a wall display wants")),
       h("details", {},
         h("summary", { text: "Difficult hardware" }),
         h("div", {},
@@ -109,6 +113,62 @@ export function device(main) {
           h("label", {},
             h("span", { text: "Extra X server configuration" }),
             textarea(configuration.display.xorgConfiguration, (value) => { configuration.display.xorgConfiguration = value; })))));
+  }
+
+  // Everything about the browser that is a decision rather than a detail. The
+  // binary, the profile paths and the extra arguments stay in the file: they
+  // are for somebody debugging, not for somebody setting a screen up.
+  function browserCard() {
+    return h("div", { class: "card" },
+      h("h2", { text: "The browser" }),
+      h("div", { class: "row" },
+        h("div", {},
+          checkbox("Dark", configuration.browser.darkMode, (value) => { configuration.browser.darkMode = value; }),
+          h("span", { class: "dim", text: "A dashboard on a wall in a dark room at full brightness is what people complain about first. Pages that offer a dark theme are asked for it." })),
+        h("div", {},
+          checkbox("Sandbox", configuration.browser.sandbox, (value) => { configuration.browser.sandbox = value; }),
+          h("span", { class: "dim", text: "Leave on. Off removes the boundary between a page and this machine, and is only for a container that cannot be given the privileges the sandbox needs." }))),
+      h("div", { class: "row" },
+        h("div", {},
+          checkbox("Accept certificates that do not verify", configuration.browser.ignoreCertificateErrors, (value) => { configuration.browser.ignoreCertificateErrors = value; }),
+          h("span", { class: "dim", text: "For an appliance on a private network with its own certificate. It removes the protection TLS was there to give, on every page, so turn it on only for a network you control." })),
+        h("div", {},
+          checkbox("Forget everything on restart", configuration.browser.ephemeralCache, (value) => { configuration.browser.ephemeralCache = value; }),
+          h("span", { class: "dim", text: "Starts with an empty profile every time. It cures a corrupted cache permanently, at the cost of signing in again after every restart." }))),
+      h("p", { class: "dim", text: "Changing any of these restarts the browser." }));
+  }
+
+  // The ladder the watchdog climbs. Each rung is tried only after the one
+  // before it failed to help, which is why the numbers only ever go up.
+  function watchdogCard() {
+    const watchdog = configuration.watchdog;
+    const rung = (label, name, hint) => field(label, "number", watchdog[name], (value) => {
+      watchdog[name] = Math.max(0, parseInt(value, 10) || 0);
+    }, hint);
+
+    return h("div", { class: "card" },
+      h("h2", { text: "When the screen stops changing" }),
+      h("p", { class: "dim", text: "The daemon asks the page to prove it is still running — that the X server answers, that the page runs a line of JavaScript, and that it is still being drawn. A page can look perfect and be dead, so the last of those is the one that matters." }),
+      h("div", { class: "row" },
+        h("div", {},
+          checkbox("Watch for a frozen screen", watchdog.enabled, (value) => {
+            watchdog.enabled = value;
+            draw();
+          })),
+        field("Check every", "number", secondsOf(watchdog.interval), (value) => {
+          watchdog.interval = `${Math.max(1, parseInt(value, 10) || 1)}s`;
+        }, "Seconds"),
+        field("Give up on an answer after", "number", secondsOf(watchdog.timeout), (value) => {
+          watchdog.timeout = `${Math.max(1, parseInt(value, 10) || 1)}s`;
+        }, "Seconds")),
+      watchdog.enabled ? h("details", {},
+        h("summary", { text: "What it does, in order" }),
+        h("div", { class: "row" },
+          rung("Reload the page after", "failuresBeforeReload", "consecutive failures"),
+          rung("Open a fresh tab after", "failuresBeforeRecreate", "consecutive failures"),
+          rung("Throw the cache away after", "failuresBeforeClearCache", "consecutive failures"),
+          rung("Restart the browser after", "failuresBeforeRestart", "consecutive failures"),
+          rung("Restart the X server after", "failuresBeforeRestartDisplay", "consecutive failures; 0 never does"))) : null);
   }
 
   function inputCard() {
@@ -146,6 +206,9 @@ export function device(main) {
           checkbox("Play sound", configuration.audio.enabled, (value) => { configuration.audio.enabled = value; })),
         field("Sound card", "text", configuration.audio.sink, (value) => { configuration.audio.sink = value; },
           devices.length ? `Empty lets ALSA choose. Available: ${devices.map((one) => one.alsaName || `plughw:${one.identifier}`).join(", ")}` : "This machine reports no sound cards"),
+        field("Volume", "number", configuration.audio.volume, (value) => {
+          configuration.audio.volume = Math.min(100, Math.max(0, parseInt(value, 10) || 0));
+        }, "0 to 100"),
         field("Time servers", "text", (configuration.time.servers || []).join(", "), (value) => {
           configuration.time.servers = value.split(",").map((one) => one.trim()).filter(Boolean);
         })),
@@ -181,7 +244,11 @@ export function device(main) {
         h("div", {},
           checkbox("VNC viewers may only watch, not type", configuration.vnc.viewOnly, (value) => { configuration.vnc.viewOnly = value; }))),
       h("div", { class: "row" },
-        field("This interface listens on", "text", configuration.web.listen, (value) => { configuration.web.listen = value; }, "Changing this needs a restart of the container")));
+        field("This interface listens on", "text", configuration.web.listen, (value) => { configuration.web.listen = value; }, "Changing this needs a restart of the container"),
+        field("Stay signed in for", "number", secondsOf(configuration.web.sessionLifetime), (value) => {
+          const seconds = Math.max(60, parseInt(value, 10) || 60);
+          configuration.web.sessionLifetime = `${seconds}s`;
+        }, "Seconds. Long, because signing in to a screen on a wall is a trip across the building")));
   }
 
   function fleetCard() {

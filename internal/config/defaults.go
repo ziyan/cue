@@ -41,8 +41,9 @@ func Default() *Configuration {
 			Binary:         "chromium",
 			User:           "cue",
 			Sandbox:        true,
+			DarkMode:       true,
 			EphemeralCache: true,
-			DebuggingPort:  9222,
+			DebuggingPort:  0,
 		},
 		Playlist: Playlist{
 			Interval: Duration(30 * time.Second),
@@ -66,6 +67,10 @@ func Default() *Configuration {
 		Web: Web{
 			Listen:          ":8080",
 			SessionLifetime: Duration(30 * 24 * time.Hour),
+		},
+		Network: Network{
+			Manage:            false,
+			ReconcileInterval: Duration(30 * time.Second),
 		},
 		Audio: Audio{
 			Enabled: true,
