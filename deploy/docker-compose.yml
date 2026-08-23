@@ -23,13 +23,21 @@ services:
     #     bridge networking puts a translation layer between them for nothing.
     network_mode: host
 
-    # The X server needs the graphics device, the virtual console it draws
-    # on, and — if anybody is going to touch or type at the screen — the input
-    # devices. This is the smallest set that works; see the note below if the
-    # screen stays black.
+    # The X server needs the graphics device, two consoles, and — if anybody is
+    # going to touch or type at the screen — the input devices.
+    #
+    # The two consoles are the part that is not obvious and that was got wrong
+    # once. /dev/tty0 is how the server talks to the console layer at all.
+    # /dev/tty2 is the console it draws on, and it has to be passed through
+    # by name: left to itself the server asks the kernel for a free console,
+    # is told a number, and opens /dev/tty<number> — which is not in the
+    # container, and it dies with "xf86OpenConsole: Cannot open virtual
+    # console 3". So display.virtualTerminal names it, and this list matches.
+    # Change both together or neither.
     devices:
       - /dev/dri:/dev/dri
       - /dev/tty0:/dev/tty0
+      - /dev/tty2:/dev/tty2
       - /dev/input:/dev/input
       # Sound, if the screen has speakers. Harmless when it has none.
       - /dev/snd:/dev/snd
@@ -68,16 +76,23 @@ services:
       start_period: 60s
       retries: 3
 
-# If the screen stays black, look at the X server's log — the Device page in
-# the web interface shows the end of it, and so does
-# "docker exec cue cue display probe". The two usual causes:
+# If the screen stays black, the reason is in the X server's own log, and the
+# daemon prints the end of it whenever a start fails — "docker logs cue" has
+# it, and so does the Device page in the web interface. The four usual causes,
+# in the order they are worth checking:
 #
-#   - /dev/dri was not passed through, so there is no graphics device to
-#     drive. "cue display probe" then reports no connectors at all.
-#   - The machine is running a display manager (gdm, lightdm, sddm) which
-#     already holds the graphics device. Stop and disable it:
-#     systemctl disable --now gdm3
+#   - A display manager (gdm, lightdm, sddm) is running and already holds the
+#     graphics device. Stop and disable it: systemctl disable --now gdm3
+#   - /dev/dri was not passed through, so there is nothing to drive. The log
+#     then ends with "Screen 0 deleted because of no matching config section",
+#     and "docker exec cue cue display probe" reports no connectors at all.
+#   - The console named above and display.virtualTerminal disagree. The log
+#     says "xf86OpenConsole: Cannot open virtual console N"; pass /dev/ttyN
+#     through, or set display.virtualTerminal to a console you did pass.
+#   - Something else is already on that console. Pick another one, in both
+#     places.
 #
 # As a last resort, "privileged: true" with "- /dev:/dev" in volumes gives the
 # container everything, which is worth trying once to find out whether the
-# problem is a permission at all. Do not leave it that way.
+# problem is a permission at all. Do not leave it that way: it is access to
+# every device on the machine.

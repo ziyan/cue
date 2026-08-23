@@ -44,6 +44,7 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
     display:
       server: xorg             # or xvfb, which draws into memory
       number: 0                # the X display number
+      virtualTerminal: 2       # the console to draw on: 2 means /dev/tty2
       cursor: false            # a kiosk with a pointer parked in it looks broken
       framebuffer: ""          # force a size, e.g. 1920x1080, for a television that lies
       modeline: ""             # add a mode the monitor did not offer
@@ -59,6 +60,14 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
           position: 0x0
           rotate: normal       # normal, left, right, inverted
           primary: false
+
+`virtualTerminal` is worth a word, because getting it wrong produces a black
+screen and a message that names neither the setting nor the container. Left to
+itself, the X server asks the kernel for a free console, is told a number, and
+opens `/dev/tty<number>` — which inside a container is only there if that exact
+device was passed through. So the console is named here instead, and the
+container passes that one device. The two have to agree; `deploy/docker-compose.yml`
+sets both. Zero lets the server choose, which needs the whole of `/dev`.
 
 `cue display probe` lists the sockets this machine has and what is plugged into
 them, with or without an X server running.

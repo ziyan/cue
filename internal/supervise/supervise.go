@@ -129,6 +129,12 @@ type Settings struct {
 
 	// AfterReady runs once each time the program becomes ready.
 	AfterReady func(ctx context.Context)
+
+	// OnStartFailure runs when a start attempt fails, after the program's own
+	// recent output has been reported. It is for a program that writes the
+	// interesting part somewhere other than its output — the X server puts it
+	// in a log file — so that the reason reaches the daemon's log too.
+	OnStartFailure func()
 }
 
 // Status is a snapshot of a supervised program, for the web interface and the
@@ -463,6 +469,9 @@ func (self *Process) runOnce(ctx context.Context) error {
 			self.terminate(command)
 			<-exited
 			self.reportRecentOutput()
+			if self.settings.OnStartFailure != nil {
+				self.settings.OnStartFailure()
+			}
 			return err
 		}
 	}

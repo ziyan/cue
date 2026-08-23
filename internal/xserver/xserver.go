@@ -162,6 +162,10 @@ func (self *Server) Settings() *supervise.Settings {
 		ReadyTimeout:  15 * time.Second,
 		ReadyInterval: 200 * time.Millisecond,
 		CaptureOutput: true,
+		// The X server writes almost nothing useful to standard error; the
+		// reason it would not start is in its own log, so that is what gets
+		// reported when a start fails.
+		OnStartFailure: self.reportLog,
 		// The X server writes almost nothing to standard error; the useful
 		// output is in its own log, which the daemon reads separately.
 		OutputLevel: logging.INFO,
@@ -195,7 +199,6 @@ func (self *Server) hardwareArguments() []string {
 	arguments := []string{
 		self.DisplayName(),
 		"-auth", self.authorityFilename,
-		"-configdir", self.configDirectory,
 		"-logfile", self.logFilename,
 		// The X protocol over TCP has no place on a device like this; every
 		// client is on the same machine and reaches it over the Unix socket.
@@ -211,11 +214,33 @@ func (self *Server) hardwareArguments() []string {
 		"-keeptty",
 		"-verbose", "3",
 	}
+	// Only when there is something in it. Xorg logs "(EE) Unable to
+	// locate/open config directory" for a directory with no .conf files in
+	// it, which looks like a fault and is not one — and a spurious (EE) in
+	// the log of a machine whose screen is black is worse than useless.
+	if self.hasConfiguration() {
+		arguments = append(arguments, "-configdir", self.configDirectory)
+	}
+
+	// The console to draw on. Naming it means the container needs that one
+	// device passed through rather than all of them: left to itself the
+	// server asks the kernel for a free console and then opens the device for
+	// whatever number it was given, which is not there.
+	if terminal := self.configuration().Display.VirtualTerminal; terminal > 0 {
+		arguments = append(arguments, fmt.Sprintf("vt%d", terminal))
+	}
+
 	if !self.configuration().Display.Cursor {
 		arguments = append(arguments, "-nocursor")
 	}
 	arguments = append(arguments, self.configuration().Display.ExtraArguments...)
 	return arguments
+}
+
+// hasConfiguration reports whether an operator supplied an X server
+// configuration for this device.
+func (self *Server) hasConfiguration() bool {
+	return strings.TrimSpace(self.configuration().Display.XorgConfiguration) != ""
 }
 
 // virtualArguments builds the Xvfb command line. Xvfb has a fixed screen size
@@ -311,6 +336,15 @@ func (self *Server) writeConfiguration() error {
 		return fmt.Errorf("xserver: write %s: %w", filename, err)
 	}
 	return nil
+}
+
+// reportLog is called when a start attempt fails. The reason an X server will
+// not start is always in its own log and never in its output, and getting at
+// that file otherwise would mean a shell on a machine that has none.
+func (self *Server) reportLog() {
+	if tail := self.LogTail(25); tail != "" {
+		log.Errorf("the end of the X server's own log:\n    %s", strings.ReplaceAll(tail, "\n", "\n    "))
+	}
 }
 
 // LogTail returns the last few lines of the X server's own log, which is

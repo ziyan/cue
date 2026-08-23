@@ -148,9 +148,16 @@ being plugged in — with a `/sys` poll as the always-available fallback.
 - [x] (2026-08-23 03:00Z) Milestone 11 — documentation, decision records,
       release workflow.
 - [ ] Validation on real hardware. The machine set aside for it (`carbon`) went
-      off the network partway through and has not come back; everything so far
-      is proved against a virtual screen in the image, plus `cue display probe`
-      against real connectors.
+      off the network partway through and has not come back. In its absence
+      the X server was run against this machine's own graphics hardware from
+      inside the image, with `-novtswitch` so it could not take the console
+      away from whoever was using it. It got as far as driving the card:
+      it loaded the modesetting driver, enumerated the real outputs with their
+      real modes (eDP-1 at 1920x1200, two DisplayPort outputs at 3840x2160)
+      and initialised RANDR, before stalling where a second X server on a
+      machine whose graphics device is already taken would be expected to.
+      That leaves only the last step unproved — a server that actually gets
+      the device — and it found two container faults on the way.
 
 ## Surprises & Discoveries
 
@@ -213,6 +220,33 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   showing four live camera feeds.
   Evidence: `logins: 1` in the status response, and a screenshot of the
   dashboard. The disabled-button retry earned its place immediately.
+
+- Observation: the container device list documented in
+  `deploy/docker-compose.yml` was not enough for the X server, and would have
+  failed on the first real device with a message naming neither the container
+  nor the setting.
+  Evidence: run against real graphics hardware with only `/dev/dri`,
+  `/dev/tty0` and `/dev/input` passed through, the X server got as far as
+  probing the card and then died with "(EE) xf86OpenConsole: Cannot open
+  virtual console 3 (No such file or directory)". Left to itself it asks the
+  kernel for a free console, is told a number, and opens the device for that
+  number — which is not in the container. `display.virtualTerminal` now names
+  the console and the compose file passes that one device.
+
+- Observation: passing `-configdir` to a directory containing no `.conf` files
+  makes the X server log "(EE) Unable to locate/open config directory", which
+  is not a fault. A spurious error in the log of a machine whose screen is
+  black is worse than useless, so the argument is now passed only when there
+  is a configuration to read.
+
+- Observation: the X server writes almost nothing to its output and everything
+  to its own log file, so a failed start reported only "exited before it was
+  ready". The supervisor now takes an OnStartFailure hook and the X server
+  uses it to print the end of that log — which, on a machine with no shell, is
+  otherwise unreachable.
+  Evidence: a run with no graphics device now ends with the log's own last
+  words, "(EE) Screen 0 deleted because of no matching config section", which
+  says exactly what is wrong.
 
 ## Decision Log
 

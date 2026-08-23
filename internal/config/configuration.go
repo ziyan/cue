@@ -80,6 +80,17 @@ type Display struct {
 	// change it except to run two daemons on one machine.
 	Number int `yaml:"number" json:"number"`
 
+	// VirtualTerminal is the console the X server draws on, so 2 means
+	// /dev/tty2. It is set rather than left to the server to choose because
+	// of how that choice interacts with a container: the server asks the
+	// kernel for a free console, is told a number, and then opens
+	// /dev/tty<number> — which fails unless that exact device was passed
+	// through. Naming it here means one device has to be passed through
+	// instead of all of them.
+	//
+	// Zero lets the server choose, which needs the whole of /dev.
+	VirtualTerminal int `yaml:"virtualTerminal" json:"virtualTerminal"`
+
 	// Cursor shows the mouse pointer. Off by default: a kiosk with a pointer
 	// parked in the middle of it looks broken. Turning it on is useful while
 	// somebody is driving the screen over VNC.

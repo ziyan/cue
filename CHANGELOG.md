@@ -31,6 +31,8 @@ All notable changes to this project are recorded here, in the categories of
   holds one connection open, over which the service reaches the same interface
   an operator would; nothing is opened on the network in front of the screen,
   and none of it is contacted until an operator turns it on.
+- `display.virtualTerminal` names the console the X server draws on, so that a
+  container needs one console device passed through rather than all of them.
 - Touchscreens are found and reported, and the browser is told touch exists —
   without which Chromium in a container often renders a desktop layout with
   buttons too small for a finger.

@@ -73,6 +73,9 @@ func (self *Configuration) Validate() error {
 	if self.Display.Number < 0 || self.Display.Number > 99 {
 		add("display.number", "must be between 0 and 99")
 	}
+	if self.Display.VirtualTerminal < 0 || self.Display.VirtualTerminal > 63 {
+		add("display.virtualTerminal", "must be between 0 and 63; 0 lets the X server choose")
+	}
 	if self.Display.Framebuffer != "" {
 		if _, _, err := ParseSize(self.Display.Framebuffer); err != nil {
 			add("display.framebuffer", "%q is not a size like 1920x1080", self.Display.Framebuffer)

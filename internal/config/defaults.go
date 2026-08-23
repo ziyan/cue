@@ -26,9 +26,10 @@ func Default() *Configuration {
 			Runtime: "/run/cue",
 		},
 		Display: Display{
-			Server: ServerXorg,
-			Number: 0,
-			Cursor: false,
+			Server:          ServerXorg,
+			Number:          0,
+			VirtualTerminal: 2,
+			Cursor:          false,
 			Outputs: []Output{
 				{Name: "*", Mode: ModePreferred, Position: "0x0", Rotate: "normal"},
 			},
