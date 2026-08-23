@@ -176,12 +176,66 @@ func run(image string, port int, keep bool) error {
 		return withLogs(fmt.Errorf("the watchdog reports %.0f failed probes", failures))
 	}
 
+	// The two features that exist because of somebody's real dashboard: an
+	// announcement clicked away, and a session signed back in. The page
+	// reports both in its own title.
+	step("checking that the announcement is dismissed and the page is signed in")
+	if err := waitFor("the awkward page to be dealt with", 90*time.Second, func() error {
+		if err := get(client, base+"/api/v1/status", &status); err != nil {
+			return err
+		}
+		title := tabTitle(status, "awkwardpagexxxxx")
+		if title != "dismissed-signedin" {
+			return fmt.Errorf("its title is %q", title)
+		}
+		return nil
+	}); err != nil {
+		return withLogs(err)
+	}
+
+	tabs, _ := status["browser"].(map[string]interface{})["tabs"].([]interface{})
+	for _, entry := range tabs {
+		tab, _ := entry.(map[string]interface{})
+		if item, _ := tab["item"].(string); item != "awkwardpagexxxxx" {
+			continue
+		}
+		logins, _ := tab["logins"].(float64)
+		dismissed, _ := tab["dismissed"].(float64)
+		fmt.Printf("    signed in %.0f time(s), dismissed %.0f thing(s)\n", logins, dismissed)
+		if logins < 1 {
+			return withLogs(fmt.Errorf("the page reports itself signed in but no login was recorded"))
+		}
+		if dismissed < 1 {
+			return withLogs(fmt.Errorf("the announcement is gone but no dismissal was recorded"))
+		}
+	}
+
 	return nil
 }
 
-// The playlist is two pages served by the daemon itself, so that the test
-// needs no network beyond the container.
-const smokeConfiguration = `
+// tabTitle finds one playlist item's tab in a status response and returns the
+// title its page is reporting.
+func tabTitle(status map[string]interface{}, item string) string {
+	browser, _ := status["browser"].(map[string]interface{})
+	tabs, _ := browser["tabs"].([]interface{})
+	for _, entry := range tabs {
+		tab, _ := entry.(map[string]interface{})
+		if name, _ := tab["item"].(string); name == item {
+			title, _ := tab["title"].(string)
+			return title
+		}
+	}
+	return ""
+}
+
+// The playlist needs no network beyond the container: two coloured pages to
+// watch the rotation, and one page that behaves like the dashboard this
+// project was built for — it puts an announcement on top of itself and asks to
+// be signed in.
+//
+// That third page is how the two features that are otherwise only testable
+// against somebody's real system get tested here, on every change.
+var smokeConfiguration = `
 device:
   name: Smoke test
 log:
@@ -196,8 +250,22 @@ browser:
 playlist:
   interval: 5s
   items:
-    - url: "data:text/html,<title>First</title><body style='background:#123'>"
-    - url: "data:text/html,<title>Second</title><body style='background:#321'>"
+    - url: "data:text/html,<title>First</title><body style='background:silver'>"
+    - url: "data:text/html,<title>Second</title><body style='background:teal'>"
+    - identifier: awkwardpagexxxxx
+      title: An awkward page
+      url: '` + awkwardPage + `'
+      login:
+        whenSelectorExists: "input[type=password]"
+        usernameSelector: "input[name=username]"
+        passwordSelector: "input[name=password]"
+        submitSelector: "button[type=submit]"
+        username: display
+        password: a test page password
+        minimumInterval: 5s
+      dismiss:
+        - selector: "button.dismiss"
+          whenTextMatches: "Got it"
 vnc:
   enabled: true
   listen: 127.0.0.1:5900
@@ -206,6 +274,42 @@ audio:
 time:
   enabled: false
 `
+
+// awkwardPage is a page that does the two things a real dashboard does and a
+// test page usually does not: it covers itself with an announcement nobody
+// asked for, and it wants to be signed in.
+//
+// It reports what has happened to it in its own title, because the title is
+// something the daemon already reports for every tab, so the test can watch it
+// without any special machinery. The title becomes "dismissed-signedin" only
+// when both rules have actually worked — the announcement was clicked away and
+// the form was submitted with the right credentials.
+//
+// The form deliberately sets its value through the property that React and
+// friends intercept, so a login that only assigned .value would leave the
+// field looking full and submit nothing. That is the failure this page exists
+// to catch.
+const awkwardPage = `data:text/html,` +
+	`<title>waiting-anon</title>` +
+	`<style>.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);` +
+	`display:flex;align-items:center;justify-content:center}</style>` +
+	`<div class="overlay" id="announcement">` +
+	`<div><h2>What is new</h2><button class="dismiss">Got it</button></div></div>` +
+	`<form id="signin">` +
+	`<input name="username"><input type="password" name="password">` +
+	`<button type="submit">Sign in</button></form>` +
+	`<script>` +
+	`var dismissed=false,signedIn=false;` +
+	`function update(){document.title=(dismissed?"dismissed":"waiting")+"-"+(signedIn?"signedin":"anon")}` +
+	`document.querySelector("button.dismiss").onclick=function(){` +
+	`document.getElementById("announcement").remove();dismissed=true;update()};` +
+	`document.getElementById("signin").onsubmit=function(event){event.preventDefault();` +
+	`var user=document.querySelector("input[name=username]").value;` +
+	`var pass=document.querySelector("input[name=password]").value;` +
+	`if(user==="display"){if(pass==="a test page password"){signedIn=true;` +
+	`document.getElementById("signin").remove()}}update()};` +
+	`update();` +
+	`</script>`
 
 // --- the plumbing -----------------------------------------------------------
 
