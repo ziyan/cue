@@ -50,7 +50,7 @@ playlist:
         alsoClick:
           - "input[name=rememberMe]"
         username: display
-        password: "put the real one here"
+        password: "replace-this-placeholder"
         # How the daemon knows it worked. Without this it only knows it typed
         # something in.
         expectUrlMatches: "/protect/"

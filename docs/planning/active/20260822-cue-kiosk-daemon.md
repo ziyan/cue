@@ -147,8 +147,16 @@ being plugged in — with a `/sys` poll as the always-available fallback.
       down it that reaches the device's own handler.
 - [x] (2026-08-23 03:00Z) Milestone 11 — documentation, decision records,
       release workflow.
-- [ ] Validation on real hardware. The machine set aside for it (`carbon`) went
-      off the network partway through and has not come back. In its absence
+- [ ] Validation on real hardware. **This is the only thing outstanding.** The
+      machine set aside for it (`carbon`) went off the network partway through
+      and has not come back after forty minutes of polling; it is not in this
+      machine's neighbour table, so it is powered down rather than merely
+      unreachable. When it returns, the whole of it is one command:
+
+          make deploy HOST=carbon DISPLAY_MANAGER=stop \
+              CONFIG=deploy/examples/kiosk-with-login.yaml
+
+      In its absence
       the X server was run against this machine's own graphics hardware from
       inside the image, with `-novtswitch` so it could not take the console
       away from whoever was using it. It got as far as driving the card:
