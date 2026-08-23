@@ -30,6 +30,9 @@ func TestTheGraphicsDeviceAndTheStateAreAlwaysThere(t *testing.T) {
 		"--shm-size 1g",
 		"--cap-add SYS_TTY_CONFIG",
 		"--cap-add SYS_TIME",
+		// Without this the browser will not start at all, because its own
+		// sandbox cannot create the namespaces it needs.
+		"--cap-add SYS_ADMIN",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("%q is missing:\n%s", expected, joined)

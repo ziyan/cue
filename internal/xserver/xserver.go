@@ -341,7 +341,7 @@ func (self *Server) writeConfiguration() error {
 // reportLog is called when a start attempt fails. The reason an X server will
 // not start is always in its own log and never in its output, and getting at
 // that file otherwise would mean a shell on a machine that has none.
-func (self *Server) reportLog() {
+func (self *Server) reportLog(process *supervise.Process) {
 	if tail := self.LogTail(25); tail != "" {
 		log.Errorf("the end of the X server's own log:\n    %s", strings.ReplaceAll(tail, "\n", "\n    "))
 	}

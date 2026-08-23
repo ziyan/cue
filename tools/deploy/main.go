@@ -156,6 +156,11 @@ func containerArguments(image, name string, terminal int, optionalDevices []stri
 		"--cap-add", "SYS_TTY_CONFIG",
 		"--cap-add", "SYS_TIME",
 		"--cap-add", "SYS_RAWIO",
+		// What lets the browser keep its own sandbox: it creates process and
+		// network namespaces, which the default seccomp policy refuses
+		// without this. Granting it does not turn seccomp off — the policy is
+		// capability-aware. See deploy/docker-compose.yml for the trade.
+		"--cap-add", "SYS_ADMIN",
 		// The directory, not the file: a rename cannot replace a bind mount,
 		// and the daemon rewrites its configuration atomically.
 		"-v", "/etc/cue:/etc/cue",

@@ -279,6 +279,31 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   they are mirrored, which is what a display appliance wants and what the
   system this replaces did.
 
+- Observation: the default configuration did not work. Every test until now
+  had set `browser.sandbox: false` for convenience, and with the default of
+  true the browser does not start in a container at all: its sandbox creates
+  process and network namespaces, and the default seccomp policy refuses that
+  without CAP_SYS_ADMIN.
+  Evidence: "Failed to move to new namespace: PID namespaces supported,
+  Network namespace supported, but failed: errno = Operation not permitted",
+  which names neither the container nor the setting, and sends the reader to
+  look at the setuid bit on a helper binary that is perfectly correct. The
+  capability is granted now in both places that start a container, seccomp
+  stays on because the policy is capability-aware, and the renderer's
+  `/proc/<pid>/ns/pid` confirms the sandbox is real. This is the second time
+  testing the defaults rather than the convenient configuration found
+  something; the lesson is now in the retrospective twice.
+
+- Observation: a program that dies quickly took its own error message with it.
+  The supervisor read the child's output in two goroutines and reported what
+  it had when the process exited, so a program that printed a reason and
+  exited two hundred milliseconds later was reported as "exited before it was
+  ready" with nothing else — precisely the case where the reason matters.
+  Evidence: the first run with the sandbox enabled logged "what it said before
+  giving up:" followed by nothing at all. The pumps are now drained, with a
+  two-second bound so that a leaked pipe cannot stop the supervisor
+  supervising.
+
 ## Decision Log
 
 - Decision: the module path is `github.com/ziyan/cue`, the binary is `cue`, the

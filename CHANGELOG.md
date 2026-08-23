@@ -31,6 +31,10 @@ All notable changes to this project are recorded here, in the categories of
   holds one connection open, over which the service reaches the same interface
   an operator would; nothing is opened on the network in front of the screen,
   and none of it is contacted until an operator turns it on.
+- The browser keeps its own sandbox, which needs CAP_SYS_ADMIN on the
+  container: the sandbox creates namespaces the default seccomp policy refuses
+  without it. Granting it leaves seccomp on. The daemon recognises the failure
+  that follows from not granting it and says which of two things to change.
 - The browser is started in the groups that own the graphics and sound
   devices, read from those devices at run time, so that it can use the
   hardware. Their group numbers come from the host and differ between

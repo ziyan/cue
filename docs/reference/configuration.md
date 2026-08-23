@@ -102,9 +102,22 @@ applied, and reapplies the layout when they differ.
       debuggingPort: 9222      # loopback only
       extraArguments: []
 
-`sandbox: true` needs the browser to run as a non-root account, which is what
-`user` is for. Chromium refuses to enable its own sandbox as root, and this
-browser renders whatever the network serves it.
+`sandbox: true` needs two things, and both are in
+`deploy/docker-compose.yml`.
+
+The first is a non-root account, which is what `user` is for: Chromium refuses
+to enable its own sandbox as root, and this browser renders whatever the
+network serves it.
+
+The second is `CAP_SYS_ADMIN` on the container. The sandbox creates process and
+network namespaces, and a container's default seccomp policy refuses that
+without the capability — Chromium then does not start at all, and what it says
+about it names neither the container nor the setting. Granting it does **not**
+turn seccomp off: the policy is capability-aware, so every other syscall stays
+filtered. The daemon recognises this particular failure and says what to do.
+
+If you would rather not grant it, set `sandbox: false`. The screen then works,
+with a bug in a web page one step closer to everything else in the container.
 
 `ephemeralCache` exists because a corrupted cache produces a page that will not
 load while everything else looks healthy, and it survives every restart — so it

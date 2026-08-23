@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,19 +126,20 @@ func (self *Browser) Settings() *supervise.Settings {
 	}
 
 	return &supervise.Settings{
-		Name:          "chromium",
-		Path:          binary,
-		ExtraGroups:   hardwareGroups,
-		Arguments:     self.arguments(),
-		Restart:       true,
-		User:          self.configuration.Browser.User,
-		BeforeStart:   self.prepare,
-		Ready:         self.probe,
-		ReadyTimeout:  60 * time.Second,
-		AfterReady:    self.afterReady,
-		CaptureOutput: true,
-		OutputLevel:   outputLevel,
-		StopTimeout:   10 * time.Second,
+		Name:           "chromium",
+		Path:           binary,
+		ExtraGroups:    hardwareGroups,
+		Arguments:      self.arguments(),
+		Restart:        true,
+		User:           self.configuration.Browser.User,
+		BeforeStart:    self.prepare,
+		Ready:          self.probe,
+		OnStartFailure: self.explainFailure,
+		ReadyTimeout:   60 * time.Second,
+		AfterReady:     self.afterReady,
+		CaptureOutput:  true,
+		OutputLevel:    outputLevel,
+		StopTimeout:    10 * time.Second,
 		Environment: supervise.Environ(supervise.Inherit(), map[string]string{
 			"DISPLAY":    self.displayName,
 			"XAUTHORITY": self.authorityFilename,
@@ -175,6 +177,29 @@ func (self *Browser) cacheDirectory() string {
 		return filepath.Join(self.configuration.Paths.Runtime, "browser-cache")
 	}
 	return filepath.Join(self.profileParent(), "cache")
+}
+
+// explainFailure turns the one failure an operator cannot be expected to
+// decode into an instruction.
+//
+// With its own sandbox enabled, Chromium creates process and network
+// namespaces, and a container's default seccomp policy refuses that unless
+// the container has CAP_SYS_ADMIN. What Chromium says about it is "Failed to
+// move to new namespace: PID namespaces supported, Network namespace
+// supported, but failed: errno = Operation not permitted", which names
+// neither the container nor the setting and sends people to look at the
+// setuid bit on a helper binary that is perfectly correct.
+func (self *Browser) explainFailure(process *supervise.Process) {
+	for _, line := range process.RecentOutput() {
+		if !strings.Contains(line, "Failed to move to new namespace") {
+			continue
+		}
+		log.Errorf("the browser cannot start because its own sandbox needs permissions this container does not have. " +
+			"Either give the container CAP_SYS_ADMIN, which is what lets the browser keep its sandbox and is what " +
+			"deploy/docker-compose.yml does, or set browser.sandbox to false — which starts the browser but leaves a " +
+			"bug in a web page one step closer to everything else in the container.")
+		return
+	}
 }
 
 // probe is the readiness check: the browser answers on its debugging port.

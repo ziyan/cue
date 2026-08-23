@@ -49,6 +49,22 @@ services:
       # never corrected and a device whose battery has died shows certificate
       # errors instead of the dashboard.
       - SYS_TIME
+      # This one is what lets the browser keep its own sandbox, and it is
+      # worth being clear about because it looks alarming.
+      #
+      # Chromium's sandbox creates process and network namespaces, and a
+      # container's default seccomp policy refuses that unless the container
+      # has this capability. Granting it does not turn seccomp off — the
+      # policy is capability-aware, so every other syscall stays filtered.
+      #
+      # The trade is favourable. This container is already root with the
+      # graphics device, the console and host networking; that is what driving
+      # a screen costs. The browser is the one thing here that processes
+      # anything from the internet, so it is the one thing worth sandboxing,
+      # and without this it will not start at all. If you would rather not
+      # grant it, set browser.sandbox to false — the screen then works, with a
+      # bug in a web page one step closer to everything else in here.
+      - SYS_ADMIN
       # The X server maps the graphics hardware directly.
       - SYS_RAWIO
 

@@ -53,6 +53,25 @@ root, and a kiosk renders whatever the network serves it. Turning the sandbox
 off is a real reduction in safety and is spelled out as its own setting rather
 than hidden in a list of arguments.
 
+The sandbox also needs `CAP_SYS_ADMIN` on the container, and that deserves an
+honest word because it looks like the opposite of a security measure.
+
+Chromium's sandbox puts each renderer in its own process and network
+namespace. A container's default seccomp policy refuses to create those unless
+the container holds that capability, so without it the browser does not start.
+Granting it does not disable seccomp — the policy is capability-aware and
+every other syscall stays filtered — and it can be confirmed from outside:
+`/proc/<renderer>/ns/pid` and `ns/net` differ from the container's.
+
+The trade is worth making here. This container is already root, with the
+graphics device, a console, several capabilities and host networking; that is
+what driving a screen costs, and none of it is exposed to the internet. The
+browser is the one component that processes anything from the internet, so it
+is the one worth isolating. Refusing the capability and keeping
+`browser.sandbox: true` gets a screen that shows nothing at all, which is why
+the daemon recognises that exact failure and says which of the two things to
+change.
+
 `browser.ignoreCertificateErrors` is off by default. Turning it on removes the
 protection TLS was there to give, and it exists because appliances on private
 networks have self-signed certificates.

@@ -138,10 +138,12 @@ type Settings struct {
 	AfterReady func(ctx context.Context)
 
 	// OnStartFailure runs when a start attempt fails, after the program's own
-	// recent output has been reported. It is for a program that writes the
-	// interesting part somewhere other than its output — the X server puts it
-	// in a log file — so that the reason reaches the daemon's log too.
-	OnStartFailure func()
+	// recent output has been reported. It is given the process so that it can
+	// read what was said. Two uses: a program that writes the interesting
+	// part somewhere other than its output — the X server puts it in a log
+	// file — and a message that is accurate but undecodable, which is worth
+	// translating into an instruction.
+	OnStartFailure func(process *Process)
 }
 
 // Status is a snapshot of a supervised program, for the web interface and the
@@ -433,6 +435,13 @@ func (self *Process) runOnce(ctx context.Context) error {
 		command.SysProcAttr.Credential = credential
 	}
 
+	// draining is closed once both output pumps have finished. A program that
+	// dies two hundred milliseconds after starting prints its reason and
+	// exits, and without waiting for these the reason is still in a pipe when
+	// the failure is reported — so the log says "exited before it was ready"
+	// and nothing else, which is exactly the case where the reason matters.
+	var draining sync.WaitGroup
+
 	if self.settings.CaptureOutput {
 		output, err := command.StdoutPipe()
 		if err != nil {
@@ -442,8 +451,15 @@ func (self *Process) runOnce(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("cannot read standard error: %w", err)
 		}
-		go self.copyOutput(output)
-		go self.copyOutput(errors)
+		draining.Add(2)
+		go func() {
+			defer draining.Done()
+			self.copyOutput(output)
+		}()
+		go func() {
+			defer draining.Done()
+			self.copyOutput(errors)
+		}()
 	} else {
 		command.Stdout = nil
 		command.Stderr = nil
@@ -476,9 +492,10 @@ func (self *Process) runOnce(ctx context.Context) error {
 		if err := self.waitReady(ctx, exited); err != nil {
 			self.terminate(command)
 			<-exited
+			waitBriefly(&draining)
 			self.reportRecentOutput()
 			if self.settings.OnStartFailure != nil {
-				self.settings.OnStartFailure()
+				self.settings.OnStartFailure(self)
 			}
 			return err
 		}
@@ -495,6 +512,7 @@ func (self *Process) runOnce(ctx context.Context) error {
 	select {
 	case err := <-exited:
 		self.clearReady()
+		waitBriefly(&draining)
 		if err != nil {
 			log.Warningf("%s: %s", self.settings.Name, err)
 		}
@@ -504,6 +522,21 @@ func (self *Process) runOnce(ctx context.Context) error {
 		self.terminate(command)
 		<-exited
 		return nil
+	}
+}
+
+// waitBriefly waits for the output pumps, but not forever: a child that
+// leaked a copy of its output pipe to a grandchild keeps it open after it has
+// gone, and the supervisor must not stop supervising because of that.
+func waitBriefly(group *sync.WaitGroup) {
+	finished := make(chan struct{})
+	go func() {
+		group.Wait()
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(2 * time.Second):
 	}
 }
 
