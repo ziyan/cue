@@ -335,8 +335,19 @@ rather than failing obscurely: with `manage` on inside a private network
 namespace, the Network page explains that the interfaces it can see are the
 container's own and not the machine's.
 
-The Network page in the web interface shows every interface, its addresses, its
-signal strength if wireless, and offers a scan-and-join. It is the one page
+The Network page in the web interface lists the interfaces with hardware behind
+them — a socket somebody can put a cable in, or a radio — with their addresses,
+signal strength if wireless, and a scan-and-join. A machine running containers
+also has a Docker bridge, one interface per running container and whatever a
+VPN left behind; those are collapsed into a line at the bottom of the page,
+because they carry traffic and can explain a routing problem, but there is
+nothing on them to configure. An interface named in `network.interfaces` is
+always shown, whatever it is.
+
+The test for hardware is the `device` link the kernel puts in `/sys/class/net`,
+not the name: `docker0` and `br-1a2b3c` are only bridges by convention. A
+virtual machine's virtio interface has that link and counts as hardware, which
+is right — in a virtual machine it is the machine's network card. It is the one page
 that has to work when nothing else does — a screen carried into a room, plugged
 in and switched on, with no keyboard and no network.
 

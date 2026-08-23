@@ -104,6 +104,13 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Fixed
 
+- The Network page lists only interfaces with hardware behind them. On a
+  machine running containers the page was mostly a Docker bridge, one interface
+  per running container and whatever a VPN had left behind — all reported as
+  "ethernet", each looking exactly like a socket on the back of the machine.
+  They are collapsed into a line at the bottom now. An interface that is
+  actually configured is still shown, whatever it is.
+
 - `make docker-test` fails when a test inside the image fails. Its output was
   piped through `grep` for readability, and a pipeline exits with the status of
   its last command, so a failing test showed FAIL on the screen and returned

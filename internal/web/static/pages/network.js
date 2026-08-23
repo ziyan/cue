@@ -57,7 +57,38 @@ export function network(main) {
         draw();
       })));
 
-    body.append(...(state.interfaces || []).map(interfaceCard));
+    // Only the interfaces with hardware behind them. A machine running
+    // containers has a Docker bridge, a veth for every running container and
+    // whatever a VPN left behind, and none of those is something to offer
+    // somebody setting up a screen.
+    //
+    // One that is named in the configuration is shown whatever it is: an
+    // interface an operator has already configured must never quietly
+    // disappear from the page that configures it.
+    const all = state.interfaces || [];
+    const configured = new Set((configuration.network.interfaces || []).map((one) => one.name));
+    const hardware = all.filter((one) => one.physical || configured.has(one.name));
+    const rest = all.filter((one) => !hardware.includes(one));
+
+    if (hardware.length) {
+      body.append(...hardware.map(interfaceCard));
+    } else {
+      body.append(h("div", { class: "card" },
+        h("h2", { text: "No network hardware" }),
+        h("p", { class: "dim", text: all.length
+          ? "This machine reports interfaces, but none of them has hardware behind it — they are bridges, container interfaces and tunnels. If this is running in a container of its own, it is seeing that container's network and not the machine's."
+          : "The kernel reports no network interfaces at all." })));
+    }
+
+    if (rest.length) {
+      body.append(h("details", {},
+        h("summary", { text: `${rest.length} interface${rest.length === 1 ? "" : "s"} with no hardware behind ${rest.length === 1 ? "it" : "them"}` }),
+        h("div", {},
+          h("p", { class: "dim", text: "Bridges, container interfaces, tunnels. Shown because they carry traffic and can explain a routing problem; there is nothing here to configure." }),
+          rest.map((one) => h("div", { class: "readout" },
+            h("span", { class: "label" }, one.name, h("span", { class: "dim", text: ` · ${one.kind}` })),
+            h("span", { class: "value mono truncate", text: (one.addresses || []).join(", ") || "no address" }))))));
+    }
 
     body.append(h("div", { class: "actions" },
       h("button", { class: "primary", onClick: save }, "Save"),

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -31,10 +32,21 @@ var log = logging.MustGetLogger("network")
 type Interface struct {
 	Name string `json:"name"`
 
-	// Kind is "ethernet", "wireless" or "other". It decides what the
-	// interface page offers: only a wireless one can be asked to join a
+	// Kind is "ethernet", "wireless", "virtual" or "other". It decides what
+	// the interface page offers: only a wireless one can be asked to join a
 	// network.
 	Kind string `json:"kind"`
+
+	// Physical is whether there is hardware behind this interface — a socket
+	// somebody can put a cable in, or a radio.
+	//
+	// A machine running containers has a dozen interfaces that are not: a
+	// Docker bridge, one veth for every running container, and whatever a VPN
+	// left behind. They are real interfaces and they carry real traffic, and
+	// not one of them is something an operator setting up a screen should be
+	// offered, or could do anything useful with. The interface lists only the
+	// physical ones unless asked otherwise.
+	Physical bool `json:"physical"`
 
 	MAC string `json:"mac"`
 	MTU int    `json:"mtu"`
@@ -137,6 +149,7 @@ func Interfaces() ([]Interface, error) {
 		current := Interface{
 			Name:             attributes.Name,
 			Kind:             kindOf(attributes.Name, link.Type()),
+			Physical:         isPhysical(attributes.Name),
 			MAC:              attributes.HardwareAddr.String(),
 			MTU:              attributes.MTU,
 			Up:               attributes.Flags&net.FlagUp != 0,
@@ -173,24 +186,55 @@ func Interfaces() ([]Interface, error) {
 const (
 	KindEthernet = "ethernet"
 	KindWireless = "wireless"
+	KindVirtual  = "virtual"
 	KindOther    = "other"
 )
+
+// sysClassNet is where the kernel describes the interfaces. It is a variable
+// so that the tests can point it at a directory of their own: everything about
+// what an interface *is* is read from here, and a test that had to use the
+// real one could only assert what happens to be plugged into the machine
+// running it.
+var sysClassNet = "/sys/class/net"
+
+// isPhysical reports whether there is hardware behind an interface.
+//
+// The test is the "device" symlink the kernel puts in /sys/class/net for an
+// interface backed by a real device, pointing at its PCI or USB entry. A
+// bridge, a veth, a tunnel, a bond and the loopback have no such link. It is
+// the only test that holds: names are conventions — docker0 and br-1a2b3c are
+// only bridges by habit — and a machine can rename anything.
+//
+// A virtual machine's virtio interface does have the link, and should: in a
+// virtual machine that card is the machine's network hardware, and it is the
+// one to configure.
+func isPhysical(name string) bool {
+	_, err := os.Lstat(filepath.Join(sysClassNet, name, "device"))
+	return err == nil
+}
 
 // kindOf decides what an interface is. The reliable test for wireless is the
 // directory the kernel creates for it, not the name: a name beginning with
 // "wl" is a convention and a machine may not follow it.
 func kindOf(name, linkType string) string {
-	if _, err := os.Stat("/sys/class/net/" + name + "/wireless"); err == nil {
+	if _, err := os.Lstat(filepath.Join(sysClassNet, name, "wireless")); err == nil {
 		return KindWireless
 	}
-	if _, err := os.Stat("/sys/class/net/" + name + "/phy80211"); err == nil {
+	if _, err := os.Lstat(filepath.Join(sysClassNet, name, "phy80211")); err == nil {
 		return KindWireless
 	}
+
+	// Named before the physical kinds, because several of these used to be
+	// reported as ethernet — a Docker bridge appeared in the interface as a
+	// socket somebody could plug a cable into.
 	switch linkType {
-	case "device", "veth", "bridge":
-		return KindEthernet
+	case "bridge", "veth", "tun", "tap", "vxlan", "wireguard", "bond", "vlan", "dummy", "ipip", "sit", "ppp":
+		return KindVirtual
 	}
-	if strings.HasPrefix(name, "en") || strings.HasPrefix(name, "eth") {
+	if !isPhysical(name) {
+		return KindVirtual
+	}
+	if linkType == "device" || strings.HasPrefix(name, "en") || strings.HasPrefix(name, "eth") {
 		return KindEthernet
 	}
 	return KindOther
