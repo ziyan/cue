@@ -436,7 +436,21 @@ being plugged in — with a `/sys` poll as the always-available fallback.
 
 **As of 2026-08-23.** Everything in the Purpose section works except the last
 step of it: a picture on a real screen, driven by Xorg on real graphics
-hardware. The machine set aside for that (`carbon`) answered at the start of
+hardware. The shipped example configuration was then rehearsed in full, with
+only the two things a machine whose graphics device is already taken forces —
+a virtual screen instead of Xorg — changed:
+
+    device   : Reception | timezone Europe/London
+    programs : xvfb running, chromium running, x11vnc running, chronyd running
+               (no restarts)
+    showing  : Dashboard | https://<the real controller>/protect/dashboard/all
+    logins   : 1
+    watchdog : 0 failures, 0 remedies
+    clock    : synchronised, stratum 4, off by 0.3 ms
+    screen   : 1920x1080
+
+That is the browser sandboxed, in the host's hardware groups, signed into the
+real dashboard, with the clock right and nothing having had to be restarted. The machine set aside for that (`carbon`) answered at the start of
 the work and went off the network an hour in; it has not come back. Everything
 else is proved, and proved by running rather than by reading:
 
