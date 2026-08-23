@@ -116,6 +116,21 @@ All notable changes to this project are recorded here, in the categories of
   its last command, so a failing test showed FAIL on the screen and returned
   success — which is what a check for silent failures must never do itself.
 
+- The screen size is read from the root window rather than from the X
+  connection setup. The setup block is sent once, when the client connects, and
+  is never updated — so after this daemon resized the screen it still reported
+  the size from before, and the browser was sized to that. On the first machine
+  migrated to `cue` the window came up 1152x864 on a 1280x1024 screen, with a
+  black band down two sides, while every log line said the right mode had been
+  set. `make docker-smoke` now asks for a screen that is deliberately not the
+  size the X server would pick on its own, and checks the screenshot comes back
+  the size of the screen.
+
+- Deploying to a machine that cannot be reached says why. The first step of a
+  deployment failed with "exit status 1" and nothing else, and the reasons —
+  no such host, no key, the wrong account, no Docker — are all different things
+  to do about them.
+
 - Dark mode reaches the page. Of the three flags passed for it, two did not
   exist in this Chromium — `--force-prefers-color-scheme` and the
   `WebUIDarkMode` feature, both inherited from setups running an older one.

@@ -86,7 +86,16 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	step("checking that %s is reachable and has Docker", host)
 	version, err := remoteOutput(host, "docker", "version", "--format", "{{.Server.Version}}")
 	if err != nil {
-		return fmt.Errorf("cannot reach Docker on %s: %w", host, err)
+		// With what ssh or docker actually said. Without it this is "exit
+		// status 1" against the first step of a deployment, and the reasons
+		// are all different things to do about them: no such host, no key,
+		// the wrong account, no Docker, a Docker that will not talk to this
+		// account.
+		if trimmed := strings.TrimSpace(version); trimmed != "" {
+			return fmt.Errorf("cannot reach Docker on %s: %w: %s", host, err, trimmed)
+		}
+		return fmt.Errorf("cannot reach Docker on %s: %w "+
+			"(is it \"root@%s\"? this connects as whoever ssh would)", host, err, host)
 	}
 	fmt.Printf("    Docker %s\n", strings.TrimSpace(version))
 

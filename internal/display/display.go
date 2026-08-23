@@ -189,7 +189,23 @@ func (self *Display) Ping() error {
 }
 
 // Screen is the current size of the drawing surface.
+// Screen is how big the screen is now.
+//
+// The size is asked of the root window rather than read out of the connection
+// setup. The setup block is sent once, when the client connects, and is never
+// updated: after RandR resizes the screen it still reports whatever the size
+// was at connect time. That is not a corner case here, because resizing the
+// screen is the first thing this daemon does — on a machine whose X server
+// started at 1152x864 and was set to 1280x1024, the browser was sized to the
+// old figure and sat in the corner of the screen with a black band down two
+// sides of it. Everything reported success, including the line saying which
+// mode had been set.
 func (self *Display) Screen() Screen {
+	if geometry, err := xproto.GetGeometry(self.connection, xproto.Drawable(self.root)).Reply(); err == nil {
+		return Screen{Width: int(geometry.Width), Height: int(geometry.Height)}
+	}
+	// A server that will not answer for its own root window is one this is
+	// about to fail on anyway; the setup values are better than zero.
 	setup := xproto.Setup(self.connection).DefaultScreen(self.connection)
 	return Screen{Width: int(setup.WidthInPixels), Height: int(setup.HeightInPixels)}
 }

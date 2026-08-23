@@ -155,8 +155,25 @@ func run(image string, port int, keep bool) error {
 		return withLogs(err)
 	}
 	fmt.Printf("    a %dx%d PNG of %d bytes\n", width, height, len(image_))
-	if width < 1000 || height < 500 {
-		return withLogs(fmt.Errorf("the screenshot is %dx%d, which is not the configured screen", width, height))
+	// Exactly the configured screen, not merely a plausible size. The
+	// screenshot is of the browser's window, so this is the check that the
+	// window fills the screen — and with no window manager here, nothing but
+	// this daemon will make it.
+	//
+	// It was 1152x864 on a screen of 1280x1024 on the first machine this was
+	// migrated to, with a black band down two sides, because the screen size
+	// was read out of the X connection setup: a block sent once when the
+	// client connects and never updated, so it still held the size from
+	// before this daemon resized the screen. Every log line said the right
+	// mode had been set, and it had.
+	// Within a pixel or two: Chromium reports a viewport a pixel short of the
+	// window it was given, consistently and in both directions, and chasing
+	// that is not what this check is for. The fault it exists to catch is off
+	// by a hundred and twenty-eight.
+	const slack = 4
+	if abs(width-screenWidth) > slack || abs(height-screenHeight) > slack {
+		return withLogs(fmt.Errorf("the screenshot is %dx%d and the screen is %dx%d, "+
+			"so the browser's window does not fill it", width, height, screenWidth, screenHeight))
 	}
 
 	step("checking that the small screenshot really is smaller")
@@ -370,6 +387,8 @@ log:
 display:
   server: xvfb
   number: 0
+  # Deliberately not the size Xvfb would start at on its own, so that the
+  # daemon has to resize the screen and the checks below see the result.
   framebuffer: 1280x720
 browser:
   user: cue
@@ -421,6 +440,13 @@ time:
 // friends intercept, so a login that only assigned .value would leave the
 // field looking full and submit nothing. That is the failure this page exists
 // to catch.
+// The screen the smoke configuration asks for. The screenshot has to come
+// back at exactly this size.
+const (
+	screenWidth  = 1280
+	screenHeight = 720
+)
+
 const awkwardPage = `data:text/html,` +
 	`<title>waiting-anon</title>` +
 	`<style>.overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);` +
@@ -535,6 +561,13 @@ func pngSize(data []byte) (int, int, error) {
 	width := binary.BigEndian.Uint32(data[16:20])
 	height := binary.BigEndian.Uint32(data[20:24])
 	return int(width), int(height), nil
+}
+
+func abs(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 // averageBrightness decodes a PNG and returns the mean channel value. It is
