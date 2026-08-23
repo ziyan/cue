@@ -18,7 +18,7 @@ GOLANGCI_LINT_VERSION ?= v2.13.1
 
 # Explicit package list: ./... would also pick up stray Go files vendored
 # inside web/node_modules by npm packages.
-GOPACKAGES ?= . ./cmd/... ./internal/...
+GOPACKAGES ?= . ./cmd/... ./internal/... ./tools/...
 
 VERSION ?= $(shell git describe --tags 2>/dev/null || echo 0.1.0)
 COMMIT ?= $(shell git describe --match=NeVeRmAtCh --always --abbrev=40 --dirty)
@@ -62,7 +62,7 @@ check: ## Fail if code is not formatted
 lint: lint-ci mulint ## Run every linter (what to run before committing)
 
 check-secrets: ## Fail if a credential or a private address is in a tracked file
-	@scripts/check-secrets.bash
+	@$(GO) run -mod=vendor ./tools/checksecrets
 
 lint-ci: check-secrets ## Run the linters CI runs
 	@set -e; \
@@ -104,7 +104,7 @@ docker: ## Build the container image
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) .
 
 docker-smoke: docker ## Run the whole daemon in the image against a virtual screen and prove it works
-	@scripts/smoke.bash $(DOCKER_TAG)
+	@$(GO) run -mod=vendor ./tools/smoke -image $(DOCKER_TAG)
 
 watch: ## Rebuild on source change (requires inotifywait)
 	@set -e; \

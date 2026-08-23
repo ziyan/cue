@@ -130,7 +130,8 @@ being plugged in — with a `/sys` poll as the always-available fallback.
       freeze watchdog and cache recovery.
 - [ ] Milestone 6 — VNC server and the WebSocket bridge.
 - [ ] Milestone 7 — web interface: API, sessions, onboarding, monitoring, noVNC.
-- [ ] Milestone 8 — audio, time synchronisation, hardware inventory, hotplug.
+- [ ] Milestone 8 — audio, time synchronisation, hardware inventory, hotplug,
+      touch input mapped to the right output.
 - [ ] Milestone 9 — the distroless image, compose files, end-to-end smoke test.
 - [ ] Milestone 10 — optional fleet enrolment into cue.sh.
 - [ ] Milestone 11 — documentation, decision records, release workflow.
@@ -241,6 +242,40 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   placeholders.
   Date/Author: 2026-08-22, Ziyan Zhou
 
+- Decision: nothing in this project is a shell script, at build time or at
+  run time. The image contains the daemon, chronyd, Xorg, x11vnc and Chromium,
+  and nothing else that executes.
+  Rationale: the system this replaces was eight bash scripts, a supervisor
+  configuration template and an `/etc/default` file, and the interesting
+  failures were all in the seams between them. Where a helper is genuinely
+  needed — checking that no credential has been committed, driving the
+  end-to-end smoke test — it is a Go program under `tools/`, so it is built,
+  vetted and linted with everything else.
+  Date/Author: 2026-08-22, Ziyan Zhou
+
+- Decision: sound goes to ALSA directly by default; a sound server is
+  available but is not part of the default runtime.
+  Rationale: the runtime is meant to be exactly the daemon, chronyd, Xorg,
+  x11vnc and Chromium. Chromium can open an ALSA device by name, and the
+  daemon already enumerates the machine's sound cards for the interface, so
+  choosing an output needs no extra process. `audio.server: pulseaudio` remains
+  for the cases ALSA cannot serve — two programs wanting the card at once, or
+  per-application volume — and it is off unless asked for.
+  Date/Author: 2026-08-22, Ziyan Zhou
+
+- Decision: touchscreen support is limited to what is true of every touch
+  device: finding them, and pointing each one at the right screen.
+  Rationale: an earlier project of the author's carried firmware upgrades and
+  a glove mode for two specific panels. That belongs with those panels. What
+  generalises is the part that is wrong on every multi-screen or rotated
+  machine until somebody fixes it: a touch device reports coordinates across
+  the whole framebuffer, so on a rotated screen, or a machine with two
+  outputs, touches land in the wrong place. The daemon sets each touch
+  device's coordinate transformation matrix from the geometry and rotation of
+  the output it belongs to, which is what makes a portrait screen in a lobby
+  respond where it is touched.
+  Date/Author: 2026-08-22, Ziyan Zhou
+
 ## Outcomes & Retrospective
 
 To be written at the end of each milestone.
@@ -269,6 +304,7 @@ The finished layout is:
       audio/                PulseAudio lifecycle and sound device inventory
       timesync/             chronyd lifecycle and clock status
       hardware/             machine inventory and metrics
+      input/                touch devices, mapped to the output they belong to
       watchdog/             liveness probing and the recovery ladder
       fleet/                optional enrolment into cue.sh and the tunnel
       web/                  HTTP server, sessions, API, embedded interface
