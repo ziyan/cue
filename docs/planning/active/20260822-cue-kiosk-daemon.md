@@ -178,6 +178,36 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   minute inside `xgb.postConnect`. `display.Open` now takes a context and sets
   a deadline on the socket across the handshake.
 
+- Observation: running the daemon with its *own defaults* — rather than with
+  the development settings every earlier test had used — found three faults at
+  once, all of which would have made a real device fail on its first boot.
+  `/usr/bin/Xorg` is a shell script like `/usr/bin/chromium`, so the X server
+  never started; `chronyd` lives in `/usr/sbin`, which was not on the image's
+  PATH; and `chronyd` drops privileges to an account that did not exist in the
+  image, refuses to open a command socket in a directory anybody can write to,
+  and writes a pid file into a directory it does not create.
+  Evidence: three rounds of "exited before it was ready" with nothing else in
+  the log, which is also what prompted the supervisor to start reporting a
+  failed program's last few lines of output at a level somebody will see.
+  The lesson: test the defaults, not the configuration that is convenient.
+
+- Observation: the X server, the VNC server and the time client each held a
+  pointer to the configuration taken when the daemon started, so a change made
+  through the interface never reached them. Changing `display.server` was
+  accepted and then did nothing at all.
+  Evidence: switching from xorg to xvfb through the API left the daemon
+  restarting Xorg in a loop. All three now read through the store, and the
+  daemon restarts the X server for the settings that are fixed when it is
+  executed.
+
+- Observation: the login rule works against the real thing. Pointed at a UniFi
+  Protect controller it recognised the login page, filled `#login-username`
+  and `#login-password`, ticked "remember my credentials", clicked a submit
+  button that starts out disabled, and landed on `/protect/dashboard/all`
+  showing four live camera feeds.
+  Evidence: `logins: 1` in the status response, and a screenshot of the
+  dashboard. The disabled-button retry earned its place immediately.
+
 ## Decision Log
 
 - Decision: the module path is `github.com/ziyan/cue`, the binary is `cue`, the

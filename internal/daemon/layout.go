@@ -93,6 +93,19 @@ func (self *Daemon) applyLayout(ctx context.Context) {
 func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 	log.Noticef("applying the changed configuration")
 
+	// A few settings are decided when the X server is executed and cannot be
+	// changed under it: which server, which display number, the size of a
+	// virtual screen. Without this, switching display.server from xorg to
+	// xvfb appears to be accepted and then does nothing, which is a
+	// particularly unhelpful way to fail.
+	if self.displayRestartNeeded(updated) {
+		log.Noticef("the change needs the X server restarted")
+		if err := self.restartDisplay(ctx); err != nil {
+			log.Errorf("cannot restart the X server: %s", err)
+		}
+		return
+	}
+
 	self.applyLayout(ctx)
 
 	restartNeeded, err := self.browser.Reconfigure(ctx, updated)
@@ -105,6 +118,26 @@ func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 			log.Errorf("cannot restart the browser: %s", err)
 		}
 	}
+}
+
+// displayRestartNeeded reports whether a change is one the running X server
+// cannot be told about. It compares against what the server was actually
+// started with rather than against the previous configuration, so that a
+// restart which failed is retried on the next change rather than skipped
+// because "nothing changed since last time".
+func (self *Daemon) displayRestartNeeded(updated *config.Configuration) bool {
+	running := self.xserver.StartedWith()
+	switch {
+	case running.Server != updated.Display.Server:
+	case running.Number != updated.Display.Number:
+	case running.Server == config.ServerXvfb && running.Framebuffer != updated.Display.Framebuffer:
+		// Xvfb's screen size is fixed when it starts; RandR cannot change it.
+	case running.Cursor != updated.Display.Cursor:
+		// Both servers are told about the cursor on the command line.
+	default:
+		return false
+	}
+	return true
 }
 
 func describe(outputs []display.Output) string {

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/op/go-logging"
@@ -26,14 +27,20 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/supervise"
+	"github.com/ziyan/cue/internal/util/executable"
 	"github.com/ziyan/cue/internal/util/xauth"
 )
 
 var log = logging.MustGetLogger("xserver")
 
 // Server owns the X server process and the files it needs.
+//
+// It reads the configuration through the store rather than holding a snapshot,
+// because it is prepared again before every restart and a snapshot taken when
+// the daemon started would be stale by then — which showed up as a change to
+// the display settings being accepted and then quietly doing nothing.
 type Server struct {
-	settings *config.Configuration
+	store *config.Store
 
 	// cookie authenticates every connection to this server, including the
 	// daemon's own. It is generated once per daemon run rather than per
@@ -44,18 +51,24 @@ type Server struct {
 	authorityFilename string
 	logFilename       string
 	configDirectory   string
+
+	mutex sync.Mutex
+
+	// startedWith is the display configuration the running server was
+	// executed with, recorded at each start.
+	startedWith config.Display
 }
 
 // New prepares a server for the given configuration. Nothing is started and
 // nothing is written until Prepare.
-func New(settings *config.Configuration) (*Server, error) {
+func New(store *config.Store) (*Server, error) {
 	cookie, err := xauth.NewCookie()
 	if err != nil {
 		return nil, err
 	}
-	runtime := settings.Paths.Runtime
+	runtime := store.Current().Paths.Runtime
 	return &Server{
-		settings:          settings,
+		store:             store,
 		cookie:            cookie,
 		authorityFilename: filepath.Join(runtime, "Xauthority"),
 		logFilename:       filepath.Join(runtime, "xorg.log"),
@@ -76,7 +89,7 @@ func (self *Server) Cookie() xauth.Cookie {
 
 // DisplayName is the value of DISPLAY that reaches this server.
 func (self *Server) DisplayName() string {
-	return display.Name(self.settings.Display.Number)
+	return display.Name(self.configuration().Display.Number)
 }
 
 // LogFilename is where the X server writes its own log. The daemon reads the
@@ -86,11 +99,26 @@ func (self *Server) LogFilename() string {
 	return self.logFilename
 }
 
+// configuration is the settings in force right now.
+func (self *Server) configuration() *config.Configuration {
+	return self.store.Current()
+}
+
+// StartedWith is the display configuration the running server was executed
+// with. Several of those settings are fixed at that moment — which server,
+// which display number, the size of a virtual screen — so the daemon compares
+// against this to decide whether a change needs a restart.
+func (self *Server) StartedWith() config.Display {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.startedWith
+}
+
 // Prepare writes everything the server needs before it is started. It runs
 // again before every restart, so a file removed by hand comes back.
 func (self *Server) Prepare(ctx context.Context) error {
-	if err := os.MkdirAll(self.settings.Paths.Runtime, 0o755); err != nil {
-		return fmt.Errorf("xserver: create %s: %w", self.settings.Paths.Runtime, err)
+	if err := os.MkdirAll(self.configuration().Paths.Runtime, 0o755); err != nil {
+		return fmt.Errorf("xserver: create %s: %w", self.configuration().Paths.Runtime, err)
 	}
 
 	// Every X server since the 1980s puts its socket here, and the browser
@@ -101,7 +129,7 @@ func (self *Server) Prepare(ctx context.Context) error {
 	}
 	_ = os.Chmod(socketDirectory, 0o1777)
 
-	if err := xauth.Write(self.authorityFilename, self.settings.Display.Number, self.cookie); err != nil {
+	if err := xauth.Write(self.authorityFilename, self.configuration().Display.Number, self.cookie); err != nil {
 		return err
 	}
 	// The browser runs as another account and has to read this file. Making
@@ -116,13 +144,17 @@ func (self *Server) Prepare(ctx context.Context) error {
 		return err
 	}
 
+	self.mutex.Lock()
+	self.startedWith = self.configuration().Display
+	self.mutex.Unlock()
+
 	return self.writeConfiguration()
 }
 
 // Settings builds the supervisor settings for the server process.
 func (self *Server) Settings() *supervise.Settings {
 	settings := &supervise.Settings{
-		Name:        self.settings.Display.Server,
+		Name:        self.configuration().Display.Server,
 		Restart:     true,
 		BeforeStart: self.Prepare,
 		Ready:       self.probe,
@@ -144,12 +176,15 @@ func (self *Server) Settings() *supervise.Settings {
 		}),
 	}
 
-	switch self.settings.Display.Server {
+	// Debian's /usr/bin/Xorg is a shell script that runs /usr/lib/xorg/Xorg,
+	// and this image has no shell. Without this the X server never starts, and
+	// says so only as a complaint from a shell nobody knew was involved.
+	switch self.configuration().Display.Server {
 	case config.ServerXvfb:
-		settings.Path = "Xvfb"
+		settings.Path = resolve("Xvfb", "/usr/lib/xorg/Xvfb")
 		settings.Arguments = self.virtualArguments()
 	default:
-		settings.Path = "Xorg"
+		settings.Path = resolve("Xorg", "/usr/lib/xorg/Xorg")
 		settings.Arguments = self.hardwareArguments()
 	}
 	return settings
@@ -176,10 +211,10 @@ func (self *Server) hardwareArguments() []string {
 		"-keeptty",
 		"-verbose", "3",
 	}
-	if !self.settings.Display.Cursor {
+	if !self.configuration().Display.Cursor {
 		arguments = append(arguments, "-nocursor")
 	}
-	arguments = append(arguments, self.settings.Display.ExtraArguments...)
+	arguments = append(arguments, self.configuration().Display.ExtraArguments...)
 	return arguments
 }
 
@@ -187,7 +222,7 @@ func (self *Server) hardwareArguments() []string {
 // decided when it starts, so the configured framebuffer — or a sensible
 // default — is baked in here rather than set over RandR afterwards.
 func (self *Server) virtualArguments() []string {
-	size := self.settings.Display.Framebuffer
+	size := self.configuration().Display.Framebuffer
 	if size == "" {
 		size = "1280x720"
 	}
@@ -202,7 +237,7 @@ func (self *Server) virtualArguments() []string {
 		"+extension", "RANDR",
 		"+extension", "GLX",
 	}
-	arguments = append(arguments, self.settings.Display.ExtraArguments...)
+	arguments = append(arguments, self.configuration().Display.ExtraArguments...)
 	return arguments
 }
 
@@ -211,7 +246,7 @@ func (self *Server) virtualArguments() []string {
 // true a few hundred milliseconds before the server will actually answer, and
 // starting the browser in that window is how a kiosk ends up showing nothing.
 func (self *Server) probe(ctx context.Context) error {
-	connection, err := display.Open(ctx, self.settings.Display.Number, self.cookie)
+	connection, err := display.Open(ctx, self.configuration().Display.Number, self.cookie)
 	if err != nil {
 		return err
 	}
@@ -225,8 +260,8 @@ func (self *Server) probe(ctx context.Context) error {
 // presents as a screen that is black until somebody logs in and deletes a
 // file they have never heard of.
 func (self *Server) clearStaleLock() error {
-	lock := fmt.Sprintf("/tmp/.X%d-lock", self.settings.Display.Number)
-	socket := display.SocketPath(self.settings.Display.Number)
+	lock := fmt.Sprintf("/tmp/.X%d-lock", self.configuration().Display.Number)
+	socket := display.SocketPath(self.configuration().Display.Number)
 
 	if _, err := os.Stat(lock); err != nil {
 		return nil
@@ -262,7 +297,7 @@ func (self *Server) writeConfiguration() error {
 	}
 
 	filename := filepath.Join(self.configDirectory, "10-cue.conf")
-	if strings.TrimSpace(self.settings.Display.XorgConfiguration) == "" {
+	if strings.TrimSpace(self.configuration().Display.XorgConfiguration) == "" {
 		if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("xserver: remove %s: %w", filename, err)
 		}
@@ -271,7 +306,7 @@ func (self *Server) writeConfiguration() error {
 
 	content := "# Written by cue from display.xorgConfiguration. Edit the\n" +
 		"# configuration file, not this one: it is rewritten on every start.\n\n" +
-		self.settings.Display.XorgConfiguration + "\n"
+		self.configuration().Display.XorgConfiguration + "\n"
 	if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("xserver: write %s: %w", filename, err)
 	}
@@ -297,7 +332,7 @@ func (self *Server) LogTail(lines int) string {
 // The alternative — one authority file per account — means every one of them
 // has to be rewritten whenever the cookie changes.
 func (self *Server) shareAuthorityWithBrowser() error {
-	name := self.settings.Browser.User
+	name := self.configuration().Browser.User
 	if name == "" {
 		return nil
 	}
@@ -314,6 +349,19 @@ func (self *Server) shareAuthorityWithBrowser() error {
 		return fmt.Errorf("xserver: cannot give %s to the group of %q: %w", self.authorityFilename, name, err)
 	}
 	return nil
+}
+
+// resolve finds the real executable, reporting rather than returning a
+// failure: the supervisor will try to start whatever it is given, fail, and
+// say so on a backoff, which is the same shape as every other reason the X
+// server will not start.
+func resolve(name string, fallbacks ...string) string {
+	path, err := executable.Resolve(name, fallbacks...)
+	if err != nil {
+		log.Errorf("%s", err)
+		return name
+	}
+	return path
 }
 
 const socketDirectory = "/tmp/.X11-unix"

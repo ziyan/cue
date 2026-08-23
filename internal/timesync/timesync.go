@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,17 +24,30 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/util/atomicfile"
+	"github.com/ziyan/cue/internal/util/executable"
 )
 
 var log = logging.MustGetLogger("timesync")
 
-// Client owns the chronyd process and the file it reads.
-type Client struct {
-	configuration *config.Configuration
+// chronyAccount is the unprivileged account Debian's chronyd drops to. It
+// exists in the image for that reason alone.
+const chronyAccount = "_chrony"
 
-	configFilename string
-	socketPath     string
-	driftFilename  string
+// Client owns the chronyd process and the file it reads.
+//
+// It reads the configuration through the store rather than holding a snapshot,
+// because the chrony configuration file is rewritten before every start.
+type Client struct {
+	store *config.Store
+
+	configFilename   string
+	runtimeDirectory string
+	driftDirectory   string
+}
+
+// socketPath is where chronyd listens for chronyc.
+func (self *Client) socketPath() string {
+	return filepath.Join(self.runtimeDirectory, "chronyd.sock")
 }
 
 // State is what the interface shows about the clock.
@@ -59,20 +73,29 @@ type State struct {
 }
 
 // New returns a time client for the given configuration.
-func New(configuration *config.Configuration) *Client {
+func New(store *config.Store) *Client {
+	configuration := store.Current()
 	return &Client{
-		configuration:  configuration,
+		store:          store,
 		configFilename: filepath.Join(configuration.Paths.Runtime, "chrony.conf"),
-		socketPath:     filepath.Join(configuration.Paths.Runtime, "chronyd.sock"),
-		driftFilename:  filepath.Join(configuration.Paths.State, "chrony.drift"),
+		// chronyd refuses to open its command socket in a directory anybody
+		// else can write to, and it writes a pid file whose directory it does
+		// not create. Both live in one directory of its own.
+		runtimeDirectory: filepath.Join(configuration.Paths.Runtime, "chrony"),
+		driftDirectory:   filepath.Join(configuration.Paths.State, "chrony"),
 	}
+}
+
+// configuration is the settings in force right now.
+func (self *Client) configuration() *config.Configuration {
+	return self.store.Current()
 }
 
 // Settings builds the supervisor settings for chronyd.
 func (self *Client) Settings() *supervise.Settings {
 	return &supervise.Settings{
 		Name:          "chronyd",
-		Path:          "chronyd",
+		Path:          self.binary(),
 		Arguments:     []string{"-d", "-f", self.configFilename},
 		Restart:       true,
 		BeforeStart:   self.prepare,
@@ -84,11 +107,41 @@ func (self *Client) Settings() *supervise.Settings {
 	}
 }
 
+// binary finds chronyd, which lives in /usr/sbin rather than /usr/bin and so
+// is not on the PATH a container is given by default.
+func (self *Client) binary() string {
+	path, err := executable.Resolve("chronyd", "/usr/sbin/chronyd", "/sbin/chronyd")
+	if err != nil {
+		log.Errorf("%s", err)
+		return "chronyd"
+	}
+	return path
+}
+
+// chronyAccountIds returns the user and group chronyd drops to, or -1 when
+// there is no such account — which is the case on a developer's machine, where
+// chronyd is not going to be run anyway.
+func chronyAccountIds() (int, int) {
+	account, err := user.Lookup(chronyAccount)
+	if err != nil {
+		return -1, -1
+	}
+	userId, err := strconv.Atoi(account.Uid)
+	if err != nil {
+		return -1, -1
+	}
+	groupId, err := strconv.Atoi(account.Gid)
+	if err != nil {
+		return -1, -1
+	}
+	return userId, groupId
+}
+
 // prepare writes the configuration file. It is rewritten before every start
 // so that changing the servers and reloading takes effect on the next restart
 // without anybody editing a second file.
 func (self *Client) prepare(ctx context.Context) error {
-	settings := self.configuration.Time
+	settings := self.configuration().Time
 
 	var builder strings.Builder
 	builder.WriteString("# Written by cue from the time section of cue.yaml.\n")
@@ -102,8 +155,9 @@ func (self *Client) prepare(ctx context.Context) error {
 	}
 
 	builder.WriteString("\n")
-	fmt.Fprintf(&builder, "driftfile %s\n", self.driftFilename)
-	fmt.Fprintf(&builder, "bindcmdaddress %s\n", self.socketPath)
+	fmt.Fprintf(&builder, "driftfile %s\n", filepath.Join(self.driftDirectory, "drift"))
+	fmt.Fprintf(&builder, "bindcmdaddress %s\n", self.socketPath())
+	fmt.Fprintf(&builder, "pidfile %s\n", filepath.Join(self.runtimeDirectory, "chronyd.pid"))
 
 	// The default is to step the clock only during the first three updates
 	// and only if it is out by more than a second. A display whose real-time
@@ -123,6 +177,30 @@ func (self *Client) prepare(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(self.configFilename), 0o755); err != nil {
 		return fmt.Errorf("timesync: create %s: %w", filepath.Dir(self.configFilename), err)
 	}
+
+	// chronyd drops its privileges to an unprivileged account and then wants
+	// to write the drift file and its pid file, so both directories have to
+	// belong to that account. The runtime one is 0750 as well, because chronyd
+	// refuses to open its command socket in a directory anybody can write to
+	// and says so as "Wrong permissions on <directory>".
+	userId, groupId := chronyAccountIds()
+	for directory, mode := range map[string]os.FileMode{
+		self.driftDirectory:   0o755,
+		self.runtimeDirectory: 0o750,
+	} {
+		if err := os.MkdirAll(directory, mode); err != nil {
+			return fmt.Errorf("timesync: create %s: %w", directory, err)
+		}
+		if err := os.Chmod(directory, mode); err != nil {
+			return fmt.Errorf("timesync: set the mode of %s: %w", directory, err)
+		}
+		if userId >= 0 {
+			if err := os.Chown(directory, userId, groupId); err != nil {
+				log.Debugf("cannot give %s to %s: %s", directory, chronyAccount, err)
+			}
+		}
+	}
+
 	return atomicfile.Write(self.configFilename, []byte(builder.String()), 0o644)
 }
 
@@ -130,7 +208,7 @@ func (self *Client) prepare(ctx context.Context) error {
 // says the process is up, not that the clock is right yet, which can take a
 // few seconds more.
 func (self *Client) probe(ctx context.Context) error {
-	if _, err := os.Stat(self.socketPath); err != nil {
+	if _, err := os.Stat(self.socketPath()); err != nil {
 		return fmt.Errorf("timesync: chronyd has not opened its command socket yet")
 	}
 	return nil
@@ -143,12 +221,18 @@ func (self *Client) probe(ctx context.Context) error {
 // hundred lines to implement for one screen of the interface. chronyc is in
 // the image because chronyd is.
 func (self *Client) State(ctx context.Context) State {
-	state := State{Enabled: self.configuration.Time.Enabled, Now: time.Now()}
+	state := State{Enabled: self.configuration().Time.Enabled, Now: time.Now()}
 	if !state.Enabled {
 		return state
 	}
 
-	command := exec.CommandContext(ctx, "chronyc", "-c", "-h", self.socketPath, "tracking")
+	chronyc, err := executable.Resolve("chronyc", "/usr/bin/chronyc", "/usr/sbin/chronyc")
+	if err != nil {
+		state.Problem = err.Error()
+		return state
+	}
+
+	command := exec.CommandContext(ctx, chronyc, "-c", "-h", self.socketPath(), "tracking")
 	output, err := command.Output()
 	if err != nil {
 		state.Problem = "chronyd is not answering: " + err.Error()

@@ -22,6 +22,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/util/cdp"
+	"github.com/ziyan/cue/internal/util/executable"
 )
 
 var log = logging.MustGetLogger("browser")
@@ -102,7 +103,7 @@ func (self *Browser) Settings() *supervise.Settings {
 		outputLevel = logging.INFO
 	}
 
-	binary, err := resolveBinary(self.configuration.Browser.Binary)
+	binary, err := executable.Resolve(self.configuration.Browser.Binary, knownBrowsers...)
 	if err != nil {
 		// Reported rather than returned: the supervisor will try to start it,
 		// fail, and say so on a backoff, which is the same shape as every
@@ -135,6 +136,17 @@ func (self *Browser) Settings() *supervise.Settings {
 			"XDG_RUNTIME_DIR":     self.configuration.Paths.Runtime,
 		}),
 	}
+}
+
+// knownBrowsers are where a real Chromium executable is found on the systems
+// this runs on. The image ships the first. They are tried only when the
+// configured name is not a program that can be run — which on Debian it never
+// is, /usr/bin/chromium being a shell script.
+var knownBrowsers = []string{
+	"/usr/lib/chromium/chromium",
+	"/usr/lib/chromium-browser/chromium-browser",
+	"/opt/google/chrome/chrome",
+	"/usr/lib/chrome/chrome",
 }
 
 func (self *Browser) profileParent() string {

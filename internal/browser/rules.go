@@ -276,6 +276,15 @@ func (self *pageSession) fillAndSubmit(ctx context.Context, login *config.Login)
   password.focus();
   setValue(password, %s);
 
+  for (const selector of %s) {
+    const extra = document.querySelector(selector);
+    // Only click a checkbox that is not already ticked; clicking it every
+    // time would toggle "remember me" off on every other sign-in.
+    if (extra && !(extra.type === 'checkbox' && extra.checked) && extra.getAttribute('aria-checked') !== 'true') {
+      extra.click();
+    }
+  }
+
   const submitSelector = %s;
   if (submitSelector) {
     const submit = document.querySelector(submitSelector);
@@ -306,6 +315,7 @@ func (self *pageSession) fillAndSubmit(ctx context.Context, login *config.Login)
 		quote(login.PasswordSelector),
 		quote(login.Username),
 		quote(login.Password.Reveal()),
+		quoteList(login.AlsoClick),
 		quote(login.SubmitSelector))
 
 	var outcome string
@@ -373,6 +383,18 @@ func (self *pageSession) dismiss(ctx context.Context, rule config.Dismiss) (bool
 		return false, err
 	}
 	return acted, nil
+}
+
+// quoteList renders a list of strings as a JavaScript array literal.
+func quoteList(values []string) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	encoded, err := json.Marshal(values)
+	if err != nil {
+		return "[]"
+	}
+	return string(encoded)
 }
 
 // quote renders a Go string as a JavaScript string literal. encoding/json

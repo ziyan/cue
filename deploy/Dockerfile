@@ -132,6 +132,11 @@ RUN set -eux; \
 # daemon starts it as an unprivileged account instead. The daemon and the X
 # server stay root because the graphics device needs it.
 #
+# _chrony is there because Debian's chronyd is built to drop privileges to
+# that account and refuses to start without it — "Fatal error : Could not get
+# user/group ID of _chrony". It parses packets from the network, so keeping
+# that privilege separation is worth an extra line here.
+#
 # The supplementary groups are worked out by the daemon at run time from the
 # ownership of the device files, because the group numbers for video, render
 # and audio differ between hosts and a fixed number here would be wrong on
@@ -140,11 +145,13 @@ RUN set -eux; \
     printf '%s\n' \
         'root:x:0:0:root:/root:/sbin/nologin' \
         'cue:x:1000:1000:cue:/var/lib/cue/browser:/sbin/nologin' \
+        '_chrony:x:123:127:chrony:/var/lib/cue/chrony:/sbin/nologin' \
         'nobody:x:65534:65534:nobody:/nonexistent:/sbin/nologin' \
         > /rootfs/etc/passwd; \
     printf '%s\n' \
         'root:x:0:' \
         'cue:x:1000:' \
+        '_chrony:x:127:' \
         'nogroup:x:65534:' \
         > /rootfs/etc/group; \
     chown -R 1000:1000 /rootfs/var/lib/cue
@@ -159,7 +166,7 @@ COPY --from=daemon /cue /usr/local/bin/cue
 
 # Chromium and the X server are found on PATH, and Xorg lives outside the
 # usual one.
-ENV PATH=/usr/local/bin:/usr/bin:/bin:/usr/lib/xorg
+ENV PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin:/usr/lib/xorg
 ENV CUE_CONFIG=/etc/cue/cue.yaml
 
 # The web interface, and the VNC server for a viewer that would rather not go

@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -153,6 +154,13 @@ type Process struct {
 	exitedAt  time.Time
 	restarts  int
 	lastError string
+
+	// recent holds the last few lines the program wrote. When a program fails
+	// to start, the reason is always in its output — and if that output is
+	// logged at DEBUG, which is where a chatty program belongs, the operator
+	// sees "exited before it was ready" and nothing else. This is what makes
+	// the reason visible without turning the level up and restarting.
+	recent []string
 
 	// ready is closed each time the program becomes ready and replaced when
 	// it stops, so that a caller can wait for "up" without polling.
@@ -437,6 +445,7 @@ func (self *Process) runOnce(ctx context.Context) error {
 	self.command = command
 	self.startedAt = time.Now()
 	self.lastError = ""
+	self.recent = nil
 	self.mutex.Unlock()
 
 	log.Noticef("%s: started as process %d", self.settings.Name, command.Process.Pid)
@@ -453,6 +462,7 @@ func (self *Process) runOnce(ctx context.Context) error {
 		if err := self.waitReady(ctx, exited); err != nil {
 			self.terminate(command)
 			<-exited
+			self.reportRecentOutput()
 			return err
 		}
 	}
@@ -478,6 +488,18 @@ func (self *Process) runOnce(ctx context.Context) error {
 		<-exited
 		return nil
 	}
+}
+
+// reportRecentOutput logs what the program said before it failed, at a level
+// somebody will see. Without this, a program whose output is logged at DEBUG
+// fails with nothing but "exited before it was ready" — which is how an
+// afternoon goes on a missing shared library or an account that is not there.
+func (self *Process) reportRecentOutput() {
+	lines := self.RecentOutput()
+	if len(lines) == 0 {
+		return
+	}
+	log.Errorf("%s: what it said before giving up:\n    %s", self.settings.Name, strings.Join(lines, "\n    "))
 }
 
 // waitReady polls the readiness check until it passes, the program exits, or
@@ -569,6 +591,7 @@ func (self *Process) copyOutput(reader io.Reader) {
 		if len(line) > 0 {
 			trimmed := trimLine(line)
 			if trimmed != "" {
+				self.remember(trimmed)
 				self.logOutput(trimmed)
 			}
 		}
@@ -576,6 +599,28 @@ func (self *Process) copyOutput(reader io.Reader) {
 			return
 		}
 	}
+}
+
+// recentLimit is how many lines of a program's output are kept for the case
+// where it will not start. Enough to hold a fatal error and the few lines
+// leading up to it; not enough to matter.
+const recentLimit = 20
+
+func (self *Process) remember(line string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.recent = append(self.recent, line)
+	if len(self.recent) > recentLimit {
+		self.recent = self.recent[len(self.recent)-recentLimit:]
+	}
+}
+
+// RecentOutput is the last few lines the program wrote, for the interface and
+// for the message logged when it will not start.
+func (self *Process) RecentOutput() []string {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return append([]string(nil), self.recent...)
 }
 
 // logOutput writes one captured line at the configured level. go-logging has

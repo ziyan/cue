@@ -65,7 +65,7 @@ type Daemon struct {
 func New(store *config.Store) (*Daemon, error) {
 	configuration := store.Current()
 
-	server, err := xserver.New(configuration)
+	server, err := xserver.New(store)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +77,8 @@ func New(store *config.Store) (*Daemon, error) {
 	}
 
 	self.browser = browser.New(configuration, server.DisplayName(), server.AuthorityFilename())
-	self.vncserver = vncserver.New(configuration, server.DisplayName(), server.AuthorityFilename())
-	self.timesync = timesync.New(configuration)
+	self.vncserver = vncserver.New(store, server.DisplayName(), server.AuthorityFilename())
+	self.timesync = timesync.New(store)
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,

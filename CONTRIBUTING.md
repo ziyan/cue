@@ -66,6 +66,12 @@ trace back.
   `example.com` and obvious placeholders. This project was written against a
   real device whose password came with the feature request; that password
   exists only in that device's own `/etc/cue/cue.yaml`.
+
+  A test or an example needs *some* string, so the rule is that it has to say
+  so: any value containing the word `test`, `example`, `fake`, `dummy`,
+  `sample` or `placeholder` is accepted. `"a long test password"` passes;
+  `"a good long password"` does not, and that is deliberate — a real
+  credential never announces itself.
 - **The configuration file is the source of truth.** Anything an operator sets
   lives in `internal/config`. Do not add a second place.
 - **Configuration identifiers are stable.** A playlist item's `identifier` is

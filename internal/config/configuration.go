@@ -286,6 +286,13 @@ type Login struct {
 	// respond to.
 	SubmitSelector string `yaml:"submitSelector,omitempty" json:"submitSelector"`
 
+	// AlsoClick are elements clicked after the fields are filled and before
+	// the form is submitted. The one this exists for is a "remember my
+	// credentials" checkbox: ticking it makes the session last far longer,
+	// which on a screen nobody visits is the difference between signing in
+	// every few hours and every few weeks.
+	AlsoClick []string `yaml:"alsoClick,omitempty" json:"alsoClick"`
+
 	Username string `yaml:"username" json:"username"`
 	Password Secret `yaml:"password" json:"password"`
 

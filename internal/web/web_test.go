@@ -32,9 +32,10 @@ type fakeDevice struct {
 	startedAt time.Time
 }
 
-func newFakeDevice(t *testing.T, configuration *config.Configuration) *fakeDevice {
+func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
 	t.Helper()
-	server, err := xserver.New(configuration)
+	configuration := store.Current()
+	server, err := xserver.New(store)
 	if err != nil {
 		t.Fatalf("xserver: %s", err)
 	}
@@ -42,7 +43,7 @@ func newFakeDevice(t *testing.T, configuration *config.Configuration) *fakeDevic
 		browser:   browser.New(configuration, ":9", "/nonexistent/Xauthority"),
 		watchdog:  watchdog.New(&configuration.Watchdog, watchdog.Remedies{}),
 		xserver:   server,
-		timesync:  timesync.New(configuration),
+		timesync:  timesync.New(store),
 		startedAt: time.Now(),
 	}
 }
@@ -69,7 +70,7 @@ func newTestServer(t *testing.T, configuration *config.Configuration) *Server {
 	configuration.Normalize()
 
 	store := config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration)
-	return New(store, newFakeDevice(t, configuration))
+	return New(store, newFakeDevice(t, store))
 }
 
 func TestHealthIsAnsweredWithoutASession(t *testing.T) {
@@ -125,7 +126,7 @@ func TestSetupWorksOnceAndSignsTheBrowserIn(t *testing.T) {
 	server := newTestServer(t, config.Default())
 
 	response := do(server, http.MethodPost, "/api/v1/setup", map[string]string{
-		"name": "Reception", "password": "a good long password",
+		"name": "Reception", "password": "a long test password",
 	}, nil)
 	if response.Code != http.StatusOK {
 		t.Fatalf("setup answered %d: %s", response.Code, response.Body)
@@ -142,7 +143,7 @@ func TestSetupWorksOnceAndSignsTheBrowserIn(t *testing.T) {
 	// Once is once. A second call would let anybody who reaches the device
 	// before the operator does take it over.
 	again := do(server, http.MethodPost, "/api/v1/setup", map[string]string{
-		"name": "Theirs", "password": "another password",
+		"name": "Theirs", "password": "another test password",
 	}, nil)
 	if again.Code != http.StatusConflict {
 		t.Errorf("a second setup answered %d, want 409", again.Code)
@@ -151,9 +152,9 @@ func TestSetupWorksOnceAndSignsTheBrowserIn(t *testing.T) {
 
 func TestSetupRefusesAShortPassword(t *testing.T) {
 	server := newTestServer(t, config.Default())
-	response := do(server, http.MethodPost, "/api/v1/setup", map[string]string{"password": "short"}, nil)
+	response := do(server, http.MethodPost, "/api/v1/setup", map[string]string{"password": "test"}, nil)
 	if response.Code != http.StatusBadRequest {
-		t.Errorf("a five character password answered %d, want 400", response.Code)
+		t.Errorf("a four character password answered %d, want 400", response.Code)
 	}
 }
 
@@ -165,7 +166,7 @@ func TestSigningInAndOut(t *testing.T) {
 		t.Fatal("a signed-in request was refused")
 	}
 
-	wrong := do(server, http.MethodPost, "/api/v1/session", map[string]string{"password": "not it"}, nil)
+	wrong := do(server, http.MethodPost, "/api/v1/session", map[string]string{"password": "the wrong test password"}, nil)
 	if wrong.Code != http.StatusUnauthorized {
 		t.Errorf("a wrong password answered %d, want 401", wrong.Code)
 	}
@@ -211,14 +212,14 @@ func TestAnExpiredSessionIsRefused(t *testing.T) {
 
 func TestTheConfigurationComesBackWithoutItsSecrets(t *testing.T) {
 	configuration := config.Default()
-	configuration.VNC.Password = "the vnc password"
+	configuration.VNC.Password = "test vnc password"
 	configuration.Playlist.Items = []config.Item{{
 		URL: "https://example.com/",
 		Login: &config.Login{
 			WhenURLMatches:   "/login",
 			PasswordSelector: "#password",
 			Username:         "display",
-			Password:         "the page password",
+			Password:         "test page password",
 		},
 	}}
 
@@ -231,7 +232,7 @@ func TestTheConfigurationComesBackWithoutItsSecrets(t *testing.T) {
 	}
 
 	body := response.Body.String()
-	for _, secret := range []string{"the vnc password", "the page password"} {
+	for _, secret := range []string{"test vnc password", "test page password"} {
 		if strings.Contains(body, secret) {
 			t.Errorf("the API returned the secret %q", secret)
 		}
@@ -246,7 +247,7 @@ func TestSavingTheConfigurationBackDoesNotEraseTheSecrets(t *testing.T) {
 	// Save wipes every credential on the device, because the interface was
 	// never shown them and sends the placeholder back.
 	configuration := config.Default()
-	configuration.VNC.Password = "the vnc password"
+	configuration.VNC.Password = "test vnc password"
 	server := newTestServer(t, configuration)
 	session := setUp(t, server)
 
@@ -261,7 +262,7 @@ func TestSavingTheConfigurationBackDoesNotEraseTheSecrets(t *testing.T) {
 		t.Fatalf("saving answered %d: %s", written.Code, written.Body)
 	}
 
-	if password := server.store.Current().VNC.Password.Reveal(); password != "the vnc password" {
+	if password := server.store.Current().VNC.Password.Reveal(); password != "test vnc password" {
 		t.Errorf("the VNC password became %q after a save", password)
 	}
 	if server.store.Current().Web.PasswordHash == "" {
@@ -325,7 +326,7 @@ func TestTheInterfaceIsServedAndUnknownPathsFallBackToIt(t *testing.T) {
 
 // --- helpers ----------------------------------------------------------------
 
-const testPassword = "a good long password"
+const testPassword = "a long test password"
 
 func setUp(t *testing.T, server *Server) *http.Cookie {
 	t.Helper()

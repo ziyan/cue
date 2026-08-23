@@ -26,8 +26,12 @@ import (
 var log = logging.MustGetLogger("vncserver")
 
 // Server owns the x11vnc process.
+//
+// It reads the configuration through the store rather than holding a snapshot:
+// the password file is written before every start, and a snapshot taken when
+// the daemon started would be stale by then.
 type Server struct {
-	configuration *config.Configuration
+	store *config.Store
 
 	displayName       string
 	authorityFilename string
@@ -35,18 +39,23 @@ type Server struct {
 }
 
 // New returns a VNC server for the given configuration.
-func New(configuration *config.Configuration, displayName, authorityFilename string) *Server {
+func New(store *config.Store, displayName, authorityFilename string) *Server {
 	return &Server{
-		configuration:     configuration,
+		store:             store,
 		displayName:       displayName,
 		authorityFilename: authorityFilename,
-		passwordFilename:  filepath.Join(configuration.Paths.Runtime, "vncpasswd"),
+		passwordFilename:  filepath.Join(store.Current().Paths.Runtime, "vncpasswd"),
 	}
+}
+
+// configuration is the settings in force right now.
+func (self *Server) configuration() *config.Configuration {
+	return self.store.Current()
 }
 
 // Address is where the server listens, which the web interface's bridge dials.
 func (self *Server) Address() string {
-	return self.configuration.VNC.Listen
+	return self.configuration().VNC.Listen
 }
 
 // Settings builds the supervisor settings for x11vnc.
@@ -69,7 +78,7 @@ func (self *Server) Settings() *supervise.Settings {
 }
 
 func (self *Server) arguments() []string {
-	settings := self.configuration.VNC
+	settings := self.configuration().VNC
 
 	host, port, err := net.SplitHostPort(settings.Listen)
 	if err != nil {
@@ -95,7 +104,7 @@ func (self *Server) arguments() []string {
 		"-noremote",
 	}
 
-	if !self.configuration.Display.Cursor {
+	if !self.configuration().Display.Cursor {
 		// The X server is started with no cursor, so there is nothing to
 		// send; drawing one for the viewer alone is confusing, because it
 		// does not appear on the screen in the room.
@@ -121,7 +130,7 @@ func (self *Server) arguments() []string {
 
 // prepare writes the password file, when there is a password.
 func (self *Server) prepare(ctx context.Context) error {
-	settings := self.configuration.VNC
+	settings := self.configuration().VNC
 
 	if err := os.MkdirAll(filepath.Dir(self.passwordFilename), 0o755); err != nil {
 		return fmt.Errorf("vncserver: create %s: %w", filepath.Dir(self.passwordFilename), err)
@@ -149,7 +158,7 @@ func (self *Server) prepare(ctx context.Context) error {
 // probe is the readiness check: the port accepts a connection.
 func (self *Server) probe(ctx context.Context) error {
 	dialer := net.Dialer{}
-	address := self.configuration.VNC.Listen
+	address := self.configuration().VNC.Listen
 	if host, port, err := net.SplitHostPort(address); err == nil && (host == "" || host == "0.0.0.0") {
 		// Dialling 0.0.0.0 does not mean anything; the loopback address
 		// reaches a server bound to everything.

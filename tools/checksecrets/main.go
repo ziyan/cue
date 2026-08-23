@@ -47,9 +47,20 @@ var rules = []rule{
 	{
 		name:    "what looks like a real credential",
 		pattern: regexp.MustCompile(`(?i)(password|passwd|secret|token|apikey|api_key)["']?\s*[:=]\s*["'][^"']+["']`),
-		// Placeholders, obviously fake examples, and the empty string.
-		allowed:     regexp.MustCompile(`(?i)["'](|\*+|changeme|placeholder|redacted|example|secret|password|hunter2|\.\.\.|\$\{[^}]+\}|<[^>]+>|%[svq])["']`),
-		explanation: "a credential belongs in the device's own configuration file, never in the repository",
+		// Two kinds of value are allowed. The first is an outright
+		// placeholder: an empty string, a row of asterisks, a format verb, a
+		// template variable. The second is a value that announces itself as
+		// invented — anything containing the word test, example, fake, dummy,
+		// sample or placeholder as a word of its own. Test fixtures and
+		// documentation need *some* string, and requiring them to say so is
+		// better than exempting whole files: a real credential in a test is
+		// exactly the leak this exists to catch.
+		allowed: regexp.MustCompile(`(?i)["'](` +
+			`|\*+|changeme|redacted|hunter2|\.\.\.|\$\{[^}]+\}|<[^>]+>|%[svq]` +
+			`|[^"']*\b(test|example|fake|dummy|sample|placeholder|invalid)\b[^"']*` +
+			`)["']`),
+		explanation: "a credential belongs in the device's own configuration file, never in the repository; " +
+			"a value used in a test or an example must say so — put the word test, example or placeholder in it",
 	},
 	{
 		name:        "a private key",
