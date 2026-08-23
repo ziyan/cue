@@ -110,6 +110,16 @@ type Display struct {
 	// touched its keyboard is a fault report waiting to happen.
 	BlankAfter Duration `yaml:"blankAfter" json:"blankAfter"`
 
+	// XorgConfiguration is written verbatim into the X server's configuration
+	// directory. It is an escape hatch for the hardware nobody anticipated —
+	// a television that needs ModeValidation relaxed, a driver that needs an
+	// option — and it is deliberately raw text rather than a set of fields,
+	// because generating an xorg.conf is how screens end up black.
+	XorgConfiguration string `yaml:"xorgConfiguration,omitempty" json:"xorgConfiguration"`
+
+	// ExtraArguments are appended to the X server's command line.
+	ExtraArguments []string `yaml:"extraArguments,omitempty" json:"extraArguments"`
+
 	// ReconcileInterval is how often the daemon compares the outputs it can
 	// see against this configuration and fixes any difference. This is what
 	// makes unplugging and replugging an HDMI cable work without anybody

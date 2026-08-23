@@ -14,10 +14,21 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/ziyan/cue/cmd"
+	"github.com/ziyan/cue/internal/minishell"
 	"github.com/ziyan/cue/internal/version"
 )
 
 func main() {
+	// The cue binary answers to two names. Under its own it is the daemon and
+	// its command line tools; under the name "sh" it is a one-command shell
+	// that exists because the X server compiles its keyboard map by running
+	// xkbcomp through /bin/sh, and this image has no shell. See
+	// internal/minishell, which explains why that is not solved by putting
+	// one in.
+	if minishell.IsInvokedAsShell(os.Args[0]) {
+		os.Exit(minishell.Run(os.Args, os.Stderr))
+	}
+
 	command := &cli.Command{
 		Name:                  "cue",
 		Usage:                 "kiosk display daemon",
