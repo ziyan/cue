@@ -93,34 +93,19 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	step("starting the container")
 	_ = remote(host, "docker", "rm", "-f", name)
 
-	arguments := []string{
-		"docker", "run", "-d",
-		"--name", name,
-		"--restart", "unless-stopped",
-		"--network", "host",
-		"--shm-size", "1g",
-		"--device", "/dev/dri:/dev/dri",
-		"--device", "/dev/tty0:/dev/tty0",
-		"--device", fmt.Sprintf("/dev/tty%d:/dev/tty%d", terminal, terminal),
-		"--cap-add", "SYS_TTY_CONFIG",
-		"--cap-add", "SYS_TIME",
-		"--cap-add", "SYS_RAWIO",
-		"-v", "/etc/cue:/etc/cue",
-		"-v", "/var/lib/cue:/var/lib/cue",
-	}
-	// Input and sound are passed through when the machine has them. Naming a
-	// device that is not there is an error, and a screen nobody touches and
-	// nobody listens to is a perfectly ordinary screen.
-	for _, optional := range []string{"/dev/input", "/dev/snd"} {
-		if remote(host, "test", "-e", optional) == nil {
-			arguments = append(arguments, "--device", optional+":"+optional)
+	// Input and sound are passed through only when the machine has them.
+	// Naming a device that is not there is an error, and a screen nobody
+	// touches and nobody listens to is a perfectly ordinary screen.
+	var optional []string
+	for _, device := range []string{"/dev/input", "/dev/snd"} {
+		if remote(host, "test", "-e", device) == nil {
+			optional = append(optional, device)
 		} else {
-			fmt.Printf("    %s is not on this machine; carrying on without it\n", optional)
+			fmt.Printf("    %s is not on this machine; carrying on without it\n", device)
 		}
 	}
-	arguments = append(arguments, image, "run")
 
-	if err := remote(host, arguments...); err != nil {
+	if err := remote(host, containerArguments(image, name, terminal, optional)...); err != nil {
 		return err
 	}
 
@@ -141,6 +126,45 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	// A deployment that fails should hand over the reason, not the fact.
 	logs, _ := remoteOutput(host, "docker", "logs", "--tail", "60", name)
 	return fmt.Errorf("it did not come up within three minutes (%w)\n\n--- the last of its log ---\n%s", lastError, logs)
+}
+
+// containerArguments builds the docker command that starts the daemon.
+//
+// It is a function of its own so that it can be tested, because it is a list
+// of thirty flags where one wrong word means a screen that stays black on a
+// machine somebody has to drive to. The device list in particular has to agree
+// with display.virtualTerminal, and the reason each entry is there is in
+// deploy/docker-compose.yml, which this mirrors.
+func containerArguments(image, name string, terminal int, optionalDevices []string) []string {
+	arguments := []string{
+		"docker", "run", "-d",
+		"--name", name,
+		"--restart", "unless-stopped",
+		// The web interface and the VNC server should answer on the machine's
+		// own address, and kernel hotplug events are only delivered in the
+		// host's network namespace.
+		"--network", "host",
+		// Chromium exhausts Docker's default 64 megabytes and then crashes
+		// tabs with no explanation anybody can act on.
+		"--shm-size", "1g",
+		// The graphics device, the console layer, and the one console the X
+		// server is told to draw on.
+		"--device", "/dev/dri:/dev/dri",
+		"--device", "/dev/tty0:/dev/tty0",
+		"--device", fmt.Sprintf("/dev/tty%d:/dev/tty%d", terminal, terminal),
+		// Switching that console, and setting the clock.
+		"--cap-add", "SYS_TTY_CONFIG",
+		"--cap-add", "SYS_TIME",
+		"--cap-add", "SYS_RAWIO",
+		// The directory, not the file: a rename cannot replace a bind mount,
+		// and the daemon rewrites its configuration atomically.
+		"-v", "/etc/cue:/etc/cue",
+		"-v", "/var/lib/cue:/var/lib/cue",
+	}
+	for _, device := range optionalDevices {
+		arguments = append(arguments, "--device", device+":"+device)
+	}
+	return append(arguments, image, "run")
 }
 
 // reportScreen says what the machine ended up driving, which is the thing
