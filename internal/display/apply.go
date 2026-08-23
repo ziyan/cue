@@ -168,19 +168,8 @@ func (self *Display) plan(settings *config.Display, resources *randr.GetScreenRe
 			width, height = height, width
 		}
 
-		positionX, positionY := nextX, 0
-		if outputSettings.Position != "" {
-			if parsedX, parsedY, err := config.ParseSize(outputSettings.Position); err == nil {
-				positionX, positionY = parsedX, parsedY
-			}
-		}
-		// Outputs with no position of their own are laid out left to right,
-		// which is what somebody with two screens on a desk means by
-		// "nothing configured". A single screen lands at 0,0 either way.
-		if outputSettings.Position == "" || outputSettings.Name == "*" {
-			positionX, positionY = nextX, 0
-			nextX += width
-		}
+		positionX, positionY, advance := positionFor(outputSettings, width, nextX)
+		nextX += advance
 
 		placement := placement{
 			outputName: name,
@@ -386,6 +375,29 @@ func chooseMode(information *randr.GetOutputInfoReply, modes map[randr.Mode]mode
 		sizes = append(sizes, candidate.String())
 	}
 	return mode{}, fmt.Errorf("%q is not a mode this output has; it offers %s", outputSettings.Mode, strings.Join(sizes, ", "))
+}
+
+// positionFor decides where one output sits in the drawing surface, and how
+// far the next unpositioned one should be pushed along.
+//
+// A written position is honoured, always. That sounds obvious and was got
+// wrong: the wildcard entry in the default configuration says "0x0", and an
+// earlier version laid every output out left to right anyway, so a laptop with
+// an external screen ended up with a drawing surface twice as wide and one
+// browser window spanning both. Every output at 0,0 means every output shows
+// the same top-left corner of the surface — they are mirrored — which is what
+// a display appliance almost always wants and what the system this replaces
+// did.
+//
+// Only an entry with no position at all is laid out left to right, which is
+// what somebody with two screens on a desk means by leaving it blank.
+func positionFor(outputSettings *config.Output, width, nextX int) (int, int, int) {
+	if outputSettings.Position != "" {
+		if parsedX, parsedY, err := config.ParseSize(outputSettings.Position); err == nil {
+			return parsedX, parsedY, 0
+		}
+	}
+	return nextX, 0, width
 }
 
 func largest(modes []mode) mode {

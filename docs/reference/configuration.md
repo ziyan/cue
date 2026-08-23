@@ -57,9 +57,24 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
         - name: "*"            # a socket name like HDMI-1, or * for anything unnamed
           mode: preferred      # preferred, off, or 1920x1080
           rate: 0              # hertz, when several modes share a size
-          position: 0x0
+          position: 0x0        # where it sits; every output at 0x0 is mirrored
           rotate: normal       # normal, left, right, inverted
           primary: false
+
+The default puts every output at `0x0`, which means every screen shows the same
+top-left corner of the drawing surface — they are mirrored. That is what a
+display appliance almost always wants, and it is what a laptop with an external
+screen needs: the alternative lays the two out side by side, giving a surface
+twice as wide and one browser window spanning both.
+
+Leave `position` out entirely to get that side-by-side layout, or give each
+output an explicit position for a video wall:
+
+    outputs:
+      - name: HDMI-1
+        position: 0x0
+      - name: HDMI-2
+        position: 1920x0
 
 `virtualTerminal` is worth a word, because getting it wrong produces a black
 screen and a message that names neither the setting nor the container. Left to

@@ -236,3 +236,58 @@ func contains(haystack, needle string) bool {
 		return false
 	})()
 }
+
+func TestAWrittenPositionIsHonoured(t *testing.T) {
+	// The failure this pins down: the wildcard entry in the default
+	// configuration says "0x0", and an earlier version laid every output out
+	// left to right anyway. On a laptop with an external screen that gave a
+	// drawing surface twice as wide and one browser window spanning both,
+	// which is not what anybody means by a kiosk.
+	settings := &config.Output{Name: "*", Position: "0x0"}
+
+	first, firstY, advance := positionFor(settings, 1920, 0)
+	if first != 0 || firstY != 0 || advance != 0 {
+		t.Errorf("the first output went to %d,%d advancing %d; want 0,0 advancing 0", first, firstY, advance)
+	}
+
+	// The second output, with the same wildcard entry, must land in the same
+	// place — that is what mirroring is.
+	second, secondY, advance := positionFor(settings, 1920, 0)
+	if second != 0 || secondY != 0 || advance != 0 {
+		t.Errorf("the second output went to %d,%d; want 0,0, mirroring the first", second, secondY)
+	}
+}
+
+func TestAnOutputWithNoPositionIsLaidOutLeftToRight(t *testing.T) {
+	settings := &config.Output{Name: "*"}
+
+	first, _, advance := positionFor(settings, 1920, 0)
+	if first != 0 || advance != 1920 {
+		t.Errorf("the first output went to %d advancing %d; want 0 advancing 1920", first, advance)
+	}
+
+	second, _, advance := positionFor(settings, 2560, first+advance)
+	if second != 1920 || advance != 2560 {
+		t.Errorf("the second output went to %d advancing %d; want 1920 advancing 2560", second, advance)
+	}
+}
+
+func TestAnExplicitPositionPlacesAnOutputWhereItSays(t *testing.T) {
+	settings := &config.Output{Name: "HDMI-1", Position: "1920x0"}
+	positionX, positionY, advance := positionFor(settings, 1920, 0)
+	if positionX != 1920 || positionY != 0 {
+		t.Errorf("the output went to %d,%d, want 1920,0", positionX, positionY)
+	}
+	if advance != 0 {
+		t.Errorf("an output placed by hand advanced the automatic layout by %d, want 0", advance)
+	}
+}
+
+func TestAPositionThatIsNotOneFallsBackToTheAutomaticLayout(t *testing.T) {
+	// A typo must not put the screen somewhere nobody can see it.
+	settings := &config.Output{Name: "*", Position: "nonsense"}
+	positionX, _, advance := positionFor(settings, 1920, 640)
+	if positionX != 640 || advance != 1920 {
+		t.Errorf("a bad position gave %d advancing %d; want the automatic layout", positionX, advance)
+	}
+}
