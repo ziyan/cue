@@ -2,10 +2,13 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
@@ -221,15 +224,41 @@ func writeNameservers(nameservers []string, searchDomain string) error {
 		fmt.Fprintf(&builder, "nameserver %s\n", server)
 	}
 
-	if err := atomicfile.Write(resolvConfFilename, []byte(builder.String()), 0o644); err != nil {
-		// A read-only /etc/resolv.conf is what a container gets when the
-		// runtime bind-mounts one, and it is not worth failing over: the
-		// addresses are already applied and the machine can be reached.
-		if os.IsPermission(err) || strings.Contains(err.Error(), "device or resource busy") {
-			return fmt.Errorf("network: the addresses are set, but %s cannot be written "+
-				"(the container runtime mounted it); name resolution will use whatever it holds", resolvConfFilename)
-		}
+	content := []byte(builder.String())
+
+	// The ordinary way first: write a new file beside it and rename over it,
+	// so no reader ever sees half of one.
+	err := atomicfile.Write(resolvConfFilename, content, 0o644)
+	if err == nil {
+		return nil
+	}
+	// errors.Is, not os.IsPermission: atomicfile wraps what it got, and
+	// os.IsPermission does not unwrap — so the fallback below would never
+	// have run for the case it exists for.
+	if !errors.Is(err, fs.ErrPermission) && !errors.Is(err, syscall.EBUSY) {
 		return err
+	}
+
+	// Which fails in a container, because the runtime bind-mounts this file
+	// and a bind mount is over the inode: the file can be written, it cannot
+	// be replaced. Giving up here looked like a reasonable degradation and is
+	// not one — a device whose name servers were never written cannot resolve
+	// the address of the dashboard it exists to show, which is a black screen.
+	//
+	// So write through to the same inode. This is not atomic, and every DHCP
+	// client on the system does it for the same reason: the content is a few
+	// hundred bytes and goes out in one write, and a resolver that read a
+	// torn copy would retry a moment later against the whole one.
+	file, openErr := os.OpenFile(resolvConfFilename, os.O_WRONLY|os.O_TRUNC, 0o644)
+	if openErr != nil {
+		return fmt.Errorf("network: the addresses are set, but %s can be neither replaced "+
+			"nor written (%s); name resolution will use whatever it already holds",
+			resolvConfFilename, openErr)
+	}
+	defer func() { _ = file.Close() }()
+
+	if _, err := file.Write(content); err != nil {
+		return fmt.Errorf("network: cannot write %s: %w", resolvConfFilename, err)
 	}
 	return nil
 }

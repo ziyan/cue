@@ -113,6 +113,14 @@ All notable changes to this project are recorded here, in the categories of
   that would not start logged `yaml: unmarshal errors:` over and over and said
   nothing whatever about its configuration.
 
+- Name servers are written even where the file cannot be replaced. In a
+  container `/etc/resolv.conf` is bind-mounted, so its inode cannot be
+  swapped — the atomic write failed and `cue` gave up on setting DNS at all,
+  which for a device that then cannot resolve its own dashboard is a black
+  screen. It now writes through to the same inode, as every DHCP client does.
+  The check that decided this was also wrong: `os.IsPermission` does not
+  unwrap, so the fallback would never have run.
+
 - The wireless passphrase can no longer reach the log. The command that carries
   it is also the one most likely to fail, and its whole text went into the error
   — into `docker logs`, into the interface's log view and, on an enrolled

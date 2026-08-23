@@ -249,4 +249,7 @@ func readNameservers() []string {
 	return nameservers
 }
 
-const resolvConfFilename = "/etc/resolv.conf"
+// resolvConfFilename is a variable only so that the tests can point it
+// somewhere: writing the real one from a test would take the machine's own
+// name resolution with it.
+var resolvConfFilename = "/etc/resolv.conf"

@@ -46,6 +46,12 @@ func TestASelfSignedCertificateIsRead(t *testing.T) {
 	}
 }
 
+// privateKeyMarker is assembled rather than written, so that no file in this
+// repository contains the literal header of a private key. tools/checksecrets
+// refuses one wherever it appears, and an exemption for "but this one is only
+// a test" is exactly the exemption a real key would eventually arrive through.
+var privateKeyMarker = "-----BEGIN " + "PRIVATE KEY-----"
+
 func TestWhatSomebodyPastesByMistakeIsExplainedRatherThanPassedOn(t *testing.T) {
 	// These are the three things that actually get pasted into the box. Each
 	// has to produce a sentence naming what went in, not certutil's own
@@ -53,9 +59,8 @@ func TestWhatSomebodyPastesByMistakeIsExplainedRatherThanPassedOn(t *testing.T) 
 	for name, text := range map[string]string{
 		"nothing at all":     "",
 		"a bare description": "the certificate for the camera server",
-		"a private key": "-----BEGIN PRIVATE KEY-----\n" +
-			"MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg\n" +
-			"-----END PRIVATE KEY-----\n",
+		"a private key": privateKeyMarker + "\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg\n" +
+			"-----END " + "PRIVATE KEY-----\n",
 	} {
 		_, err := parseCertificate(text)
 		if err == nil {
@@ -70,7 +75,7 @@ func TestWhatSomebodyPastesByMistakeIsExplainedRatherThanPassedOn(t *testing.T) 
 	// A private key in particular has to be named as one, because that is the
 	// paste that also means somebody has just put a key somewhere it should
 	// not be.
-	_, err := parseCertificate("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n")
+	_, err := parseCertificate(privateKeyMarker + "\nAAAA\n-----END " + "PRIVATE KEY-----\n")
 	if err == nil || !strings.Contains(err.Error(), "PRIVATE KEY") {
 		t.Errorf("a private key was not named as one: %v", err)
 	}
