@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,9 +9,14 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/util/executable"
 )
 
 // selfSigned makes the kind of certificate this feature exists for: one an
@@ -100,5 +106,46 @@ func TestTwoAppliancesWithTheSameSubjectGetDistinctNames(t *testing.T) {
 func TestACertificateWithNoSubjectStillGetsAName(t *testing.T) {
 	if name := certificateName(&x509.Certificate{}, 0); name == "" {
 		t.Error("a certificate with nothing in its subject produced an empty name, which NSS refuses")
+	}
+}
+
+func TestCertificatesActuallyReachTheDatabase(t *testing.T) {
+	// Everything above tests the reading and the naming. This tests the thing
+	// that matters: that certutil is here, that it is called correctly, and
+	// that what comes out is a database with the certificate in it. The
+	// alternative is a feature that looks configured and trusts nothing.
+	if _, err := executable.Resolve("certutil"); err != nil {
+		t.Skip("certutil is not on this machine; the image has it")
+	}
+
+	certificate := selfSigned(t, "cameras.example.invalid")
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.CertificateAuthorities = []string{certificate}
+	})
+
+	if err := browser.installCertificates(context.Background()); err != nil {
+		t.Fatalf("the certificate was not installed: %s", err)
+	}
+
+	// certutil -L lists what the database trusts.
+	listing, err := exec.Command("certutil", "-L", "-d", "sql:"+browser.certificateDirectory()).CombinedOutput()
+	if err != nil {
+		t.Fatalf("cannot read the database back: %s\n%s", err, listing)
+	}
+	if !strings.Contains(string(listing), "cameras.example.invalid") {
+		t.Errorf("the certificate is not in the database:\n%s", listing)
+	}
+	// "C" is trust for a TLS server, and nothing else.
+	if !strings.Contains(string(listing), "C,,") {
+		t.Errorf("the certificate is there but not trusted for TLS servers:\n%s", listing)
+	}
+
+	// Taking it out of the configuration has to take it off the device.
+	browser.configuration.Browser.CertificateAuthorities = nil
+	if err := browser.installCertificates(context.Background()); err != nil {
+		t.Fatalf("removing it failed: %s", err)
+	}
+	if _, err := os.Stat(browser.certificateDirectory()); !os.IsNotExist(err) {
+		t.Error("the database is still there after the certificate was removed from the configuration")
 	}
 }

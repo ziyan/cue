@@ -103,6 +103,26 @@ docker: ## Build the container image
 docker-smoke: docker ## Run the whole daemon in the image against a virtual screen and prove it works
 	@$(GO) run -mod=vendor ./tools/smoke -image $(DOCKER_TAG)
 
+# Some tests need a program the image has and a development machine does not —
+# certutil, for one. On a development machine those tests skip, and a skip
+# proves nothing: the point of them is that the *image* has what the code
+# needs. So the test binaries are built statically and run inside the image
+# itself, where nothing skips.
+docker-test: docker ## Run the tests inside the image, where the programs they need exist
+	@mkdir -p build/tests
+	@for package in $(IMAGE_TESTED_PACKAGES); do \
+		name=$$(basename $$package); \
+		CGO_ENABLED=0 $(GO) test -mod=vendor -c -o build/tests/$$name.test ./$$package || exit 1; \
+		echo "==> $$package, inside $(DOCKER_TAG)"; \
+		docker run --rm -e TMPDIR=/tmp \
+			-v $(PWD)/build/tests/$$name.test:/$$name.test:ro \
+			--entrypoint /$$name.test $(DOCKER_TAG) -test.v 2>&1 \
+			| grep -E "^(---|ok|FAIL|PASS|\s+---)" || exit 1; \
+	done
+
+# The packages whose tests depend on something only the image has.
+IMAGE_TESTED_PACKAGES = internal/browser internal/network
+
 deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...])
 	@$(GO) run -mod=vendor ./tools/deploy -host $(HOST) -image $(DOCKER_TAG) \
 		$(if $(WAIT),-wait $(WAIT),) \

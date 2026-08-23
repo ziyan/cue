@@ -113,6 +113,12 @@ All notable changes to this project are recorded here, in the categories of
   that would not start logged `yaml: unmarshal errors:` over and over and said
   nothing whatever about its configuration.
 
+- `make docker-test` runs the tests inside the image. Some of them need a
+  program the image has and a build machine does not — `certutil`, which is
+  how a pasted certificate actually comes to be trusted — and on a build
+  machine those tests skip. A skip proves nothing: the point of them is that
+  the image has what the code needs. CI runs it.
+
 - Asking for the browser before it has started is an error rather than a
   panic. Everything that drives the browser runs on a timer and can arrive
   before it is up, or after one has gone; the panic was recovered by whichever

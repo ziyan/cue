@@ -21,3 +21,4 @@
 # browser profile. None of it is reproducible and some of it is secret.
 /dev/
 
+build/

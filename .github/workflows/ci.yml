@@ -75,6 +75,14 @@ jobs:
       - name: Check it runs
         run: docker run --rm cue:ci version
 
+      # Some tests need a program the image has and a build machine does not:
+      # certutil, which is how a certificate an operator pastes in actually
+      # comes to be trusted. On a build machine those tests skip, and a skip
+      # proves nothing — the point of them is that the image has what the code
+      # needs. Run inside the image, nothing skips.
+      - name: Test inside the image
+        run: make docker-test DOCKER_TAG=cue:ci
+
       # The real check. This starts the whole daemon inside the image against
       # a virtual screen and proves it puts a picture on it: every program
       # running, a screenshot of the configured size, the playlist rotating,
