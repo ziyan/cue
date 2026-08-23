@@ -138,7 +138,10 @@ being plugged in — with a `/sys` poll as the always-available fallback.
       done; touch input mapped to the right output remains.
 - [x] (2026-08-23 02:45Z) Milestone 9 — the distroless image, compose files,
       end-to-end smoke test. `make docker-smoke` passes.
-- [ ] Milestone 10 — optional fleet enrolment into cue.sh.
+- [x] (2026-08-23 03:20Z) Milestone 10 — optional fleet enrolment. Proved with
+      a stub service in `internal/fleet`: the device enrols, the token is
+      cleared, the tunnel comes up, and the service makes an HTTP request back
+      down it that reaches the device's own handler.
 - [x] (2026-08-23 03:00Z) Milestone 11 — documentation, decision records,
       release workflow.
 - [ ] Validation on real hardware. The machine set aside for it (`carbon`) went

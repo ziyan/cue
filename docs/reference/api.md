@@ -39,6 +39,8 @@ recovering.
     POST   /api/v1/navigate          show an address once, without editing the playlist
     POST   /api/v1/restart/{program} chromium | display | vnc | time
     GET    /api/v1/logs/xorg         the end of the X server's own log
+    POST   /api/v1/fleet             enrol with a management service
+    DELETE /api/v1/fleet             unenrol: delete the credential, switch it off
     GET    /api/v1/vnc               the WebSocket the VNC viewer connects to
     DELETE /api/v1/session           sign out
 
@@ -66,6 +68,18 @@ Sending it back unchanged keeps the real values: the daemon matches playlist
 items by identifier and restores the ones that are still the placeholder. This
 is what stops opening the settings page and saving it from erasing every
 credential on the device.
+
+### Through the fleet tunnel
+
+A device enrolled with a management service holds one connection out to it and
+serves this same API over that connection. Requests arriving that way are
+treated as signed in, because the connection was authenticated by the device's
+own credential before a byte of HTTP crossed it — which is more than a password
+proves.
+
+The service therefore gets exactly this interface and nothing else. There is no
+second, more privileged way in, which is deliberate: it means the access a
+management service has is the access this document describes.
 
 ### The VNC WebSocket
 

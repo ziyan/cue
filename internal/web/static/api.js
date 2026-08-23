@@ -45,4 +45,7 @@ export const api = {
   navigate: (url) => request("POST", "/api/v1/navigate", { url }),
   restart: (program) => request("POST", `/api/v1/restart/${encodeURIComponent(program)}`),
   xorgLog: () => request("GET", "/api/v1/logs/xorg"),
+
+  enrolInFleet: (url, token) => request("POST", "/api/v1/fleet", { url, token }),
+  leaveFleet: () => request("DELETE", "/api/v1/fleet"),
 };

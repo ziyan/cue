@@ -13,6 +13,7 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
+	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
@@ -36,6 +37,7 @@ type Status struct {
 	Screen     display.Screen     `json:"screen"`
 	Clock      timesync.State     `json:"clock"`
 	Sound      []audio.Device     `json:"sound"`
+	Fleet      fleet.State        `json:"fleet"`
 }
 
 // DeviceStatus is who this device is.
@@ -110,6 +112,10 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 	clockContext, clockCancel := context.WithTimeout(request.Context(), 3*time.Second)
 	defer clockCancel()
 	status.Clock = self.device.TimeSync().State(clockContext)
+
+	if tunnel := self.device.Fleet(); tunnel != nil {
+		status.Fleet = tunnel.State()
+	}
 
 	displayContext, displayCancel := context.WithTimeout(request.Context(), 5*time.Second)
 	defer displayCancel()
@@ -326,6 +332,60 @@ func (self *Server) restart(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusBadRequest, err.Error())
 		return
 	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// enrolInFleet turns on fleet management and stores the token. The daemon's
+// tunnel notices on its next attempt; there is no need to restart anything.
+func (self *Server) enrolInFleet(response http.ResponseWriter, request *http.Request) {
+	var body struct {
+		URL   string `json:"url"`
+		Token string `json:"token"`
+	}
+	if err := decode(request, &body); err != nil {
+		writeError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	if body.Token == "" {
+		writeError(response, http.StatusBadRequest, "an enrolment token is needed")
+		return
+	}
+
+	err := self.store.Update(func(configuration *config.Configuration) error {
+		configuration.Fleet.Enabled = true
+		if body.URL != "" {
+			configuration.Fleet.URL = body.URL
+		}
+		configuration.Fleet.EnrollmentToken = config.Secret(body.Token)
+		return nil
+	})
+	if err != nil {
+		writeError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// leaveFleet unenrols the device: the stored credential is deleted and fleet
+// management is switched off. It is one file and one flag, which is what makes
+// this reversible from the device rather than only from the service.
+func (self *Server) leaveFleet(response http.ResponseWriter, request *http.Request) {
+	if err := fleet.ForgetCredential(self.store.Current()); err != nil {
+		writeError(response, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	err := self.store.Update(func(configuration *config.Configuration) error {
+		configuration.Fleet.Enabled = false
+		configuration.Fleet.EnrollmentToken = ""
+		return nil
+	})
+	if err != nil {
+		writeError(response, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	log.Noticef("this device has been unenrolled from fleet management")
 	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
 }
 

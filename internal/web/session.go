@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -99,6 +100,19 @@ func (self *Server) isSetUp() bool {
 // health, setting up, or signing in.
 func (self *Server) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if arrivedThroughTunnel(request) {
+			// The fleet tunnel is authenticated by the device's own
+			// credential before a single byte of HTTP crosses it, so a
+			// request that arrived on it has already proved more than a
+			// password would. It is treated as signed in.
+			//
+			// This is also why the tunnel serves this handler rather than one
+			// of its own: the service gets exactly the interface an operator
+			// standing in front of the screen would get, and there is no
+			// second, more privileged way in to audit separately.
+			next.ServeHTTP(response, request)
+			return
+		}
 		if !self.isSetUp() {
 			writeError(response, http.StatusForbidden, "this device has not been set up yet")
 			return
@@ -109,4 +123,23 @@ func (self *Server) requireSession(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(response, request)
 	})
+}
+
+// tunnelMarker is the context key marking a request that arrived through the
+// fleet tunnel. It is a private type so that nothing outside this package can
+// set it, which matters: setting it is the same as being signed in.
+type tunnelMarker struct{}
+
+// TunnelHandler is the handler the fleet tunnel serves. It is this server's
+// own handler with every request marked as having arrived through the tunnel.
+func (self *Server) TunnelHandler() http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		marked := request.WithContext(context.WithValue(request.Context(), tunnelMarker{}, true))
+		self.router.ServeHTTP(response, marked)
+	})
+}
+
+func arrivedThroughTunnel(request *http.Request) bool {
+	marked, _ := request.Context().Value(tunnelMarker{}).(bool)
+	return marked
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
+	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/deferutil"
@@ -44,7 +45,8 @@ type Daemon struct {
 	timesync  *timesync.Client
 	watchdog  *watchdog.Watchdog
 
-	web *web.Server
+	web   *web.Server
+	fleet *fleet.Tunnel
 
 	xProcess        *supervise.Process
 	browserProcess  *supervise.Process
@@ -101,6 +103,11 @@ func (self *Daemon) Browser() *browser.Browser {
 // Watchdog is the running watchdog, for the web interface.
 func (self *Daemon) Watchdog() *watchdog.Watchdog {
 	return self.watchdog
+}
+
+// Fleet is the enrolment tunnel, for the interface's report of it.
+func (self *Daemon) Fleet() *fleet.Tunnel {
+	return self.fleet
 }
 
 // TimeSync is the time client, for the interface's clock report.
@@ -174,6 +181,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
+	// The fleet tunnel serves the web interface's own handler, so what the
+	// service can reach is exactly what an operator standing in front of the
+	// screen can reach. See internal/fleet.
+	self.fleet = fleet.NewTunnel(self.store, self.web.TunnelHandler())
 	if err := self.web.Start(ctx); err != nil {
 		// Not fatal: a screen that shows the right thing with no interface is
 		// far better than one that shows nothing because a port was taken.
@@ -197,6 +208,11 @@ func (self *Daemon) Run(ctx context.Context) error {
 	if devices, err := audio.Devices(); err == nil {
 		log.Noticef("%s", audio.Describe(&configuration.Audio, devices))
 	}
+
+	go func() {
+		defer deferutil.Recover()
+		self.fleet.Run(ctx)
+	}()
 
 	self.startProcesses(ctx, configuration)
 

@@ -15,3 +15,5 @@ require (
 	github.com/gorilla/mux v1.8.1
 	golang.org/x/sys v0.47.0
 )
+
+require github.com/hashicorp/yamux v0.1.2

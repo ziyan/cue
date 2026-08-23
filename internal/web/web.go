@@ -22,6 +22,7 @@ import (
 
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
@@ -59,6 +60,10 @@ type Device interface {
 
 	// TimeSync is the time client, for the clock report.
 	TimeSync() *timesync.Client
+
+	// Fleet is the enrolment tunnel, or nil when the daemon was built without
+	// one. Its state is reported and it is what unenrolling acts on.
+	Fleet() *fleet.Tunnel
 
 	// Restart restarts one supervised program by name.
 	Restart(ctx context.Context, name string) error
@@ -172,6 +177,8 @@ func (self *Server) addRoutes() {
 	guarded.Path("/navigate").Methods(http.MethodPost).HandlerFunc(self.navigate)
 	guarded.Path("/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.restart)
 	guarded.Path("/logs/xorg").Methods(http.MethodGet).HandlerFunc(self.xorgLog)
+	guarded.Path("/fleet").Methods(http.MethodPost).HandlerFunc(self.enrolInFleet)
+	guarded.Path("/fleet").Methods(http.MethodDelete).HandlerFunc(self.leaveFleet)
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)
 
 	// Everything else is the interface itself.
