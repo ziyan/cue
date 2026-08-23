@@ -247,14 +247,11 @@ func validateLogin(login *Login, path string, add func(string, string, ...interf
 			add(path+".expectUrlMatches", "%q is not a valid regular expression: %s", login.ExpectURLMatches, err)
 		}
 	}
-	if login.UsernameSelector == "" {
-		add(path+".usernameSelector", "must not be empty")
-	}
 	if login.PasswordSelector == "" {
 		add(path+".passwordSelector", "must not be empty")
 	}
-	if login.Username == "" {
-		add(path+".username", "must not be empty")
+	if login.UsernameSelector != "" && login.Username == "" {
+		add(path+".username", "must not be empty when a username field is named")
 	}
 	if !login.Password.IsSet() {
 		add(path+".password", "must not be empty")

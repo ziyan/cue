@@ -26,6 +26,7 @@ import (
 	"github.com/ziyan/cue/internal/util/reaper"
 	"github.com/ziyan/cue/internal/vncserver"
 	"github.com/ziyan/cue/internal/watchdog"
+	"github.com/ziyan/cue/internal/web"
 	"github.com/ziyan/cue/internal/xserver"
 )
 
@@ -39,6 +40,8 @@ type Daemon struct {
 	browser   *browser.Browser
 	vncserver *vncserver.Server
 	watchdog  *watchdog.Watchdog
+
+	web *web.Server
 
 	xProcess       *supervise.Process
 	browserProcess *supervise.Process
@@ -106,6 +109,33 @@ func (self *Daemon) StartedAt() time.Time {
 	return self.startedAt
 }
 
+// XServer is the X server, for the display report and its log.
+func (self *Daemon) XServer() *xserver.Server {
+	return self.xserver
+}
+
+// Restart restarts one supervised program by name. It is what the interface's
+// buttons do, and it is the same path the watchdog takes, so an operator
+// pressing the button and the watchdog giving up produce the same sequence.
+func (self *Daemon) Restart(ctx context.Context, name string) error {
+	switch name {
+	case "chromium", "browser":
+		return self.restartBrowser(ctx)
+	case "xorg", "xvfb", "display", "x":
+		return self.restartDisplay(ctx)
+	case "x11vnc", "vnc":
+		if self.vncProcess == nil {
+			return fmt.Errorf("daemon: the VNC server is not running")
+		}
+		self.vncProcess.Restart()
+		readyContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return self.vncProcess.WaitReady(readyContext)
+	default:
+		return fmt.Errorf("daemon: there is nothing here called %q to restart", name)
+	}
+}
+
 // Run starts everything and returns when the context is cancelled or a signal
 // asks the daemon to stop.
 func (self *Daemon) Run(ctx context.Context) error {
@@ -122,6 +152,22 @@ func (self *Daemon) Run(ctx context.Context) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// The web interface comes up before anything else, so that a device whose
+	// X server will not start is still reachable to say so. That is the case
+	// where somebody most needs to see the logs, and the case where a daemon
+	// that started the interface last would be silent.
+	self.web = web.New(self.store, self)
+	if err := self.web.Start(ctx); err != nil {
+		// Not fatal: a screen that shows the right thing with no interface is
+		// far better than one that shows nothing because a port was taken.
+		log.Errorf("%s", err)
+	}
+	defer func() {
+		stopContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		self.web.Stop(stopContext)
+	}()
 
 	self.startProcesses(ctx, configuration)
 

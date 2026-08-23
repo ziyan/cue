@@ -275,7 +275,10 @@ type Login struct {
 	WhenSelectorExists string `yaml:"whenSelectorExists,omitempty" json:"whenSelectorExists"`
 
 	// UsernameSelector and PasswordSelector are the fields to fill.
-	UsernameSelector string `yaml:"usernameSelector" json:"usernameSelector"`
+	// UsernameSelector may be empty, for the forms that ask only for a
+	// password: an appliance where the account is implicit, or a form that
+	// has already remembered who is signing in.
+	UsernameSelector string `yaml:"usernameSelector,omitempty" json:"usernameSelector"`
 	PasswordSelector string `yaml:"passwordSelector" json:"passwordSelector"`
 
 	// SubmitSelector is what to click afterwards. Empty presses Enter in the

@@ -263,13 +263,16 @@ func (self *pageSession) fillAndSubmit(ctx context.Context, login *config.Login)
     element.dispatchEvent(new Event('change', { bubbles: true }));
   };
 
-  const username = document.querySelector(%s);
+  const usernameSelector = %s;
+  const username = usernameSelector ? document.querySelector(usernameSelector) : null;
   const password = document.querySelector(%s);
-  if (!username) return 'no username field';
+  if (usernameSelector && !username) return 'no username field';
   if (!password) return 'no password field';
 
-  username.focus();
-  setValue(username, %s);
+  if (username) {
+    username.focus();
+    setValue(username, %s);
+  }
   password.focus();
   setValue(password, %s);
 

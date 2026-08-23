@@ -4,5 +4,4 @@
 /build
 /dist
 /dev
-/web/node_modules
-/internal/web/static
+

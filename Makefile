@@ -1,11 +1,9 @@
 .DEFAULT_GOAL := all
 
-.PHONY: all help build web test benchmark coverage format check lint lint-ci mulint \
+.PHONY: all help build test benchmark coverage format check lint lint-ci mulint \
 	check-secrets clean docker docker-smoke dev dev-config watch vendor
 
 GO ?= go
-NPM ?= npm
-WEB_DIR ?= web
 BUILD_DIR ?= build
 BINARY ?= $(BUILD_DIR)/cue
 DOCKER_TAG ?= cue:dev
@@ -16,8 +14,6 @@ GOLANGCI_LINT ?= golangci-lint
 # Raise it deliberately, and fix what the new version finds in that commit.
 GOLANGCI_LINT_VERSION ?= v2.13.1
 
-# Explicit package list: ./... would also pick up stray Go files vendored
-# inside web/node_modules by npm packages.
 GOPACKAGES ?= . ./cmd/... ./internal/... ./tools/...
 
 VERSION ?= $(shell git describe --tags 2>/dev/null || echo 0.1.0)
@@ -26,7 +22,9 @@ LDFLAGS := -s -w -extldflags "-static" \
 	-X github.com/ziyan/cue/internal/version.version=$(VERSION) \
 	-X github.com/ziyan/cue/internal/version.commit=$(COMMIT)
 
-GOFMTARGS := $(shell find . -mindepth 1 -maxdepth 1 -type d -not -path ./vendor -not -path ./web -not -path ./.git) \
+DIST_DIR ?= dist
+
+GOFMTARGS := $(shell find . -mindepth 1 -maxdepth 1 -type d -not -path ./vendor -not -path ./.git) \
 	$(shell find . -mindepth 1 -maxdepth 1 -type f -iname '*.go')
 
 help: ## Show available targets
@@ -37,13 +35,6 @@ all: format build test ## Format, build and test
 build: ## Build the cue binary
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 $(GO) build -mod=vendor -ldflags '$(LDFLAGS)' -o $(BINARY) .
-
-web: $(WEB_DIR)/node_modules ## Build the web interface into internal/web/static
-	cd $(WEB_DIR) && $(NPM) run build
-
-$(WEB_DIR)/node_modules: $(WEB_DIR)/package.json $(WEB_DIR)/package-lock.json
-	cd $(WEB_DIR) && $(NPM) ci --no-audit --no-fund
-	@touch $@
 
 vendor: ## Refresh the vendored dependencies
 	$(GO) mod tidy
@@ -110,11 +101,9 @@ watch: ## Rebuild on source change (requires inotifywait)
 	@set -e; \
 	while true; do \
 		inotifywait --quiet --recursive --event modify --event delete --event move \
-			--exclude '(^\./(\.git|vendor|build|web/node_modules)/)' .; \
+			--exclude '(^\./(\.git|vendor|build|dist)/)' .; \
 		$(MAKE) format build || true; \
 	done
 
 clean: ## Remove build artifacts
-	rm -rf $(BUILD_DIR) $(WEB_DIR)/node_modules $(WEB_DIR)/dist
-	rm -rf internal/web/static/*
-	@touch internal/web/static/.gitkeep
+	rm -rf $(BUILD_DIR) $(DIST_DIR)

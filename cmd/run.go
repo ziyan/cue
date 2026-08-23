@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/urfave/cli/v3"
 
@@ -22,6 +23,18 @@ func NewRunCommand() *cli.Command {
 
 func runDaemon(ctx context.Context, command *cli.Command) error {
 	filename := command.Root().String("config")
+
+	// A first run with no configuration writes the defaults rather than
+	// refusing to start. That is what makes "docker run" with nothing else
+	// work: the device comes up, shows its own address on the screen, and is
+	// configured from there.
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		configuration := config.Default()
+		if err := configuration.Save(filename); err != nil {
+			return fmt.Errorf("no configuration at %s, and one could not be written: %w", filename, err)
+		}
+		log.Noticef("wrote a default configuration to %s", filename)
+	}
 
 	store, err := config.Open(filename)
 	if err != nil {

@@ -5,9 +5,11 @@
 package atomicfile
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // Write replaces filename with data, atomically. The temporary file is
@@ -55,6 +57,20 @@ func Write(filename string, data []byte, mode os.FileMode) error {
 	}
 	if err := os.Rename(temporary, filename); err != nil {
 		_ = os.Remove(temporary)
+		if errors.Is(err, syscall.EBUSY) {
+			// This one is worth explaining. Renaming onto a file that is a
+			// bind mount fails with "device or resource busy", and the usual
+			// cause is a container started with the configuration file
+			// mounted individually:
+			//
+			//     -v ./cue.yaml:/etc/cue/cue.yaml
+			//
+			// Nothing can ever replace that file, so every save fails and the
+			// message on its own sends people looking at permissions.
+			return fmt.Errorf("atomicfile: cannot replace %s because something else is holding that exact file "+
+				"— if this is a container, mount the directory %s rather than the file itself: %w",
+				filename, directory, err)
+		}
 		return fmt.Errorf("atomicfile: rename %s to %s: %w", temporary, filename, err)
 	}
 	return nil

@@ -10,9 +10,3 @@
 # browser profile. None of it is reproducible and some of it is secret.
 /dev/
 
-# The interface build output, compiled into the binary.
-/internal/web/static/*
-!/internal/web/static/.gitkeep
-
-/web/node_modules/
-/web/dist/

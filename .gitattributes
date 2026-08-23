@@ -2,5 +2,6 @@
 **/vendor/** linguist-vendored
 **/vendor/** -diff
 
-**/node_modules/** linguist-vendored
-**/node_modules/** -diff
+# The vendored copy of noVNC is somebody else's code too.
+internal/web/static/novnc/** linguist-vendored
+internal/web/static/novnc/** -diff
