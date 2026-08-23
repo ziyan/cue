@@ -29,6 +29,8 @@ func main() {
 	stopDisplayManager := flag.Bool("stop-display-manager", false,
 		"stop and disable gdm, lightdm or sddm on the machine — they hold the graphics device, so the screen stays black until they are gone")
 	configFile := flag.String("config", "", "a cue.yaml to install; the machine's own is kept if this is empty")
+	wait := flag.Duration("wait", 0,
+		"wait this long for the machine to appear before giving up, instead of failing immediately when it is off")
 	terminal := flag.Int("virtual-terminal", 2, "the console the X server draws on; must match display.virtualTerminal")
 	flag.Parse()
 
@@ -37,10 +39,47 @@ func main() {
 		os.Exit(2)
 	}
 
+	if *wait > 0 {
+		if err := waitForHost(*host, *wait); err != nil {
+			fmt.Fprintf(os.Stderr, "\ndeploy: %s\n", err)
+			os.Exit(1)
+		}
+	}
+
 	if err := deploy(*host, *image, *name, *configFile, *terminal, *stopDisplayManager); err != nil {
 		fmt.Fprintf(os.Stderr, "\ndeploy: FAILED: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+// waitForHost polls until the machine answers, which is what -wait is for: a
+// device that is switched off cannot be deployed to, and somebody who is about
+// to switch it on should not have to come back and run this afterwards. Start
+// it, press the power button, walk away.
+func waitForHost(host string, limit time.Duration) error {
+	step("waiting up to %s for %s to answer", limit.Round(time.Second), host)
+
+	deadline := time.Now().Add(limit)
+	announced := false
+	for time.Now().Before(deadline) {
+		if remote(host, "true") == nil {
+			if announced {
+				fmt.Println()
+			}
+			fmt.Printf("    %s is up\n", host)
+			return nil
+		}
+		if !announced {
+			fmt.Printf("    not answering yet; switch it on and this will carry on by itself")
+			announced = true
+		}
+		fmt.Print(".")
+		time.Sleep(15 * time.Second)
+	}
+	if announced {
+		fmt.Println()
+	}
+	return fmt.Errorf("%s did not answer within %s; it is switched off, or on another network", host, limit)
 }
 
 func deploy(host, image, name, configFile string, terminal int, stopDisplayManager bool) error {

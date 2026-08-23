@@ -103,8 +103,9 @@ docker: ## Build the container image
 docker-smoke: docker ## Run the whole daemon in the image against a virtual screen and prove it works
 	@$(GO) run -mod=vendor ./tools/smoke -image $(DOCKER_TAG)
 
-deploy: docker ## Send this build to a machine and start it (HOST=... [DISPLAY_MANAGER=stop] [CONFIG=...])
+deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...])
 	@$(GO) run -mod=vendor ./tools/deploy -host $(HOST) -image $(DOCKER_TAG) \
+		$(if $(WAIT),-wait $(WAIT),) \
 		$(if $(CONFIG),-config $(CONFIG),) \
 		$(if $(filter stop,$(DISPLAY_MANAGER)),-stop-display-manager,)
 
