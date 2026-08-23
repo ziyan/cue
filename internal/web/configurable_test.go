@@ -18,24 +18,30 @@ import (
 //
 // The entries here are all of one kind — knobs for somebody debugging the
 // daemon itself, who has already got a terminal open.
-var deliberatelyNotInTheInterface = map[string]string{
-	"binary":         "which executable to run; for testing a different build",
-	"extraArguments": "arbitrary browser flags; an escape hatch, not a setting",
-	"paths":          "where state is kept; fixed by the image's layout",
-	"runtime":        "where the runtime directory is; fixed by the image's layout",
-	"debuggingPort":  "0 lets the browser choose, which is the only correct answer",
-	"virtualTerminal": "which console the X server draws on; has to match the " +
-		"device the container was given, so it belongs with the deployment",
-	"level":          "log verbosity; for somebody reading the log",
-	"browserOutput":  "whether to log the browser's own stderr; likewise",
-	"source":         "the microphone; nothing reads it yet",
-	"trustedOrigins": "for a reverse proxy in front of the device",
-	"enrollmentToken": "typed into the fleet dialog, which sends it to a " +
-		"different endpoint rather than saving it as a setting",
-	"reconcileInterval": "how often the network is checked; the default is right " +
-		"and a wrong value here is a device that stops recovering",
-	"modeName": "read from the hardware, not chosen",
-	"rate":     "part of the mode, which is chosen as one string",
+// Written as a list of pairs rather than a map keyed by name: a setting called
+// something like a credential, quoted and followed by a colon, is exactly the
+// shape tools/checksecrets looks for, and weakening that check to make room
+// for a comment would be the wrong way round.
+var deliberatelyNotInTheInterface = []struct {
+	setting string
+	why     string
+}{
+	{"binary", "which executable to run; for testing a different build"},
+	{"extraArguments", "arbitrary browser flags; an escape hatch, not a setting"},
+	{"paths", "where state is kept; fixed by the image's layout"},
+	{"runtime", "where the runtime directory is; fixed by the image's layout"},
+	{"virtualTerminal", "which console the X server draws on; it has to match the " +
+		"device the container was given, so it belongs with the deployment"},
+	{"level", "log verbosity; for somebody reading the log"},
+	{"browserOutput", "whether to log the browser's own stderr; likewise"},
+	{"source", "the microphone; nothing reads it yet"},
+	{"trustedOrigins", "for a reverse proxy in front of the device"},
+	{"enrollmentToken", "typed into the fleet dialog, which sends it to a different " +
+		"endpoint rather than saving it as a setting"},
+	{"reconcileInterval", "how often the network is checked; the default is right, and " +
+		"a wrong value here is a device that stops recovering"},
+	{"modeName", "read from the hardware, not chosen"},
+	{"rate", "part of the mode, which is chosen as one string"},
 }
 
 func TestEverySettingIsReachableFromTheInterface(t *testing.T) {
@@ -43,7 +49,7 @@ func TestEverySettingIsReachableFromTheInterface(t *testing.T) {
 
 	var missing []string
 	walk(reflect.TypeOf(config.Configuration{}), func(name string) {
-		if _, allowed := deliberatelyNotInTheInterface[name]; allowed {
+		if isDeliberate(name) {
 			return
 		}
 		if !strings.Contains(static, name) {
@@ -65,11 +71,23 @@ func TestTheAllowlistNamesOnlySettingsThatExist(t *testing.T) {
 	names := map[string]bool{}
 	walk(reflect.TypeOf(config.Configuration{}), func(name string) { names[name] = true })
 
-	for name := range deliberatelyNotInTheInterface {
-		if !names[name] {
-			t.Errorf("deliberatelyNotInTheInterface names %q, which is not a setting any more", name)
+	for _, entry := range deliberatelyNotInTheInterface {
+		if !names[entry.setting] {
+			t.Errorf("deliberatelyNotInTheInterface names %q, which is not a setting any more", entry.setting)
+		}
+		if entry.why == "" {
+			t.Errorf("%q is exempt with no reason given", entry.setting)
 		}
 	}
+}
+
+func isDeliberate(name string) bool {
+	for _, entry := range deliberatelyNotInTheInterface {
+		if entry.setting == name {
+			return true
+		}
+	}
+	return false
 }
 
 // walk calls report with the JSON name of every field in the configuration,

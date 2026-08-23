@@ -122,3 +122,36 @@ func TestKeyValuesReadTheStatusReply(t *testing.T) {
 		t.Errorf("only the first equals sign separates, got %q", values["key"])
 	}
 }
+
+func TestAFailedCommandDoesNotPutThePassphraseInTheLog(t *testing.T) {
+	// The command that carries the passphrase is also the one most likely to
+	// fail, which is the whole problem: somebody debugging a network they
+	// cannot join is exactly who ends up reading this error, and the log is
+	// shown in the web interface and sent to the fleet service.
+	const passphrase = "a test network passphrase"
+
+	for _, command := range []string{
+		`SET_NETWORK 0 psk "` + passphrase + `"`,
+		`SET_NETWORK 12 password "` + passphrase + `"`,
+		`SET pmf ` + passphrase,
+	} {
+		rendered := withoutSecrets(command)
+		if strings.Contains(rendered, passphrase) {
+			t.Errorf("withoutSecrets(%q) = %s, which still contains the passphrase", command, rendered)
+		}
+	}
+
+	// Commands that carry nothing secret stay readable: knowing which one
+	// failed is most of the diagnosis.
+	if got := withoutSecrets("SELECT_NETWORK 0"); got != `"SELECT_NETWORK 0"` {
+		t.Errorf(`withoutSecrets("SELECT_NETWORK 0") = %s, want it kept whole`, got)
+	}
+	if got := withoutSecrets("SCAN"); got != `"SCAN"` {
+		t.Errorf(`withoutSecrets("SCAN") = %s, want it kept whole`, got)
+	}
+
+	// The field being set survives, so the error still says what failed.
+	if got := withoutSecrets(`SET_NETWORK 0 psk "x"`); !strings.Contains(got, "psk") {
+		t.Errorf("withoutSecrets lost which field was being set: %s", got)
+	}
+}

@@ -59,24 +59,29 @@ func (self *control) Close() {
 }
 
 // ask sends one command and returns the reply.
+//
+// Errors name the command by its safe form, never the command itself. One of
+// the commands sent here carries the wireless passphrase, and it is the one
+// most likely to fail — a passphrase the network does not accept is exactly
+// the case somebody is trying to debug from the log.
 func (self *control) ask(command string) (string, error) {
 	if err := self.connection.SetDeadline(time.Now().Add(controlTimeout)); err != nil {
 		return "", err
 	}
 	if _, err := self.connection.Write([]byte(command)); err != nil {
-		return "", fmt.Errorf("network: cannot send %q to wpa_supplicant: %w", command, err)
+		return "", fmt.Errorf("network: cannot send %s to wpa_supplicant: %w", withoutSecrets(command), err)
 	}
 
 	// Scan results on a busy band run to several kilobytes.
 	buffer := make([]byte, 64*1024)
 	count, err := self.connection.Read(buffer)
 	if err != nil {
-		return "", fmt.Errorf("network: no answer to %q from wpa_supplicant: %w", command, err)
+		return "", fmt.Errorf("network: no answer to %s from wpa_supplicant: %w", withoutSecrets(command), err)
 	}
 
 	reply := string(buffer[:count])
 	if strings.HasPrefix(reply, "FAIL") {
-		return "", fmt.Errorf("network: wpa_supplicant refused %q", command)
+		return "", fmt.Errorf("network: wpa_supplicant refused %s", withoutSecrets(command))
 	}
 	return reply, nil
 }
@@ -88,9 +93,34 @@ func (self *control) mustSucceed(command string) error {
 		return err
 	}
 	if !strings.HasPrefix(reply, "OK") {
-		return fmt.Errorf("network: wpa_supplicant answered %q to %q", strings.TrimSpace(reply), command)
+		return fmt.Errorf("network: wpa_supplicant answered %q to %s", strings.TrimSpace(reply), withoutSecrets(command))
 	}
 	return nil
+}
+
+// secretCommands are the commands whose arguments must not reach the log. The
+// log is read in the web interface, copied into bug reports and, on an
+// enrolled device, sent to the fleet service; a passphrase that reaches it has
+// to be treated as disclosed and the network's password changed.
+var secretCommands = []string{"SET_NETWORK", "SET ", "ADD_NETWORK"}
+
+// withoutSecrets renders a command for an error message. Commands that carry
+// no secret are shown in full, because knowing which one failed is most of the
+// diagnosis; the rest are named but not quoted.
+func withoutSecrets(command string) string {
+	for _, prefix := range secretCommands {
+		if !strings.HasPrefix(command, prefix) {
+			continue
+		}
+		// "SET_NETWORK 0 psk ..." keeps the command, the network and the
+		// field, and loses only the value.
+		fields := strings.Fields(command)
+		if len(fields) > 3 {
+			return strconv.Quote(strings.Join(fields[:3], " ") + " ...")
+		}
+		return strconv.Quote(fields[0] + " ...")
+	}
+	return strconv.Quote(command)
 }
 
 // wirelessStatus asks what the interface is currently doing.

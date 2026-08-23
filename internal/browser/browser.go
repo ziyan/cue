@@ -53,6 +53,11 @@ type Browser struct {
 	// tabs maps a playlist item's identifier to the tab showing it.
 	tabs map[string]string
 
+	// unexpectedTabs are the windows seen at the last check that this daemon
+	// did not open. A window has to appear in two consecutive checks before
+	// it is closed; see closeUnexpectedTabs.
+	unexpectedTabs map[string]bool
+
 	current      string
 	currentSince time.Time
 	lastLogin    map[string]time.Time
@@ -105,16 +110,22 @@ func (self *Browser) activePortFilename() string {
 // resolveClient works out where this browser is listening and points a client
 // at it.
 //
-// When a port is configured, that is where it listens and there is nothing to
-// work out. When it is not — which is the default — Chromium picks a free one
-// and writes it as the first line of DevToolsActivePort in its profile. The
-// file is removed before each start, so a stale one from a browser that has
-// gone cannot be mistaken for a live one.
+// The port always comes from DevToolsActivePort, which Chromium writes into
+// its own profile, and never from the configuration — even when the
+// configuration names one. The file is removed before each start, so a stale
+// one from a browser that has gone cannot be mistaken for a live one, and the
+// port in it can only have been written by the browser this daemon started.
+//
+// Reading it unconditionally is the whole point, and was learnt the hard way
+// twice. The first time, the default was a fixed 9222 and another container on
+// the host published 9222: the daemon connected to that container's Chromium
+// and drove it for an afternoon. Changing the default to 0 fixed new devices
+// and did nothing for the one already deployed, because the port it had been
+// given was written into its configuration file and went on overriding the
+// new default. A configured port is therefore a request made to the browser,
+// not an address to connect to; if the browser ended up somewhere else, the
+// browser is right.
 func (self *Browser) resolveClient() (*cdp.Client, error) {
-	if port := self.configuration.Browser.DebuggingPort; port > 0 {
-		return cdp.New("127.0.0.1:" + strconv.Itoa(port)), nil
-	}
-
 	content, err := os.ReadFile(self.activePortFilename())
 	if err != nil {
 		return nil, fmt.Errorf("browser: it has not said which port it is listening on yet: %w", err)
@@ -125,6 +136,7 @@ func (self *Browser) resolveClient() (*cdp.Client, error) {
 	if err != nil || port <= 0 {
 		return nil, fmt.Errorf("browser: %s does not hold a port number", self.activePortFilename())
 	}
+
 	return cdp.New("127.0.0.1:" + strconv.Itoa(port)), nil
 }
 
@@ -317,6 +329,12 @@ func (self *Browser) prepare(ctx context.Context) error {
 	// that answers for somebody else.
 	if err := os.Remove(self.activePortFilename()); err != nil && !os.IsNotExist(err) {
 		log.Warningf("cannot remove the stale debugging port file: %s", err)
+	}
+
+	// Before the profile is handed over, because the database has to be
+	// readable by the account the browser runs as.
+	if err := self.installCertificates(ctx); err != nil {
+		log.Errorf("%s", err)
 	}
 
 	if err := self.giveProfileToBrowserUser(); err != nil {

@@ -42,6 +42,12 @@ type Status struct {
 	Input      []input.Device     `json:"input"`
 	Fleet      fleet.State        `json:"fleet"`
 	Network    network.State      `json:"network"`
+
+	// IgnoredSettings are names in the configuration file this version has no
+	// setting for: a mistyped key, or a setting removed by an upgrade. They
+	// are shown here because from in front of the screen a key that was
+	// mistyped and a setting that does nothing look exactly the same.
+	IgnoredSettings []string `json:"ignoredSettings,omitempty"`
 }
 
 // DeviceStatus is who this device is.
@@ -126,6 +132,7 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 	if manager := self.device.Network(); manager != nil {
 		status.Network = manager.State()
 	}
+	status.IgnoredSettings = configuration.IgnoredSettings
 
 	displayContext, displayCancel := context.WithTimeout(request.Context(), 5*time.Second)
 	defer displayCancel()

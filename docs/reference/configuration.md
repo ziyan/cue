@@ -98,9 +98,37 @@ applied, and reapplies the layout when they differ.
       user: cue                # the account the browser runs as. Must not be root
       sandbox: true            # turning it off is a real reduction in safety
       ignoreCertificateErrors: false
+      darkMode: true           # a wall in a dark room at full brightness
       ephemeralCache: true     # empty the disk cache at every start
-      debuggingPort: 9222      # loopback only
+      closeUnexpectedTabs: true
       extraArguments: []
+
+There is deliberately **no setting for the DevTools port**. The daemon drives
+the browser over it, always asks for port 0, and always finds the number the
+browser chose in `DevToolsActivePort` inside its own profile directory — which
+cannot resolve to anybody else's browser. To attach devtools by hand, read that
+file.
+
+It was a setting twice, and caused a different failure each time. Fixed at
+9222, it was not this browser's port but whichever process on the machine got
+there first: on the laptop this was developed against, another container
+publishes 9222, and the daemon spent an afternoon driving *that* browser. Every
+call succeeded, so nothing was logged as wrong; what was visible was a frozen
+screen, a certificate error for a page it had never been asked to load, and a
+window that would not go full screen. Changing the default to 0 then fixed new
+devices and did nothing for the one already deployed, because 9222 had been
+written into its configuration file and went on overriding the new default —
+and by then nothing could bind it, so the browser never came up at all.
+
+An old `debuggingPort:` left in a configuration file is ignored, and removed the
+next time the file is written.
+
+`closeUnexpectedTabs` gets rid of windows the daemon did not open. A page that
+calls `window.open` gets a window of its own, and with no window manager it is
+stacked in front of the one on the wall; a screen showing a single page would
+otherwise stay covered by it until somebody walked over. A window is given one
+cycle — about ten seconds — to close itself first, and what was closed is
+always written to the log. Turn it off if a page here signs in through a popup.
 
 `sandbox: true` needs two things, and both are in
 `deploy/docker-compose.yml`.
@@ -123,6 +151,35 @@ with a bug in a web page one step closer to everything else in the container.
 load while everything else looks healthy, and it survives every restart — so it
 presents as a device that has to be reimaged. Making the cache disposable
 removes the whole class of fault.
+
+### certificates
+
+    browser:
+      certificateAuthorities:
+        - |
+          -----BEGIN CERTIFICATE-----
+          ...
+          -----END CERTIFICATE-----
+
+An appliance on a private network — a camera recorder, a building controller, a
+switch — signs its own certificate and the browser refuses the page. There are
+two answers here and they are not equivalent.
+
+`ignoreCertificateErrors: true` stops the browser checking anything, on every
+page, for the life of the process. A device with that switched on cannot tell
+its dashboard from anything else answering on the same address.
+
+`certificateAuthorities` trusts that one certificate and goes on checking
+everything else. Paste the appliance's certificate in — the Screen page in the
+web interface has a box for it — and the page opens with no warning and no loss
+of protection. `cue` puts them in the NSS database Chromium reads from its own
+home directory, replacing what was there, so a certificate removed from the
+configuration is no longer trusted by the device.
+
+To get the certificate from an appliance:
+
+    openssl s_client -connect the-appliance:443 -showcerts </dev/null \
+        | openssl x509 -outform pem
 
 ## playlist
 
@@ -291,6 +348,26 @@ client on it.
 
 Off by default, and inert until turned on: the daemon makes no outbound
 connection of its own accord.
+
+## When nothing is plugged in
+
+A machine with no screen attached has no output for the X server to drive.
+`cue` starts, reports every connector as disconnected, and there is nothing to
+show — which is correct, and is what the Device page says.
+
+If you want a screen anyway, so that VNC has something to look at before a
+monitor is carried over, force the connector on and give it a mode. The kernel
+takes the first; `display.modeline` and `display.xorgConfiguration` take the
+second:
+
+    # On the host, before starting the container:
+    echo on > /sys/class/drm/card0-HDMI-A-1/status
+
+`cue` does not do this for you. Writing to sysfs needs a container privileged
+well beyond what a display needs, and generating a Monitor section to do it
+inside X would mean generating device sections — which this daemon deliberately
+does not do, because a generated `xorg.conf` is reliably the thing that makes a
+screen stay black.
 
 ## Touchscreens
 

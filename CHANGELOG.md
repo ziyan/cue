@@ -8,6 +8,21 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- Certificates a device trusts. An appliance on a private network that signs
+  its own certificate can now be trusted by name, so the page opens with no
+  warning and every other page goes on being checked — which is the difference
+  between this and `ignoreCertificateErrors`, the answer that stops the browser
+  checking anything at all.
+
+- Windows the daemon did not open are closed. A page that calls `window.open`
+  gets a window of its own and, with no window manager, it is stacked in front
+  of the one on the wall; a screen showing a single page stayed covered by it
+  until somebody walked over. A window is given a cycle to close itself first,
+  and what was closed is always logged.
+
+- Scrollbars float over the page and fade out, instead of taking a column of a
+  dashboard that nobody is going to scroll.
+
 - Network management, off by default. `cue` can hold a static address or join a
   wireless network, on interfaces it is explicitly told to manage, and reconcile
   them every half minute. The Network page in the web interface scans for
@@ -68,7 +83,62 @@ All notable changes to this project are recorded here, in the categories of
   buttons too small for a finger.
 - `cue config`, `cue display probe`, `cue health` and `cue version`.
 
+### Removed
+
+- `browser.debuggingPort`. It was a setting twice and caused a different failure
+  each time. Fixed at 9222, it was not this browser's port but whichever process
+  on the machine got there first, and the daemon drove another container's
+  browser — every call succeeding, nothing logged, a frozen screen and a window
+  that would not go full screen. Changing the default to 0 fixed new devices and
+  did nothing for the one already deployed, whose file still said 9222 and where
+  nothing could bind it, so the browser never came up at all. The port is now
+  always chosen by the browser and always read back from `DevToolsActivePort` in
+  its own profile, which cannot resolve to anybody else's browser. An old
+  `debuggingPort:` in a configuration file is ignored.
+
 ### Fixed
+
+- A setting the running version does not have no longer stops the daemon. Every
+  device in service has the settings of the version that wrote its file, so a
+  setting removed by an upgrade was in every one of those files: the daemon
+  refused to start, and the upgrade was a screen that had gone black on a
+  machine nobody could reach. Unknown names are now named in the log, shown in
+  the interface — a mistyped key and a setting that does nothing look identical
+  from in front of the screen — and dropped when the file is next written.
+  Anything else wrong with the file is still refused.
+
+- Errors from the configuration file say what was wrong with it. `go-yaml`
+  puts every problem into one error whose text is a heading followed by
+  indented lines, and printing it with `%w` gave the heading alone: a device
+  that would not start logged `yaml: unmarshal errors:` over and over and said
+  nothing whatever about its configuration.
+
+- The wireless passphrase can no longer reach the log. The command that carries
+  it is also the one most likely to fail, and its whole text went into the error
+  — into `docker logs`, into the interface's log view and, on an enrolled
+  device, to the fleet service.
+
+- The X server's endless output is recognised and counted rather than repeated.
+  With no D-Bus system bus to connect to — and there is none, because nothing
+  in this image needs one — it reports the failure as an error and retries every
+  ten seconds forever. On a device that had been up an hour, that one line was
+  61% of everything in the log. The first occurrence is now logged whole,
+  together with why it does not matter, and the rest are counted.
+
+- The container's log is bounded. Docker keeps everything by default and a
+  screen is a machine nobody logs in to for a year: on the device this project
+  replaces, the browser's log turned over 50 MB in a day and, at its worst,
+  10 MB every four minutes.
+
+- Chromium is given every feature it needs in one `--enable-features`. Chromium
+  keeps only the last one on a command line, so a second — including one an
+  operator added by hand — silently discarded the first.
+
+- Keyboard input over VNC goes through the XKEYBOARD extension. Somebody
+  connecting to a screen is usually doing it to type a password into a
+  dashboard that logged itself out, from a keyboard laid out differently to the
+  one the X server assumes; the shifted characters arrived as something else
+  and all they saw was that it was refused.
 
 - The browser's debugging port is now chosen by the browser rather than fixed
   at 9222, and read back out of `DevToolsActivePort`. On a host already running

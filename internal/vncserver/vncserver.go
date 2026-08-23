@@ -102,6 +102,13 @@ func (self *Server) arguments() []string {
 		// Nothing should be able to reconfigure or shut down the server from
 		// the viewer side.
 		"-noremote",
+		// Work out modifiers through the XKEYBOARD extension rather than by
+		// guessing at the keymap. Somebody connecting to a screen is usually
+		// doing it to type a password into a dashboard that logged itself
+		// out, from a keyboard laid out differently to the one this X server
+		// thinks it has; without this the shifted characters in that password
+		// arrive as something else, and all they see is that it was refused.
+		"-xkb",
 	}
 
 	if !self.configuration().Display.Cursor {

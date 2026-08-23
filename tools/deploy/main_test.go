@@ -88,3 +88,18 @@ func TestTheImageAndTheCommandComeLast(t *testing.T) {
 		t.Errorf("the image is at %q, want it immediately before the subcommand", arguments[len(arguments)-2])
 	}
 }
+
+func TestTheLogIsBounded(t *testing.T) {
+	// A screen is a machine nobody logs in to for a year at a time. Docker
+	// keeps the whole log by default, so anything the daemon or one of its
+	// programs repeats runs until the disk is full and the machine stops
+	// doing anything at all — which is not a hypothetical: the device this
+	// project replaces turned over 50 MB of browser log in a day.
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+
+	for _, wanted := range []string{"--log-opt max-size=", "--log-opt max-file="} {
+		if !strings.Contains(joined, wanted) {
+			t.Errorf("the container is started without %q, so its log grows forever:\n%s", wanted, joined)
+		}
+	}
+}

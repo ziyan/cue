@@ -103,7 +103,10 @@ func applyDevelopmentDefaults(configuration *config.Configuration) {
 	configuration.Time.Enabled = false
 	configuration.Web.Listen = "127.0.0.1:8080"
 	configuration.VNC.Listen = "127.0.0.1:5909"
-	configuration.Browser.DebuggingPort = 9229
+	// Nothing sets a debugging port, here or anywhere: the browser chooses
+	// one and says so in DevToolsActivePort in its profile, which for this
+	// configuration is under dev/state. Attach devtools to whatever is in
+	// that file.
 }
 
 func showConfiguration(ctx context.Context, command *cli.Command) error {

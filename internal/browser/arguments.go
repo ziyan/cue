@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/user"
 	"strconv"
+	"strings"
 
 	"github.com/ziyan/cue/internal/audio"
 	"github.com/ziyan/cue/internal/input"
@@ -86,8 +87,8 @@ func (self *Browser) arguments() []string {
 		"--remote-debugging-address=127.0.0.1",
 		// Zero asks Chromium to pick a free port and write it into the
 		// profile, which is the only way to be sure the daemon is talking to
-		// the browser it started. See config.Browser.DebuggingPort.
-		"--remote-debugging-port=" + strconv.Itoa(settings.DebuggingPort),
+		// the browser it started; see resolveClient.
+		"--remote-debugging-port=0",
 	}
 
 	self.mutex.Lock()
@@ -97,17 +98,33 @@ func (self *Browser) arguments() []string {
 		arguments = append(arguments, fmt.Sprintf("--window-size=%d,%d", width, height))
 	}
 
+	// Chromium keeps only the last --enable-features it is given, so every
+	// feature this daemon wants is collected here and emitted once at the
+	// end. Two of these flags on one command line means the first is silently
+	// discarded, which is how a setting appears to be applied and is not.
+	var features []string
+
+	// Scrollbars that float over the page rather than taking a strip of it,
+	// and that fade out when nothing is scrolling. A dashboard laid out for a
+	// screen loses a column to a permanent scrollbar, and on a wall nobody is
+	// going to scroll anyway.
+	features = append(features,
+		"OverlayScrollbar",
+		"OverlayScrollbarFlashAfterAnyScrollUpdate",
+		"OverlayScrollbarFlashWhenMouseEnter",
+	)
+
 	if settings.DarkMode {
-		// Three flags, because they do different things and a screen wants
-		// all three: the first sets the preference a page reads through
+		// Three things, because they do different jobs and a screen wants all
+		// three: the first sets the preference a page reads through
 		// prefers-color-scheme, the second darkens the browser's own pages
 		// (the error page, the print dialogue), and the third stops a light
 		// theme being inferred from a desktop that is not there.
 		arguments = append(arguments,
 			"--force-dark-mode",
-			"--enable-features=WebUIDarkMode",
 			"--force-prefers-color-scheme=dark",
 		)
+		features = append(features, "WebUIDarkMode")
 	}
 
 	if !settings.Sandbox {
@@ -138,8 +155,45 @@ func (self *Browser) arguments() []string {
 		arguments = append(arguments, "--touch-events=enabled")
 	}
 
-	arguments = append(arguments, settings.ExtraArguments...)
+	// Anything the operator added by hand goes last, so it wins — except a
+	// --enable-features of their own, which is merged rather than allowed to
+	// replace the list above.
+	extra, extraFeatures := separateFeatures(settings.ExtraArguments)
+	features = append(features, extraFeatures...)
+	arguments = append(arguments, "--enable-features="+strings.Join(deduplicate(features), ","))
+	arguments = append(arguments, extra...)
 	return arguments
+}
+
+// separateFeatures pulls the feature names out of any --enable-features the
+// operator wrote, returning the rest of their arguments unchanged.
+func separateFeatures(arguments []string) (rest, features []string) {
+	const flag = "--enable-features="
+	for _, argument := range arguments {
+		if names, found := strings.CutPrefix(argument, flag); found {
+			for _, name := range strings.Split(names, ",") {
+				if name = strings.TrimSpace(name); name != "" {
+					features = append(features, name)
+				}
+			}
+			continue
+		}
+		rest = append(rest, argument)
+	}
+	return rest, features
+}
+
+func deduplicate(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
 }
 
 // lookupAccount turns an account name into the user and group id that own the

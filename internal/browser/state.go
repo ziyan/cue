@@ -123,15 +123,23 @@ func restartNeeded(previous, updated *config.Configuration) bool {
 	case before.Sandbox != after.Sandbox:
 	case before.IgnoreCertificateErrors != after.IgnoreCertificateErrors:
 	case before.EphemeralCache != after.EphemeralCache:
-	case before.DebuggingPort != after.DebuggingPort:
-	case len(before.ExtraArguments) != len(after.ExtraArguments):
+	case before.DarkMode != after.DarkMode:
+	case !sameStrings(before.CertificateAuthorities, after.CertificateAuthorities):
+	case !sameStrings(before.ExtraArguments, after.ExtraArguments):
 	default:
-		for index := range before.ExtraArguments {
-			if before.ExtraArguments[index] != after.ExtraArguments[index] {
-				return true
-			}
-		}
 		return false
+	}
+	return true
+}
+
+func sameStrings(before, after []string) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	for index := range before {
+		if before[index] != after[index] {
+			return false
+		}
 	}
 	return true
 }

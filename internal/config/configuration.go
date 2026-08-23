@@ -21,6 +21,17 @@ type Configuration struct {
 	Audio    Audio    `yaml:"audio" json:"audio"`
 	Time     Time     `yaml:"time" json:"time"`
 	Fleet    Fleet    `yaml:"fleet" json:"fleet"`
+
+	// IgnoredSettings are the names in the file that this version has no
+	// setting for. They are not fatal — a device already in service has the
+	// settings of the version that wrote its file, and refusing to start over
+	// one that has since been removed turns an upgrade into a black screen on
+	// a machine nobody can reach — but they are not silent either. The
+	// interface shows them, because a mistyped key and a setting that does
+	// nothing look identical from in front of the screen.
+	//
+	// Not written back: this is what was read, not what to keep.
+	IgnoredSettings []string `yaml:"-" json:"ignoredSettings,omitempty"`
 }
 
 // Device is what this screen is, as a human would describe it.
@@ -199,6 +210,22 @@ type Browser struct {
 	// own is unaffected; a page that has one follows it.
 	DarkMode bool `yaml:"darkMode" json:"darkMode"`
 
+	// CertificateAuthorities are PEM certificates the browser should trust in
+	// addition to the public ones, for the appliances on private networks
+	// that sign their own. This is the answer to a dashboard a browser will
+	// not open; IgnoreCertificateErrors is the other answer, and it is worse,
+	// because it stops the browser checking anything at all.
+	CertificateAuthorities []string `yaml:"certificateAuthorities,omitempty" json:"certificateAuthorities"`
+
+	// CloseUnexpectedTabs closes windows the daemon did not open. A page that
+	// calls window.open gets a window of its own and, with no window manager,
+	// it is stacked in front of the one on the wall; without this, a screen
+	// showing one page stays covered by it until somebody walks over.
+	//
+	// A window is given one cycle to close itself before it is closed here,
+	// and what was closed is always logged.
+	CloseUnexpectedTabs bool `yaml:"closeUnexpectedTabs" json:"closeUnexpectedTabs"`
+
 	// EphemeralCache puts the browser's disk cache under the runtime
 	// directory and empties it at every start. On by default: a corrupted
 	// cache is a fault that survives every restart and presents as a page
@@ -206,9 +233,13 @@ type Browser struct {
 	// network loses nothing by fetching its assets again.
 	EphemeralCache bool `yaml:"ephemeralCache" json:"ephemeralCache"`
 
-	// DebuggingPort is where Chromium listens for the DevTools protocol the
-	// daemon drives it with. It is bound to the loopback address only.
-	DebuggingPort int `yaml:"debuggingPort" json:"debuggingPort"`
+	// There is deliberately no setting for the DevTools port. It was one
+	// twice, and caused a different failure each time: fixed at 9222 the
+	// daemon drove another container's browser, and when the default became 0
+	// the devices already deployed went on using the 9222 written into their
+	// files — where, by then, nothing could bind. The browser is always asked
+	// for 0 and always found through the DevToolsActivePort file in its own
+	// profile, which cannot resolve to anybody else's browser.
 
 	// ExtraArguments are appended to the command line, for the settings
 	// nobody anticipated. They are applied last and can override anything.

@@ -210,6 +210,14 @@ func containerArguments(image, name string, terminal int, optionalDevices []stri
 		"docker", "run", "-d",
 		"--name", name,
 		"--restart", "unless-stopped",
+		// Bound the log, because nothing else does. Docker's json-file driver
+		// keeps everything by default, and a screen is a machine nobody logs
+		// in to for a year at a time: whatever it repeats, it repeats until
+		// the disk is full and then the machine stops doing anything at all.
+		// On the device this project replaces, the browser's own log turned
+		// over 50 MB in one day and, at its worst, 10 MB every four minutes.
+		"--log-opt", "max-size=10m",
+		"--log-opt", "max-file=5",
 		// The host's network namespace. The interface and the VNC server then
 		// answer on the machine's own address, kernel hotplug events arrive,
 		// and — the reason it is not optional — the daemon can manage the

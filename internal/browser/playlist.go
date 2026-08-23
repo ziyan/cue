@@ -186,6 +186,7 @@ func (self *Browser) rotate(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-time.After(wait):
+				self.closeUnexpectedTabs(ctx)
 				continue
 			}
 		}
@@ -195,6 +196,8 @@ func (self *Browser) rotate(ctx context.Context) {
 			return
 		case <-time.After(wait):
 		}
+
+		self.closeUnexpectedTabs(ctx)
 
 		if err := self.showNext(ctx); err != nil {
 			log.Warningf("cannot move to the next page: %s", err)
@@ -384,4 +387,78 @@ func splitPort(address string) (string, string, error) {
 		}
 	}
 	return "", "", fmt.Errorf("browser: %q has no port", address)
+}
+
+// closeUnexpectedTabs gets rid of windows the daemon did not open.
+//
+// A page that calls window.open gets a window of its own, and with no window
+// manager it is stacked in front of the one on the wall. Spare tabs are dealt
+// with when the playlist is applied, but that happens on a restart or a
+// configuration change; a screen showing one page — which is the ordinary case
+// — would otherwise carry on showing whatever popped up until somebody noticed
+// and walked over.
+//
+// A window has to have been there for two consecutive checks before it is
+// closed. A page that opens a window and closes it again is doing something
+// legitimate often enough — a print dialogue, an authentication step that
+// hands back to the opener — that killing it the instant it appears would
+// break the page. Anything that is still there ten seconds later is not
+// transient. Nothing is ever closed silently: what it was is logged, because
+// the failure mode of this function is a dashboard whose popup login window
+// keeps vanishing and no explanation anywhere.
+func (self *Browser) closeUnexpectedTabs(ctx context.Context) {
+	if !self.configuration.Browser.CloseUnexpectedTabs {
+		return
+	}
+
+	session, err := self.browser(ctx)
+	if err != nil {
+		return
+	}
+	pages, err := self.client.Pages(ctx)
+	if err != nil {
+		return
+	}
+
+	self.mutex.Lock()
+	ours := make(map[string]bool, len(self.tabs))
+	for _, identifier := range self.tabs {
+		ours[identifier] = true
+	}
+	seenBefore := self.unexpectedTabs
+	self.mutex.Unlock()
+
+	seenNow := make(map[string]bool)
+	for _, page := range pages {
+		if ours[page.Identifier] {
+			continue
+		}
+		seenNow[page.Identifier] = true
+		if !seenBefore[page.Identifier] {
+			// First sighting. Give it one cycle to close itself.
+			continue
+		}
+		log.Noticef("closing a window this daemon did not open: %s", describeTarget(page))
+		if err := session.CloseTarget(ctx, page.Identifier); err != nil {
+			log.Warningf("cannot close it: %s", err)
+		}
+	}
+
+	self.mutex.Lock()
+	self.unexpectedTabs = seenNow
+	self.mutex.Unlock()
+}
+
+// describeTarget names a window in a way that is useful in a log line without
+// being a page's whole URL, which can be several kilobytes of query string.
+func describeTarget(target cdp.Target) string {
+	address := target.URL
+	const maximum = 200
+	if len(address) > maximum {
+		address = address[:maximum] + "…"
+	}
+	if target.Title != "" {
+		return fmt.Sprintf("%q at %s", target.Title, address)
+	}
+	return address
 }

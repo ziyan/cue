@@ -169,6 +169,7 @@ func (self *Server) Settings() *supervise.Settings {
 		// The X server writes almost nothing to standard error; the useful
 		// output is in its own log, which the daemon reads separately.
 		OutputLevel: logging.INFO,
+		Repetitions: knownRepetitions,
 		// SIGTERM lets the server hand the graphics hardware back. Killing it
 		// outright leaves the console blank and the next server unable to
 		// take the device, which on a machine nobody can reach means a
@@ -399,3 +400,27 @@ func resolve(name string, fallbacks ...string) string {
 }
 
 const socketDirectory = "/tmp/.X11-unix"
+
+// knownRepetitions are the lines this X server writes forever, for conditions
+// that are a consequence of how it is deployed here rather than faults.
+//
+// They are recognised so the first is explained and the rest counted. On
+// carbon, before this existed, the first of them was 61% of everything the
+// daemon had logged in an hour — six lines a minute, marked (EE), between an
+// operator and whatever they were actually looking for.
+var knownRepetitions = []supervise.Repetition{
+	{
+		Contains: "dbus-core: error connecting to system bus",
+		Explanation: "There is no D-Bus system bus in this image and nothing here needs one: " +
+			"the X server uses it to talk to systemd-logind about who owns the graphics " +
+			"device and the console, and cue runs the server as root with the console it " +
+			"was given, so it opens them directly. The server retries every ten seconds " +
+			"and will not stop.",
+	},
+	{
+		Contains: "The directory \"/usr/share/fonts/X11",
+		Explanation: "The traditional bitmap font directories are not installed. Nothing " +
+			"draws with them — the browser has its own fonts and renders its own text — " +
+			"and the server falls back to the fonts that are there.",
+	},
+}

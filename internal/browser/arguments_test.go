@@ -194,3 +194,57 @@ func TestDarkModeIsAskedForByDefaultAndCanBeTurnedOff(t *testing.T) {
 		t.Errorf("dark mode was turned off and still asked for:\n%s", off)
 	}
 }
+
+func TestFeaturesAreOneFlagBecauseChromiumKeepsOnlyTheLast(t *testing.T) {
+	// Two --enable-features on one command line means the first is discarded
+	// without a word, which is how a setting looks applied and is not. This
+	// is why they are collected rather than appended as they are decided.
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.DarkMode = true
+		configuration.Browser.ExtraArguments = []string{"--enable-features=SomethingElse", "--unrelated"}
+	})
+
+	var features []string
+	var sawUnrelated bool
+	for _, argument := range browser.arguments() {
+		if names, found := strings.CutPrefix(argument, "--enable-features="); found {
+			features = append(features, names)
+		}
+		if argument == "--unrelated" {
+			sawUnrelated = true
+		}
+	}
+
+	if len(features) != 1 {
+		t.Fatalf("got %d --enable-features flags, want exactly 1: %q", len(features), features)
+	}
+	for _, wanted := range []string{"WebUIDarkMode", "OverlayScrollbar", "SomethingElse"} {
+		if !strings.Contains(features[0], wanted) {
+			t.Errorf("%q is missing from %q", wanted, features[0])
+		}
+	}
+	if !sawUnrelated {
+		t.Error("an unrelated extra argument was dropped")
+	}
+}
+
+func TestAFeatureIsNotListedTwice(t *testing.T) {
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.DarkMode = true
+		configuration.Browser.ExtraArguments = []string{"--enable-features=WebUIDarkMode,OverlayScrollbar"}
+	})
+
+	for _, argument := range browser.arguments() {
+		names, found := strings.CutPrefix(argument, "--enable-features=")
+		if !found {
+			continue
+		}
+		seen := map[string]int{}
+		for _, name := range strings.Split(names, ",") {
+			seen[name]++
+			if seen[name] > 1 {
+				t.Errorf("%q appears %d times in %q", name, seen[name], names)
+			}
+		}
+	}
+}

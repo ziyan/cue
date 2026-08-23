@@ -122,9 +122,6 @@ func (self *Configuration) Validate() error {
 	if self.Browser.Binary == "" {
 		add("browser.binary", "must not be empty")
 	}
-	if self.Browser.DebuggingPort < 0 || self.Browser.DebuggingPort > 65535 {
-		add("browser.debuggingPort", "must be a port number between 1 and 65535, or 0 to let the browser choose")
-	}
 
 	if self.Playlist.Interval < 0 {
 		add("playlist.interval", "must not be negative")

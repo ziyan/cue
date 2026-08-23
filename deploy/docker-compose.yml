@@ -11,6 +11,15 @@ services:
     container_name: cue
     restart: unless-stopped
 
+    # Bound the log, because nothing else does. Docker keeps everything by
+    # default, and a screen is a machine nobody logs in to for a year at a
+    # time: whatever it repeats, it repeats until the disk is full.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
     # The host's network namespace, for three reasons:
     #
     #   - The web interface and the VNC server answer on the machine's own

@@ -184,7 +184,114 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   instead of showing the container's own interfaces as if they were the
   machine's.
 
+- **Milestone 13 — the review against what came before (2026-08-23).** Read
+  `ziyan/monitor`, the device it runs on, `pendant` and the hypervisor's
+  network service for lessons this project had not picked up, and fixed what
+  was found. Verified on carbon: the dashboard is back, full screen, four live
+  cameras, signed in, dark. The findings are in Surprises & Discoveries.
+
 ## Surprises & Discoveries
+
+- Observation: 61% of a device's log was one line.
+  Evidence: on carbon, `docker logs cue | grep -c dbus-core` was 523 of 862
+  lines after an hour. The X server's dbus-core module cannot reach a system
+  bus — there is none in this image, and nothing here needs one — and retries
+  every ten seconds forever, marked (EE).
+  Implication: an appliance that runs for years cannot have an unbounded
+  repeating line, and not because of the disk: an operator looking for why a
+  screen went blank has to read past six of these a minute, and (EE) reads as
+  a fault. `supervise.Repetition` names such a line in advance, logs the first
+  whole with an explanation of why it does not matter, and counts the rest.
+  Nothing unrecognised is ever touched.
+
+- Observation: nothing bounded the log at all.
+  Evidence: neither `deploy/docker-compose.yml` nor the deploy tool set
+  `max-size`, and Docker's json-file driver keeps everything. On the device
+  this project replaces, `/var/log/monitor/chromium.log` had rotated five
+  times in a day — and between 03:03 and 03:15 it turned over 10 MB every four
+  minutes.
+  Implication: both deployment paths now cap it. The verbose browser logging
+  that caused it there (`--enable-logging --log-level=0 --v=1`) is not
+  something cue passes.
+
+- Observation: a fixed debugging port was not one bug but two, and the second
+  was caused by fixing the first.
+  Evidence: fixed at 9222, the daemon drove another container's Chromium.
+  Changing the default to 0 fixed new devices and did nothing for carbon,
+  because 9222 was written into its configuration file — and by then
+  docker-proxy held the port, so the browser never came up at all.
+  Implication: the setting is gone. The port is always chosen by the browser
+  and always read from `DevToolsActivePort` in its own profile. A value that
+  is only ever correct as one number is not a setting, and leaving it as one
+  meant the fix could not reach the devices that needed it.
+
+- Observation: removing a setting broke every device that had one.
+  Evidence: the configuration loader used `KnownFields(true)`, so the removed
+  `debuggingPort` made carbon refuse to start — and it logged `yaml: unmarshal
+  errors:` with nothing after it, because go-yaml puts the detail in indented
+  lines that `%w` does not print.
+  Implication: an unknown name is now reported and skipped rather than fatal,
+  and shown in the interface, because a mistyped key and a setting that does
+  nothing look identical from in front of the screen. Anything else wrong with
+  the file is still refused. Two requirements pulled against each other here
+  and both were real; the resolution was to make it visible rather than to
+  pick one.
+
+- Observation: the wireless passphrase would have gone into the log.
+  Evidence: `ask` and `mustSucceed` put the whole command into the error, and
+  the command carrying the passphrase — `SET_NETWORK 0 psk "…"` — is the one
+  most likely to fail. The hypervisor's own implementation has this bug in the
+  same place (`log.Debugf("configuring wireless ssid %s psk %s")`), which is
+  how it was noticed.
+  Implication: errors now name the command by a redacted form. The log is read
+  in the interface and, on an enrolled device, sent to the fleet service, so a
+  passphrase reaching it has to be treated as disclosed.
+
+- Observation: two `--enable-features` flags mean the first is discarded.
+  Evidence: found while adding the overlay-scrollbar features next to the
+  existing dark-mode one. Chromium keeps only the last, silently — so a
+  setting that looked applied would not have been, including any an operator
+  added by hand.
+  Implication: features are collected and emitted once, and an operator's own
+  `--enable-features` is merged rather than allowed to replace them.
+
+- Observation: a page that opens a window covers the dashboard indefinitely.
+  Evidence: spare windows were only dealt with when the playlist was applied,
+  which happens on a restart or a configuration change. A screen showing one
+  page — the ordinary case, and the case this project was built for — never
+  reaches that.
+  Implication: windows the daemon did not open are closed on the loop that was
+  already waking every five seconds, after one cycle's grace so that a window
+  a page opens and closes itself is left alone.
+
+- Observation: the correct answer to a self-signed certificate was not
+  available.
+  Evidence: `pendant` builds an NSS database with `certutil` and trusts the
+  site's own certificate; cue offered only `ignoreCertificateErrors`, which
+  stops the browser checking anything, on every page, for the life of the
+  process.
+  Implication: `browser.certificateAuthorities` trusts a pasted certificate by
+  name and leaves every other check in place.
+
+## Not done, and why
+
+- **Forcing a disconnected output on.** `pendant` writes `on` to
+  `/sys/class/drm/<connector>/status` so a machine with nothing plugged in
+  still has a screen. Two things stopped this being copied: sysfs is read-only
+  in a container that is not privileged, and the alternative — generating a
+  Monitor section with `Option "Enable"` and a modeline — runs straight into
+  this project's standing decision to generate no device or monitor sections,
+  which is there because a generated xorg.conf is historically the reason a
+  screen stays black. It is also unverifiable on carbon, whose panel is
+  attached. Left as a documented recipe rather than machinery built on a guess.
+
+- **Detaching a touchscreen from the core pointer.** `pendant` runs
+  `xinput float` so that, with no window manager, Chromium is not confused by
+  the legacy pointer motion the X server synthesises. The lesson is
+  model-independent and real, but implementing it means XI2 `XIChangeHierarchy`
+  in `internal/display`, and there is no touchscreen here to test it against.
+  Shipping an untested change to input handling is worse than not shipping it.
+
 
 - Observation: a fixed `--remote-debugging-port=9222` made `cue` drive a
   *different* browser.

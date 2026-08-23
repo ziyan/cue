@@ -39,6 +39,14 @@ export function device(main) {
     if (good) body.append(h("div", { class: "notice good", text: good }));
     if (bad) body.append(h("div", { class: "notice bad", text: bad }));
 
+    if ((status.ignoredSettings || []).length) {
+      body.append(h("div", { class: "notice bad" },
+        h("div", { text: "The configuration file has settings this version does not have. They are ignored, and will be removed from the file the next time it is written." }),
+        h("ul", { style: "margin:0.5rem 0 0 1rem" },
+          status.ignoredSettings.map((one) => h("li", { class: "mono", text: one }))),
+        h("div", { class: "dim", style: "margin-top:0.4rem", text: "If one of these is a key you meant to set, it is mistyped — from in front of the screen a mistyped key and a setting that does nothing look exactly the same." })));
+    }
+
     body.append(identityCard(), connectorsCard(), displayCard(), browserCard(), watchdogCard(), inputCard(), soundAndClockCard(), remoteCard(), fleetCard(), actionsCard(), logCard());
 
     body.append(h("div", { class: "actions" },
@@ -135,6 +143,34 @@ export function device(main) {
         h("div", {},
           checkbox("Forget everything on restart", configuration.browser.ephemeralCache, (value) => { configuration.browser.ephemeralCache = value; }),
           h("span", { class: "dim", text: "Starts with an empty profile every time. It cures a corrupted cache permanently, at the cost of signing in again after every restart." }))),
+      h("div", { class: "row" },
+        h("div", {},
+          checkbox("Close windows this daemon did not open", configuration.browser.closeUnexpectedTabs, (value) => { configuration.browser.closeUnexpectedTabs = value; }),
+          h("span", { class: "dim", text: "A page that opens a window gets one stacked in front of the dashboard, and with no window manager it stays there. Windows are given a moment to close themselves first, and what was closed is written to the log. Turn it off if a page here signs in through a popup." }))),
+      h("details", { open: (configuration.browser.certificateAuthorities || []).length > 0 },
+        h("summary", { text: "Certificates this device trusts" }),
+        h("div", {},
+          h("p", { class: "dim", text: "An appliance on a private network signs its own certificate and the browser refuses the page. Paste that certificate here and it is trusted, and everything else goes on being checked — which is what makes this better than accepting every certificate above." }),
+          (configuration.browser.certificateAuthorities || []).map((authority, index) => h("div", {},
+            h("label", {},
+              h("span", { text: `Certificate ${index + 1}` }),
+              textarea(authority, (value) => { configuration.browser.certificateAuthorities[index] = value; })),
+            h("div", { class: "actions" },
+              h("button", {
+                class: "danger",
+                onClick: () => {
+                  configuration.browser.certificateAuthorities.splice(index, 1);
+                  draw();
+                },
+              }, "Remove")))),
+          h("div", { class: "actions" },
+            h("button", {
+              onClick: () => {
+                configuration.browser.certificateAuthorities = configuration.browser.certificateAuthorities || [];
+                configuration.browser.certificateAuthorities.push("");
+                draw();
+              },
+            }, "Add a certificate")))),
       h("p", { class: "dim", text: "Changing any of these restarts the browser." }));
   }
 

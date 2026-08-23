@@ -38,12 +38,12 @@ func Default() *Configuration {
 			ReconcileInterval: Duration(5 * time.Second),
 		},
 		Browser: Browser{
-			Binary:         "chromium",
-			User:           "cue",
-			Sandbox:        true,
-			DarkMode:       true,
-			EphemeralCache: true,
-			DebuggingPort:  0,
+			Binary:              "chromium",
+			User:                "cue",
+			Sandbox:             true,
+			DarkMode:            true,
+			EphemeralCache:      true,
+			CloseUnexpectedTabs: true,
 		},
 		Playlist: Playlist{
 			Interval: Duration(30 * time.Second),

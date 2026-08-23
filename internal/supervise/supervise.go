@@ -144,6 +144,12 @@ type Settings struct {
 	// file — and a message that is accurate but undecodable, which is worth
 	// translating into an instruction.
 	OnStartFailure func(process *Process)
+
+	// Repetitions are lines this program is known to write forever for a
+	// condition that will not change. The first of each is logged with its
+	// explanation and the rest are counted. Anything not listed here is
+	// logged exactly as the program wrote it.
+	Repetitions []Repetition
 }
 
 // Status is a snapshot of a supervised program, for the web interface and the
@@ -176,6 +182,10 @@ type Process struct {
 	// sees "exited before it was ready" and nothing else. This is what makes
 	// the reason visible without turning the level up and restarting.
 	recent []string
+
+	// repetitions counts the output lines that were recognised as known and
+	// endless, so that they are reported once rather than every ten seconds.
+	repetitions *repetitionCounter
 
 	// ready is closed each time the program becomes ready and replaced when
 	// it stops, so that a caller can wait for "up" without polling.
@@ -220,6 +230,7 @@ func New(settings *Settings) *Process {
 		state:            StateStopped,
 		ready:            make(chan struct{}),
 		restartRequested: make(chan struct{}, 1),
+		repetitions:      newRepetitionCounter(),
 	}
 }
 
@@ -642,7 +653,13 @@ func (self *Process) copyOutput(reader io.Reader) {
 			trimmed := trimLine(line)
 			if trimmed != "" {
 				self.remember(trimmed)
-				self.logOutput(trimmed)
+				message, handled := self.repetitions.consider(
+					self.settings.Repetitions, self.settings.Name, trimmed, time.Now())
+				if !handled {
+					self.logOutput(trimmed)
+				} else if message != "" {
+					self.logOutput(message)
+				}
 			}
 		}
 		if err != nil {

@@ -36,20 +36,71 @@ func Load(filename string) (*Configuration, error) {
 func Parse(content []byte) (*Configuration, error) {
 	configuration := Default()
 
+	// A field the daemon does not know is reported rather than silently
+	// ignored: a typo in a key is otherwise indistinguishable from a setting
+	// that does not work. It is not fatal, though, and that distinction is the
+	// whole of this function.
+	//
+	// A setting can be removed — browser.debuggingPort was, because having it
+	// at all turned out to be the bug — and every device already in service
+	// has it written into its file. A daemon that refuses to start over a
+	// setting that no longer exists turns an upgrade into a screen that has
+	// gone black and a machine nobody can reach. So an unknown field is
+	// named in the log and skipped, and anything else in the file is still
+	// refused.
+	var ignored []string
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
-	// A field the daemon does not know is an error rather than something
-	// silently ignored: a typo in a key is otherwise indistinguishable from a
-	// setting that does not work.
 	decoder.KnownFields(true)
-	if err := decoder.Decode(configuration); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("config: %w", err)
+	err := decoder.Decode(configuration)
+	if err != nil && !errors.Is(err, io.EOF) {
+		unknown, other := separateUnknownFields(err)
+		if len(other) > 0 {
+			return nil, fmt.Errorf("config: %s", strings.Join(other, "; "))
+		}
+		for _, field := range unknown {
+			log.Warningf("%s — it is not a setting this version has, and is ignored; "+
+				"it will be removed from the file the next time the file is written", field)
+		}
+		ignored = unknown
+
+		// Decoded again without the strictness, because the first pass stops
+		// at the error and leaves the rest of the file unread.
+		configuration = Default()
+		relaxed := yaml.NewDecoder(bytes.NewReader(content))
+		if err := relaxed.Decode(configuration); err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("config: %w", err)
+		}
 	}
 
+	configuration.IgnoredSettings = ignored
 	configuration.Normalize()
 	if err := configuration.Validate(); err != nil {
 		return nil, err
 	}
 	return configuration, nil
+}
+
+// separateUnknownFields splits a yaml.TypeError into the problems that are
+// only a name this version does not have, and everything else.
+//
+// go-yaml reports every problem it found in one error whose Error() is a
+// heading followed by indented lines, and printing it with %w produces the
+// heading and nothing else — which is how a device came to log "yaml:
+// unmarshal errors:" ten times and say nothing whatever about what was wrong
+// with its configuration.
+func separateUnknownFields(err error) (unknown, other []string) {
+	var typeError *yaml.TypeError
+	if !errors.As(err, &typeError) {
+		return nil, []string{err.Error()}
+	}
+	for _, message := range typeError.Errors {
+		if strings.Contains(message, "not found in type") {
+			unknown = append(unknown, message)
+			continue
+		}
+		other = append(other, message)
+	}
+	return unknown, other
 }
 
 // Normalize fills in the values that are generated rather than configured,
