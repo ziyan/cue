@@ -211,7 +211,7 @@ func (self *Server) virtualArguments() []string {
 // true a few hundred milliseconds before the server will actually answer, and
 // starting the browser in that window is how a kiosk ends up showing nothing.
 func (self *Server) probe(ctx context.Context) error {
-	connection, err := display.Open(self.settings.Display.Number, self.cookie)
+	connection, err := display.Open(ctx, self.settings.Display.Number, self.cookie)
 	if err != nil {
 		return err
 	}
@@ -234,7 +234,9 @@ func (self *Server) clearStaleLock() error {
 
 	// If something answers, the lock is not stale and starting a second
 	// server would be a mistake.
-	if err := self.probe(context.Background()); err == nil {
+	probeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := self.probe(probeContext); err == nil {
 		return fmt.Errorf("xserver: an X server is already running on %s", self.DisplayName())
 	}
 

@@ -23,6 +23,7 @@
 package display
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sort"
@@ -95,17 +96,43 @@ type Screen struct {
 // cookie the daemon generated when it started the server. The socket is
 // addressed directly rather than through the DISPLAY environment variable so
 // that nothing about this depends on the daemon's own environment.
-func Open(displayNumber int, cookie []byte) (*Display, error) {
+//
+// The context bounds the whole of it, connection and handshake both. That
+// second part matters more than it looks: an X server that accepts the
+// connection and then never finishes the handshake — which is what a
+// half-wedged one does — would otherwise block forever, and the caller
+// blocking forever here is the watchdog, whose entire job is to notice that
+// the X server has stopped answering.
+func Open(ctx context.Context, displayNumber int, cookie []byte) (*Display, error) {
 	socket := SocketPath(displayNumber)
-	connection, err := net.DialTimeout("unix", socket, 5*time.Second)
+
+	dialer := net.Dialer{Timeout: handshakeTimeout}
+	connection, err := dialer.DialContext(ctx, "unix", socket)
 	if err != nil {
 		return nil, fmt.Errorf("display: cannot reach the X server at %s: %w", socket, err)
+	}
+
+	deadline := time.Now().Add(handshakeTimeout)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := connection.SetDeadline(deadline); err != nil {
+		_ = connection.Close()
+		return nil, fmt.Errorf("display: %w", err)
 	}
 
 	xConnection, err := xgb.NewConnNetWithCookieHex(connection, hexadecimal(cookie))
 	if err != nil {
 		_ = connection.Close()
 		return nil, fmt.Errorf("display: the X server at %s refused the connection: %w", socket, err)
+	}
+
+	// The handshake is done. Every request after this is answered promptly by
+	// a working server and never at all by a broken one, and the caller's own
+	// context is what bounds the wait for that.
+	if err := connection.SetDeadline(time.Time{}); err != nil {
+		xConnection.Close()
+		return nil, fmt.Errorf("display: %w", err)
 	}
 
 	self := &Display{
@@ -126,6 +153,11 @@ func Open(displayNumber int, cookie []byte) (*Display, error) {
 
 	return self, nil
 }
+
+// handshakeTimeout bounds connecting and authenticating. Five seconds is
+// several times longer than a working server takes and far shorter than a
+// person will wait before deciding the screen is broken.
+const handshakeTimeout = 5 * time.Second
 
 // SocketPath is where an X server of the given number listens. Every X server
 // since the 1980s has used this path, and the browser, the VNC server and the

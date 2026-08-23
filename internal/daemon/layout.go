@@ -54,16 +54,16 @@ func (self *Daemon) arrangeDisplay(ctx context.Context) {
 		if previous != "" {
 			log.Noticef("the screens attached to this machine have changed: %s", fingerprint)
 		}
-		self.applyLayout()
+		self.applyLayout(ctx)
 	}
 }
 
 // applyLayout connects to the X server, arranges the outputs, and tells the
 // browser how large its window should be.
-func (self *Daemon) applyLayout() {
+func (self *Daemon) applyLayout(ctx context.Context) {
 	configuration := self.store.Current()
 
-	connection, err := display.Open(configuration.Display.Number, self.xserver.Cookie())
+	connection, err := display.Open(ctx, configuration.Display.Number, self.xserver.Cookie())
 	if err != nil {
 		log.Warningf("cannot arrange the display: %s", err)
 		return
@@ -93,7 +93,7 @@ func (self *Daemon) applyLayout() {
 func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 	log.Noticef("applying the changed configuration")
 
-	self.applyLayout()
+	self.applyLayout(ctx)
 
 	restartNeeded, err := self.browser.Reconfigure(ctx, updated)
 	if err != nil {

@@ -96,9 +96,13 @@ type Watchdog struct {
 	state     State
 	suspended int
 
-	// appliedAt records when each step of the ladder was last used, so that a
-	// step is not repeated while the previous attempt is still settling.
-	appliedAt map[string]time.Time
+	// appliedAt records the failure count at which each step of the ladder was
+	// last used, and appliedCount how many times it has been used in this
+	// episode — an episode being the run of failures since the display last
+	// answered. Together they make a step wait longer before each repeat, so
+	// that the ladder is climbed rather than one rung hammered.
+	appliedAt    map[string]int
+	appliedCount map[string]int
 }
 
 type namedProbe struct {
@@ -109,10 +113,11 @@ type namedProbe struct {
 // New returns a watchdog. Nothing runs until Start.
 func New(settings *config.Watchdog, remedies Remedies) *Watchdog {
 	return &Watchdog{
-		settings:  settings,
-		remedies:  remedies,
-		appliedAt: map[string]time.Time{},
-		state:     State{Enabled: settings.Enabled},
+		settings:     settings,
+		remedies:     remedies,
+		appliedAt:    map[string]int{},
+		appliedCount: map[string]int{},
+		state:        State{Enabled: settings.Enabled},
 	}
 }
 
@@ -228,6 +233,10 @@ func (self *Watchdog) record(name string, err error) {
 		self.state.ConsecutiveFailures = 0
 		self.state.LastSuccessAt = now
 		self.state.LastFailure = ""
+		// The episode is over: every rung of the ladder is available again for
+		// the next one.
+		self.appliedAt = map[string]int{}
+		self.appliedCount = map[string]int{}
 		return
 	}
 
@@ -237,8 +246,30 @@ func (self *Watchdog) record(name string, err error) {
 	self.state.LastFailure = fmt.Sprintf("%s: %s", name, err)
 }
 
+// waitAfter is how many further failures must accumulate before a step that
+// has already been tried in this episode is tried again. It doubles each time,
+// so a display that will not come back is retried at 2, 4, 8, 16 and 32
+// failures rather than every other probe forever. Called with the mutex held.
+func (self *Watchdog) waitAfter(name string, threshold int) int {
+	wait := threshold
+	for index := 0; index < self.appliedCount[name] && wait < 1024; index++ {
+		wait *= 2
+	}
+	return wait
+}
+
 // escalate applies the heaviest remedy whose threshold the failure count has
-// reached, and only if that step has not been tried too recently.
+// reached — but only once per episode.
+//
+// "Once per episode" is what makes this a ladder. Without it, the cheapest
+// applicable step fires again on every probe: a page that takes forty seconds
+// to load would be reloaded every fifteen and never finish, and the heavier
+// steps that might actually have fixed it would never be reached. An episode
+// ends when the display answers, which resets everything.
+//
+// The heaviest step is allowed to repeat once its threshold has been reached
+// again, so that a device which is genuinely broken keeps trying rather than
+// giving up forever after one attempt.
 func (self *Watchdog) escalate(ctx context.Context, failures int) {
 	type step struct {
 		name      string
@@ -246,7 +277,7 @@ func (self *Watchdog) escalate(ctx context.Context, failures int) {
 		remedy    func(ctx context.Context) error
 	}
 
-	// Heaviest first: the count only ever goes up, so once it has passed the
+	// Heaviest first: the count only goes up, so once it has passed the
 	// restart threshold there is no point reloading the page again.
 	steps := []step{
 		{"restart the display", self.settings.FailuresBeforeRestartDisplay, self.remedies.RestartDisplay},
@@ -261,19 +292,17 @@ func (self *Watchdog) escalate(ctx context.Context, failures int) {
 			continue
 		}
 
-		// Each step is given time to work before it is tried again. Without
-		// this, a page that takes twenty seconds to load is reloaded every
-		// time the probe runs and never finishes loading.
-		cooldown := time.Duration(current.threshold) * self.settings.Interval.Duration()
 		self.mutex.Lock()
-		last := self.appliedAt[current.name]
-		self.mutex.Unlock()
-		if time.Since(last) < cooldown {
+		previous, alreadyTried := self.appliedAt[current.name]
+		if alreadyTried && failures < previous+self.waitAfter(current.name, current.threshold) {
+			// Tried in this episode, and not enough has gone wrong since to
+			// justify trying it again. Anything cheaper is below this rung, so
+			// there is nothing to do but wait.
+			self.mutex.Unlock()
 			return
 		}
-
-		self.mutex.Lock()
-		self.appliedAt[current.name] = time.Now()
+		self.appliedAt[current.name] = failures
+		self.appliedCount[current.name]++
 		self.state.LastRemedy = current.name
 		self.state.LastRemedyAt = time.Now()
 		self.state.RemediesApplied++

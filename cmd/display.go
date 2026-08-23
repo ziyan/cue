@@ -92,7 +92,7 @@ func showOutputs(ctx context.Context, command *cli.Command) error {
 		return err
 	}
 
-	connection, err := display.Open(command.Int("number"), cookie)
+	connection, err := display.Open(ctx, command.Int("number"), cookie)
 	if err != nil {
 		return err
 	}

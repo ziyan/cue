@@ -111,7 +111,9 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 	defer clockCancel()
 	status.Clock = self.device.TimeSync().State(clockContext)
 
-	if connection, err := display.Open(configuration.Display.Number, self.device.XServer().Cookie()); err == nil {
+	displayContext, displayCancel := context.WithTimeout(request.Context(), 5*time.Second)
+	defer displayCancel()
+	if connection, err := display.Open(displayContext, configuration.Display.Number, self.device.XServer().Cookie()); err == nil {
 		defer connection.Close()
 		status.Screen = connection.Screen()
 		if outputs, err := connection.Outputs(); err == nil {

@@ -253,7 +253,7 @@ func (self *Daemon) startProcesses(ctx context.Context, configuration *config.Co
 
 		// The browser's window is sized to the screen, so the layout has to
 		// be arranged before it starts.
-		self.applyLayout()
+		self.applyLayout(ctx)
 
 		self.browserProcess = supervise.New(self.browser.Settings())
 		self.browserProcess.Start(ctx)
@@ -303,7 +303,7 @@ func (self *Daemon) prepareDirectories(configuration *config.Configuration) erro
 // probeDisplay is the watchdog's first question: does the X server answer at
 // all? A failure here means restarting the browser would be pointless.
 func (self *Daemon) probeDisplay(ctx context.Context) error {
-	connection, err := display.Open(self.store.Current().Display.Number, self.xserver.Cookie())
+	connection, err := display.Open(ctx, self.store.Current().Display.Number, self.xserver.Cookie())
 	if err != nil {
 		return err
 	}
@@ -351,7 +351,7 @@ func (self *Daemon) restartDisplay(ctx context.Context) error {
 		return err
 	}
 
-	self.applyLayout()
+	self.applyLayout(ctx)
 
 	if self.browserProcess != nil {
 		self.browserProcess = supervise.New(self.browser.Settings())

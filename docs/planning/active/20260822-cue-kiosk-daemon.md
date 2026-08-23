@@ -122,19 +122,29 @@ being plugged in — with a `/sys` poll as the always-available fallback.
 - [x] (2026-08-22 21:45Z) Confirmed with the author: kiosk-page auto-login (not
       an auto-login for Cue's own admin interface), ship chrony and a sound
       server, build the full plan in order.
-- [ ] Milestone 1 — repository skeleton, `cue version`, CI green.
-- [ ] Milestone 2 — configuration file: types, defaults, validation, `cue config`.
-- [ ] Milestone 3 — process supervision and PID 1 duties.
-- [ ] Milestone 4 — X server lifecycle and RandR display management.
-- [ ] Milestone 5 — Chromium lifecycle, CDP client, playlist, login rules,
-      freeze watchdog and cache recovery.
-- [ ] Milestone 6 — VNC server and the WebSocket bridge.
-- [ ] Milestone 7 — web interface: API, sessions, onboarding, monitoring, noVNC.
-- [ ] Milestone 8 — audio, time synchronisation, hardware inventory, hotplug,
-      touch input mapped to the right output.
-- [ ] Milestone 9 — the distroless image, compose files, end-to-end smoke test.
+- [x] (2026-08-22 21:50Z) Milestone 1 — repository skeleton, `cue version`, CI green.
+- [x] (2026-08-22 22:00Z) Milestone 2 — configuration file: types, defaults,
+      validation, `cue config`.
+- [x] (2026-08-22 22:10Z) Milestone 3 — process supervision and PID 1 duties.
+- [x] (2026-08-22 22:35Z) Milestone 4 — X server lifecycle and RandR display
+      management, with `cue display probe` proved against real hardware.
+- [x] (2026-08-23 02:10Z) Milestone 5 — Chromium lifecycle, CDP client,
+      playlist, login rules, freeze watchdog and cache recovery.
+- [x] (2026-08-23 02:12Z) Milestone 6 — VNC server and the WebSocket bridge.
+- [x] (2026-08-23 02:30Z) Milestone 7 — web interface: API, sessions,
+      onboarding, monitoring, noVNC. Proved by having the daemon sign itself
+      into its own interface with a login rule.
+- [ ] Milestone 8 — audio and time synchronisation done; hardware inventory
+      done; touch input mapped to the right output remains.
+- [x] (2026-08-23 02:45Z) Milestone 9 — the distroless image, compose files,
+      end-to-end smoke test. `make docker-smoke` passes.
 - [ ] Milestone 10 — optional fleet enrolment into cue.sh.
-- [ ] Milestone 11 — documentation, decision records, release workflow.
+- [x] (2026-08-23 03:00Z) Milestone 11 — documentation, decision records,
+      release workflow.
+- [ ] Validation on real hardware. The machine set aside for it (`carbon`) went
+      off the network partway through and has not come back; everything so far
+      is proved against a virtual screen in the image, plus `cue display probe`
+      against real connectors.
 
 ## Surprises & Discoveries
 
@@ -147,6 +157,26 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   mechanism and netlink as an accelerator, and the compose file uses host
   networking anyway because the web interface and VNC should be reachable on
   the machine's own address.
+
+- Observation: the escalation ladder was not a ladder. The heaviest applicable
+  remedy fired again on every probe with only a fixed cooldown between
+  attempts, so a page that took forty seconds to load was reloaded every
+  fifteen and never finished, and the heavier steps that might have fixed it
+  were never reached.
+  Evidence: `TestOneRungIsNotHammeredWhileTheLadderIsUnclimbed` counted
+  fourteen reloads in three hundred milliseconds. A step is now applied once
+  per episode — an episode being the run of failures since the display last
+  answered — and each repeat waits twice as long as the last.
+
+- Observation: connecting to an X server had no deadline on the *handshake*,
+  only on the connection. An X server that accepts a connection and then never
+  finishes authenticating would block the caller forever — and the caller is
+  the watchdog, whose whole job is to notice that the X server has stopped
+  answering.
+  Evidence: a web test connected to the developer's own desktop X server,
+  which refused the cookie without replying, and `go test` timed out after a
+  minute inside `xgb.postConnect`. `display.Open` now takes a context and sets
+  a deadline on the socket across the handshake.
 
 ## Decision Log
 
