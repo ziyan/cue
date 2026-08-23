@@ -31,4 +31,7 @@ All notable changes to this project are recorded here, in the categories of
   holds one connection open, over which the service reaches the same interface
   an operator would; nothing is opened on the network in front of the screen,
   and none of it is contacted until an operator turns it on.
+- Touchscreens are found and reported, and the browser is told touch exists —
+  without which Chromium in a container often renders a desktop layout with
+  buttons too small for a finger.
 - `cue config`, `cue display probe`, `cue health` and `cue version`.

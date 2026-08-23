@@ -15,6 +15,7 @@ import (
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
+	"github.com/ziyan/cue/internal/input"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/drm"
@@ -37,6 +38,7 @@ type Status struct {
 	Screen     display.Screen     `json:"screen"`
 	Clock      timesync.State     `json:"clock"`
 	Sound      []audio.Device     `json:"sound"`
+	Input      []input.Device     `json:"input"`
 	Fleet      fleet.State        `json:"fleet"`
 }
 
@@ -107,6 +109,9 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 	}
 	if devices, err := audio.Devices(); err == nil {
 		status.Sound = devices
+	}
+	if devices, err := input.Devices(); err == nil {
+		status.Input = devices
 	}
 
 	clockContext, clockCancel := context.WithTimeout(request.Context(), 3*time.Second)

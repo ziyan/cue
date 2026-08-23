@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/ziyan/cue/internal/audio"
+	"github.com/ziyan/cue/internal/input"
 )
 
 // arguments builds Chromium's command line.
@@ -111,6 +112,15 @@ func (self *Browser) arguments() []string {
 
 	// Where the sound comes out, or whether there is any. See internal/audio.
 	arguments = append(arguments, audio.OutputArguments(&self.configuration.Audio)...)
+
+	// A screen somebody touches. Chromium decides at start-up whether touch
+	// is available, and gets it wrong inside a container often enough to be
+	// worth telling it: without this a dashboard renders its desktop layout
+	// and its buttons are too small for a finger.
+	if devices, err := input.Devices(); err == nil && input.HasTouchscreen(devices) {
+		log.Noticef("this machine has a touchscreen; enabling touch in the browser")
+		arguments = append(arguments, "--touch-events=enabled")
+	}
 
 	arguments = append(arguments, settings.ExtraArguments...)
 	return arguments

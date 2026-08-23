@@ -39,7 +39,7 @@ export function device(main) {
     if (good) body.append(h("div", { class: "notice good", text: good }));
     if (bad) body.append(h("div", { class: "notice bad", text: bad }));
 
-    body.append(identityCard(), connectorsCard(), displayCard(), soundAndClockCard(), remoteCard(), fleetCard(), actionsCard(), logCard());
+    body.append(identityCard(), connectorsCard(), displayCard(), inputCard(), soundAndClockCard(), remoteCard(), fleetCard(), actionsCard(), logCard());
 
     body.append(h("div", { class: "actions" },
       h("button", { class: "primary", onClick: save }, "Save"),
@@ -109,6 +109,30 @@ export function device(main) {
           h("label", {},
             h("span", { text: "Extra X server configuration" }),
             textarea(configuration.display.xorgConfiguration, (value) => { configuration.display.xorgConfiguration = value; })))));
+  }
+
+  function inputCard() {
+    const devices = (status.input || []).filter((one) => one.keyboard || one.pointer || one.touch);
+    if (!devices.length) {
+      return h("div", { class: "card" },
+        h("h2", { text: "Things people touch" }),
+        h("p", { class: "dim", text: "The kernel reports no keyboard, pointer or touchscreen. Inside a container that usually means /dev/input was not passed through." }));
+    }
+
+    const describe = (one) => {
+      const kinds = [];
+      if (one.touch && one.direct) kinds.push("touchscreen");
+      else if (one.touch) kinds.push("touchpad");
+      if (one.keyboard) kinds.push("keyboard");
+      if (one.pointer && !one.touch) kinds.push("pointer");
+      return kinds.join(", ") || "other";
+    };
+
+    return h("div", { class: "card" },
+      h("h2", { text: "Things people touch" }),
+      devices.map((one) => h("div", { class: "readout" },
+        h("span", { class: "label truncate", text: one.name }),
+        h("span", { class: "value dim", text: describe(one) }))));
   }
 
   function soundAndClockCard() {

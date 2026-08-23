@@ -134,8 +134,11 @@ being plugged in — with a `/sys` poll as the always-available fallback.
 - [x] (2026-08-23 02:30Z) Milestone 7 — web interface: API, sessions,
       onboarding, monitoring, noVNC. Proved by having the daemon sign itself
       into its own interface with a login rule.
-- [ ] Milestone 8 — audio and time synchronisation done; hardware inventory
-      done; touch input mapped to the right output remains.
+- [x] (2026-08-23 03:30Z) Milestone 8 — audio, time synchronisation, hardware
+      inventory, and touch devices found and reported (completed: detection,
+      reporting, and telling the browser touch exists; remaining: mapping a
+      touch device to one output on a multi-screen or rotated machine, which
+      needs XInput2 and is documented as not done).
 - [x] (2026-08-23 02:45Z) Milestone 9 — the distroless image, compose files,
       end-to-end smoke test. `make docker-smoke` passes.
 - [x] (2026-08-23 03:20Z) Milestone 10 — optional fleet enrolment. Proved with

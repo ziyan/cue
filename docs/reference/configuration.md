@@ -206,3 +206,24 @@ client on it.
 
 Off by default, and inert until turned on: the daemon makes no outbound
 connection of its own accord.
+
+## Touchscreens
+
+There is nothing to configure. The daemon reads the kernel's input listing at
+start-up, and if the machine has a device a finger is put directly on — a
+touchscreen rather than a touchpad, which the kernel distinguishes with a
+property bit — it tells Chromium that touch is available. Without that,
+Chromium inside a container often decides there is no touch and a dashboard
+renders its desktop layout, with buttons too small for a finger.
+
+The Device page lists what the kernel can see, which is the first thing worth
+knowing when a touchscreen "does not work" and the hardest to find out on a
+machine with no shell.
+
+**What is not done yet.** On a machine with more than one screen, or with a
+rotated one, a touch device reports coordinates across the whole drawing
+surface, so a touch lands in the wrong place. Correcting it means setting each
+device's coordinate transformation matrix from the geometry of the output it
+belongs to — what `xinput map-to-output` does — and that needs the XInput2
+extension, which the X library this project uses does not implement. A single
+screen in its normal orientation, which is nearly every display, is unaffected.
