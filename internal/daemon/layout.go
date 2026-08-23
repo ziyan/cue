@@ -126,7 +126,14 @@ func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 // restart which failed is retried on the next change rather than skipped
 // because "nothing changed since last time".
 func (self *Daemon) displayRestartNeeded(updated *config.Configuration) bool {
-	running := self.xserver.StartedWith()
+	return self.displayRestartWouldBeNeeded(self.xserver.StartedWith(), updated)
+}
+
+// displayRestartWouldBeNeeded is the decision itself, separated from reading
+// the running server's state so that it can be tested: getting it wrong one
+// way blanks the screen for no reason, and the other way accepts a setting
+// through the interface that then silently does nothing.
+func (self *Daemon) displayRestartWouldBeNeeded(running config.Display, updated *config.Configuration) bool {
 	switch {
 	case running.Server != updated.Display.Server:
 	case running.Number != updated.Display.Number:
