@@ -1,0 +1,6 @@
+# Hide vendored dependencies from diffs and pull requests
+**/vendor/** linguist-vendored
+**/vendor/** -diff
+
+**/node_modules/** linguist-vendored
+**/node_modules/** -diff

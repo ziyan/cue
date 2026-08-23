@@ -1,0 +1,18 @@
+/build
+/dist
+
+# Local tooling state. Nothing here belongs to the project; it belongs to
+# whoever is working on it. Named explicitly because the first commit of a
+# fresh repository is made with "git add -A".
+/.claude/
+
+# Development state: a generated configuration, an X authority cookie, a
+# browser profile. None of it is reproducible and some of it is secret.
+/dev/
+
+# The interface build output, compiled into the binary.
+/internal/web/static/*
+!/internal/web/static/.gitkeep
+
+/web/node_modules/
+/web/dist/

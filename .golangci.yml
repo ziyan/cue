@@ -1,0 +1,37 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+issues:
+  exclusions:
+    paths:
+      - vendor
+      - web/node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+linters:
+  settings:
+    revive:
+      rules:
+        # Receiver names must use `self` by project convention.
+        - name: receiver-naming
+          disabled: true
+    staticcheck:
+      checks:
+        - all
+        # Identifier initialism casing follows this project's own rule: an
+        # acronym is fully capitalised only when the identifier starts with a
+        # capital. See CONTRIBUTING.md.
+        - -ST1003
+        # Receiver names must use `self` by project convention.
+        - -ST1006
+
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true

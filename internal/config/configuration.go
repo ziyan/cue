@@ -1,0 +1,398 @@
+package config
+
+// Configuration is the whole of cue.yaml. It is the single source of truth
+// for everything an operator can set: nothing is configured by a command line
+// flag that is not also here, and there is no settings table anywhere else.
+//
+// Both ends write it. A person edits the file and sends SIGHUP; the web
+// interface edits it through the API and the daemon rewrites it atomically.
+// Store owns that; see store.go.
+type Configuration struct {
+	Device   Device   `yaml:"device" json:"device"`
+	Log      Log      `yaml:"log" json:"log"`
+	Paths    Paths    `yaml:"paths" json:"paths"`
+	Display  Display  `yaml:"display" json:"display"`
+	Browser  Browser  `yaml:"browser" json:"browser"`
+	Playlist Playlist `yaml:"playlist" json:"playlist"`
+	Watchdog Watchdog `yaml:"watchdog" json:"watchdog"`
+	VNC      VNC      `yaml:"vnc" json:"vnc"`
+	Web      Web      `yaml:"web" json:"web"`
+	Audio    Audio    `yaml:"audio" json:"audio"`
+	Time     Time     `yaml:"time" json:"time"`
+	Fleet    Fleet    `yaml:"fleet" json:"fleet"`
+}
+
+// Device is what this screen is, as a human would describe it.
+type Device struct {
+	// Name is shown in the web interface, in the window title and, if the
+	// device is enrolled, in the fleet listing. It is not an identifier:
+	// Identifier is.
+	Name string `yaml:"name" json:"name"`
+
+	// Identifier is generated once, on the first run, and never changes. The
+	// fleet service keys the device on it, so regenerating it would create a
+	// second device rather than move this one.
+	Identifier string `yaml:"identifier" json:"identifier"`
+
+	// Location is free text an operator can use to say where the screen is.
+	Location string `yaml:"location,omitempty" json:"location"`
+
+	// Timezone names the zone used for everything the device displays and
+	// logs, for example "Asia/Tokyo". Empty means UTC.
+	Timezone string `yaml:"timezone,omitempty" json:"timezone"`
+}
+
+// Log controls what the daemon writes to its standard error, which in a
+// container is what "docker logs" shows.
+type Log struct {
+	// Level is one of DEBUG, INFO, NOTICE, WARNING, ERROR or CRITICAL.
+	Level string `yaml:"level" json:"level"`
+
+	// BrowserOutput passes Chromium's own logging through to the daemon's
+	// log. It is off by default: Chromium at any verbosity above the default
+	// writes tens of lines a second about WebRTC alone, which on a device
+	// with a small disk is the difference between a week of logs and an hour
+	// of them.
+	BrowserOutput bool `yaml:"browserOutput" json:"browserOutput"`
+}
+
+// Paths are the directories the daemon owns. They have working defaults and
+// exist mostly so that a developer can run the daemon on their own machine
+// without being root.
+type Paths struct {
+	// State survives a restart: the browser profile, the device identifier
+	// and the fleet credential.
+	State string `yaml:"state" json:"state"`
+
+	// Runtime does not survive a restart: the X socket, the X authority
+	// cookie, the browser's disk cache and the sound server's files.
+	Runtime string `yaml:"runtime" json:"runtime"`
+}
+
+// Display is how the picture reaches the screen.
+type Display struct {
+	// Server is "xorg" to drive real hardware or "xvfb" to render into
+	// memory. A development machine and the continuous integration smoke test
+	// use xvfb; a device uses xorg.
+	Server string `yaml:"server" json:"server"`
+
+	// Number is the X display number, so ":0" for 0. There is no reason to
+	// change it except to run two daemons on one machine.
+	Number int `yaml:"number" json:"number"`
+
+	// Cursor shows the mouse pointer. Off by default: a kiosk with a pointer
+	// parked in the middle of it looks broken. Turning it on is useful while
+	// somebody is driving the screen over VNC.
+	Cursor bool `yaml:"cursor" json:"cursor"`
+
+	// Framebuffer forces the size of the drawing surface, for example
+	// "1920x1080". Empty means the size the outputs need. Set it when a
+	// television reports nonsense in its EDID.
+	Framebuffer string `yaml:"framebuffer,omitempty" json:"framebuffer"`
+
+	// Modeline adds a display mode the monitor did not offer, in the format
+	// xrandr's --newmode takes: a pixel clock followed by eight numbers and
+	// two sync polarities. Needed for televisions with a broken EDID.
+	Modeline string `yaml:"modeline,omitempty" json:"modeline"`
+
+	// ModeName names the mode Modeline defines, so that an output can select
+	// it. Defaults to "cue".
+	ModeName string `yaml:"modeName,omitempty" json:"modeName"`
+
+	// Outputs configures the physical connectors. An entry whose Name is "*"
+	// applies to every connected output that no other entry names, which is
+	// what makes the default configuration work on a machine nobody has
+	// looked at yet.
+	Outputs []Output `yaml:"outputs" json:"outputs"`
+
+	// BlankAfter turns the screen off after this much idle time. Zero, the
+	// default, never blanks: a display that goes dark because nobody has
+	// touched its keyboard is a fault report waiting to happen.
+	BlankAfter Duration `yaml:"blankAfter" json:"blankAfter"`
+
+	// ReconcileInterval is how often the daemon compares the outputs it can
+	// see against this configuration and fixes any difference. This is what
+	// makes unplugging and replugging an HDMI cable work without anybody
+	// doing anything.
+	ReconcileInterval Duration `yaml:"reconcileInterval" json:"reconcileInterval"`
+}
+
+// Output is one physical connector, named as the X server names it: HDMI-1,
+// DP-2, eDP-1, and so on. "*" matches any output not named by another entry.
+type Output struct {
+	Name string `yaml:"name" json:"name"`
+
+	// Mode is "preferred" for whatever the monitor says it wants, "off" to
+	// leave the connector dark, or an explicit size such as "1920x1080".
+	Mode string `yaml:"mode" json:"mode"`
+
+	// Rate is the refresh rate in hertz to prefer when several modes share a
+	// size. Zero takes the highest the mode list offers.
+	Rate float64 `yaml:"rate,omitempty" json:"rate"`
+
+	// Position places this output inside the framebuffer, as "0x0". Only
+	// interesting with more than one screen.
+	Position string `yaml:"position,omitempty" json:"position"`
+
+	// Rotate is "normal", "left", "right" or "inverted". Portrait screens in
+	// lobbies are the reason this exists.
+	Rotate string `yaml:"rotate,omitempty" json:"rotate"`
+
+	// Primary marks the output the browser window is placed on.
+	Primary bool `yaml:"primary,omitempty" json:"primary"`
+}
+
+// Browser is how Chromium is started. What it shows is Playlist's business.
+type Browser struct {
+	// Binary is the browser executable. The image ships Chromium; a developer
+	// on a machine with a differently named build can point at it.
+	Binary string `yaml:"binary,omitempty" json:"binary"`
+
+	// User is the account Chromium runs as. The daemon and the X server need
+	// to be root to touch the graphics hardware, but Chromium must not be:
+	// it refuses to enable its own sandbox as root, and a kiosk renders
+	// whatever the network serves it. Empty means "do not change user",
+	// which is what a developer running the daemon as themselves wants.
+	User string `yaml:"user,omitempty" json:"user"`
+
+	// Sandbox keeps Chromium's process sandbox on. Turning it off is
+	// sometimes the only way to run inside a restricted container, and it is
+	// a real reduction in safety, so it is spelled out here rather than
+	// hidden in a list of arguments.
+	Sandbox bool `yaml:"sandbox" json:"sandbox"`
+
+	// IgnoreCertificateErrors loads pages whose certificate does not verify.
+	// Every appliance on a private network with a self-signed certificate is
+	// the reason this is here, and it is off by default because it silently
+	// removes the protection TLS was there to give.
+	IgnoreCertificateErrors bool `yaml:"ignoreCertificateErrors" json:"ignoreCertificateErrors"`
+
+	// EphemeralCache puts the browser's disk cache under the runtime
+	// directory and empties it at every start. On by default: a corrupted
+	// cache is a fault that survives every restart and presents as a page
+	// that will not load for no visible reason, and a dashboard on a local
+	// network loses nothing by fetching its assets again.
+	EphemeralCache bool `yaml:"ephemeralCache" json:"ephemeralCache"`
+
+	// DebuggingPort is where Chromium listens for the DevTools protocol the
+	// daemon drives it with. It is bound to the loopback address only.
+	DebuggingPort int `yaml:"debuggingPort" json:"debuggingPort"`
+
+	// ExtraArguments are appended to the command line, for the settings
+	// nobody anticipated. They are applied last and can override anything.
+	ExtraArguments []string `yaml:"extraArguments,omitempty" json:"extraArguments"`
+}
+
+// Playlist is what the screen shows.
+type Playlist struct {
+	// Interval is how long each item is shown when it does not say otherwise.
+	// Zero means never rotate, which is what a single-item playlist wants.
+	Interval Duration `yaml:"interval" json:"interval"`
+
+	Items []Item `yaml:"items" json:"items"`
+}
+
+// Item is one page in the rotation.
+type Item struct {
+	// Identifier is generated once so that the interface can reorder and edit
+	// items without the daemon losing track of which tab is which.
+	Identifier string `yaml:"identifier" json:"identifier"`
+
+	URL string `yaml:"url" json:"url"`
+
+	// Title is what the interface calls this item. Empty means the page's own
+	// title is used.
+	Title string `yaml:"title,omitempty" json:"title"`
+
+	// Duration overrides Playlist.Interval for this item.
+	Duration Duration `yaml:"duration,omitempty" json:"duration"`
+
+	// Reload fetches the page again each time the item comes round.
+	// Dashboards that poll for themselves do not need it; ones that quietly
+	// stop updating after a few hours do.
+	Reload bool `yaml:"reload,omitempty" json:"reload"`
+
+	// Disabled keeps the item in the configuration but out of the rotation,
+	// which is what an operator wants while a site is down for maintenance.
+	Disabled bool `yaml:"disabled,omitempty" json:"disabled"`
+
+	// Login, when set, keeps this item logged in. See Login.
+	Login *Login `yaml:"login,omitempty" json:"login"`
+
+	// Dismiss removes things that appear on top of the page and stay there:
+	// a cookie banner, a "what's new" announcement, a survey invitation. On a
+	// screen nobody touches, one of these covers the dashboard until somebody
+	// walks over and clicks it, which can be weeks.
+	Dismiss []Dismiss `yaml:"dismiss,omitempty" json:"dismiss"`
+}
+
+// Dismiss is one thing to get rid of when it appears.
+type Dismiss struct {
+	// Selector is the element to act on. For a dialog, this is its close
+	// button or its "got it" button — the thing a person would click.
+	Selector string `yaml:"selector" json:"selector"`
+
+	// WhenTextMatches, when set, is a regular expression the element's text
+	// must match before it is touched. It exists so that a selector as broad
+	// as "button" can still be aimed at one particular dialog.
+	WhenTextMatches string `yaml:"whenTextMatches,omitempty" json:"whenTextMatches"`
+
+	// Hide covers the case where there is nothing to click: instead of
+	// clicking, the element is given "display: none". Blunter, and it does
+	// not tell the page the notice was seen, so the notice usually comes
+	// back on the next load — but it works on things that cannot be closed.
+	Hide bool `yaml:"hide,omitempty" json:"hide"`
+}
+
+// Login describes how to get a page past a login form, and — more
+// importantly — how to notice that it has been thrown back to one.
+//
+// The case this exists for: a camera dashboard whose session expires every
+// few hours, after which the tab sits on a login page until somebody walks
+// over with a keyboard. A login performed once when the tab opens does not
+// help. So this is a rule the daemon re-evaluates on a timer: when the page
+// looks like the login page, fill it in and submit it.
+type Login struct {
+	// WhenURLMatches is a regular expression tested against the tab's current
+	// address. When it matches, the page is considered to need logging in.
+	// A dashboard that redirects to "/login?redirect=/dashboard" is matched
+	// by "/login".
+	WhenURLMatches string `yaml:"whenUrlMatches,omitempty" json:"whenUrlMatches"`
+
+	// WhenSelectorExists is a CSS selector that only the login page has. Use
+	// it instead of, or as well as, WhenURLMatches for a page that logs in
+	// without changing its address.
+	WhenSelectorExists string `yaml:"whenSelectorExists,omitempty" json:"whenSelectorExists"`
+
+	// UsernameSelector and PasswordSelector are the fields to fill.
+	UsernameSelector string `yaml:"usernameSelector" json:"usernameSelector"`
+	PasswordSelector string `yaml:"passwordSelector" json:"passwordSelector"`
+
+	// SubmitSelector is what to click afterwards. Empty presses Enter in the
+	// password field instead, which is what forms with no obvious button
+	// respond to.
+	SubmitSelector string `yaml:"submitSelector,omitempty" json:"submitSelector"`
+
+	Username string `yaml:"username" json:"username"`
+	Password Secret `yaml:"password" json:"password"`
+
+	// ExpectURLMatches, when set, is a regular expression the address must
+	// match for the attempt to be counted as a success. Without it the daemon
+	// only knows it typed something in.
+	ExpectURLMatches string `yaml:"expectUrlMatches,omitempty" json:"expectUrlMatches"`
+
+	// MinimumInterval is the shortest time between two attempts on the same
+	// item. It stops a wrong password from being submitted in a loop, which
+	// is how an account gets locked out.
+	MinimumInterval Duration `yaml:"minimumInterval,omitempty" json:"minimumInterval"`
+}
+
+// Watchdog is how the daemon decides the display has stopped working. A frozen
+// screen looks exactly like a working one, so it has to be asked.
+type Watchdog struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Interval is how often the probe runs.
+	Interval Duration `yaml:"interval" json:"interval"`
+
+	// Timeout is how long a probe may take before it counts as a failure.
+	Timeout Duration `yaml:"timeout" json:"timeout"`
+
+	// The recovery ladder. Each threshold is a number of consecutive failed
+	// probes, and each step is tried at most once before the next threshold
+	// is reached, so a page that is merely slow is not restarted in a loop.
+	FailuresBeforeReload     int `yaml:"failuresBeforeReload" json:"failuresBeforeReload"`
+	FailuresBeforeRecreate   int `yaml:"failuresBeforeRecreate" json:"failuresBeforeRecreate"`
+	FailuresBeforeClearCache int `yaml:"failuresBeforeClearCache" json:"failuresBeforeClearCache"`
+	FailuresBeforeRestart    int `yaml:"failuresBeforeRestart" json:"failuresBeforeRestart"`
+
+	// FailuresBeforeRestartDisplay restarts the X server as well, for the
+	// case where the browser cannot come back because the server it draws
+	// into is the thing that is wedged.
+	FailuresBeforeRestartDisplay int `yaml:"failuresBeforeRestartDisplay" json:"failuresBeforeRestartDisplay"`
+}
+
+// VNC is the remote view of the screen.
+type VNC struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Listen is where x11vnc binds. The default is the loopback address,
+	// because the web interface reaches it from inside the same container and
+	// exposes it to a browser through an authenticated WebSocket. Binding it
+	// to the network puts an unauthenticated view of the screen on the LAN
+	// unless Password is also set, and the daemon says so loudly at start-up.
+	Listen string `yaml:"listen" json:"listen"`
+
+	// Password protects a listener that is exposed. The web interface's own
+	// viewer does not need it.
+	Password Secret `yaml:"password,omitempty" json:"password"`
+
+	// ViewOnly refuses keyboard and mouse input from every viewer.
+	ViewOnly bool `yaml:"viewOnly" json:"viewOnly"`
+}
+
+// Web is the interface an operator uses.
+type Web struct {
+	// Listen is the address the interface is served on.
+	Listen string `yaml:"listen" json:"listen"`
+
+	// PasswordHash is the argon2id hash of the administrator password. Empty
+	// means the device has not been set up yet, and every page redirects to
+	// the onboarding wizard.
+	PasswordHash string `yaml:"passwordHash,omitempty" json:"-"`
+
+	// SessionSecret signs the session cookies. Generated once on first run.
+	SessionSecret Secret `yaml:"sessionSecret,omitempty" json:"-"`
+
+	// SessionLifetime is how long a login lasts.
+	SessionLifetime Duration `yaml:"sessionLifetime" json:"sessionLifetime"`
+
+	// TrustedOrigins are additional origins allowed to open the VNC
+	// WebSocket. The device's own address is always allowed; this is for a
+	// reverse proxy in front of it.
+	TrustedOrigins []string `yaml:"trustedOrigins,omitempty" json:"trustedOrigins"`
+}
+
+// Audio is sound. A screen showing a camera feed usually wants none; one
+// showing a video usually wants some.
+type Audio struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Sink names the output to use, as the sound server names it. Empty lets
+	// the sound server choose, which on a machine with one HDMI output is
+	// right.
+	Sink string `yaml:"sink,omitempty" json:"sink"`
+
+	// Source names the input to use, for a screen with a microphone attached
+	// that is used for a video call.
+	Source string `yaml:"source,omitempty" json:"source"`
+
+	// Volume is the output volume as a percentage, applied at start-up and
+	// whenever the chosen sink changes.
+	Volume int `yaml:"volume" json:"volume"`
+}
+
+// Time keeps the clock right. A browser cannot validate a certificate with a
+// wrong clock, so a device whose battery has died shows an error page until
+// this has done its work.
+type Time struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// Servers are the NTP servers to use.
+	Servers []string `yaml:"servers" json:"servers"`
+}
+
+// Fleet is the optional enrolment into a management service. Off by default,
+// and everything about it is inert until an operator turns it on: the daemon
+// makes no outbound connection of its own accord.
+type Fleet struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+
+	// URL is the service to enrol with.
+	URL string `yaml:"url,omitempty" json:"url"`
+
+	// EnrollmentToken is used once to register this device. It is cleared
+	// from the file after a successful enrolment, and the credential that
+	// replaces it is stored under Paths.State.
+	EnrollmentToken Secret `yaml:"enrollmentToken,omitempty" json:"enrollmentToken"`
+}

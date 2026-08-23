@@ -1,0 +1,43 @@
+# Cue coding-standard enforcement via mulint.
+#
+# mulint is a local-only check. `make lint` runs it, CI does not, so a
+# contributor who does not have it installed is never blocked by it. Run
+# `make mulint` before sending a change.
+
+linters:
+  mulint_camelcase:    true
+  mulint_naming:       true
+  mulint_abbreviation: true
+  mulint_singleletter: true
+  mulint_errorprefix:  true
+  mulint_log:          true
+  mulint_recover:      true
+  mulint_structtag:    true
+
+reports:
+  maximumReportsPerLinter: 25
+
+extra:
+  compounds:
+    # One word in universal use; nobody writes "screenSaver" about the X
+    # extension, whose own name is ScreenSaver.
+    - screensaver
+    # The X server's own spelling, and the name of the file it reads.
+    - xauthority
+
+  acronyms:
+    # Each is a real acronym from the relevant specification, so it is written
+    # in full caps when the identifier starts with a capital. Anything that
+    # could be spelled out instead was spelled out.
+    - ALSA     # Advanced Linux Sound Architecture
+    - CDP      # Chrome DevTools Protocol
+    - CPU      # Central Processing Unit
+    - DPMS     # Display Power Management Signaling, a VESA standard
+    - DRM      # Direct Rendering Manager, the kernel graphics subsystem
+    - EDID     # Extended Display Identification Data, what a monitor reports
+    - HDMI     # High-Definition Multimedia Interface
+    - NTP      # Network Time Protocol, RFC 5905
+    - PNG      # Portable Network Graphics
+    - RFB      # Remote Framebuffer, the VNC wire protocol, RFC 6143
+    - VNC      # Virtual Network Computing
+    - V4L2     # Video4Linux version 2, the kernel camera interface

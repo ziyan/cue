@@ -1,0 +1,203 @@
+// Package config is cue.yaml: the typed shape of it, a validator that reports
+// every problem at once with the path of each, and a Store that hands out
+// immutable snapshots and rewrites the file atomically.
+//
+// It is the source of truth for everything an operator can set. Nothing else
+// in this project keeps settings of its own, and no command line flag
+// configures anything that is not also here.
+package config
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/ziyan/cue/internal/util/atomicfile"
+	"github.com/ziyan/cue/internal/util/security"
+)
+
+// Load reads a configuration file, fills in every default the file does not
+// mention, generates any identifier that is still missing, and validates the
+// result.
+func Load(filename string) (*Configuration, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("config: read %s: %w", filename, err)
+	}
+	return Parse(content)
+}
+
+// Parse is Load without the file, which is what the tests and the API use.
+func Parse(content []byte) (*Configuration, error) {
+	configuration := Default()
+
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	// A field the daemon does not know is an error rather than something
+	// silently ignored: a typo in a key is otherwise indistinguishable from a
+	// setting that does not work.
+	decoder.KnownFields(true)
+	if err := decoder.Decode(configuration); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+
+	configuration.Normalize()
+	if err := configuration.Validate(); err != nil {
+		return nil, err
+	}
+	return configuration, nil
+}
+
+// Normalize fills in the values that are generated rather than configured,
+// and tidies the ones an operator is likely to write loosely. It is safe to
+// call more than once and does not change a value that is already set:
+// identifiers in particular are generated once and never regenerated, because
+// the fleet service and the browser's tab bookkeeping both refer to them.
+func (self *Configuration) Normalize() {
+	if self.Device.Identifier == "" {
+		self.Device.Identifier = security.NewIdentifier()
+	}
+	self.Device.Name = strings.TrimSpace(self.Device.Name)
+	self.Log.Level = strings.ToUpper(strings.TrimSpace(self.Log.Level))
+
+	if self.Display.ModeName == "" {
+		self.Display.ModeName = "cue"
+	}
+	for index := range self.Display.Outputs {
+		output := &self.Display.Outputs[index]
+		if output.Mode == "" {
+			output.Mode = ModePreferred
+		}
+		if output.Rotate == "" {
+			output.Rotate = "normal"
+		}
+	}
+
+	for index := range self.Playlist.Items {
+		item := &self.Playlist.Items[index]
+		if item.Identifier == "" {
+			item.Identifier = security.NewIdentifier()
+		}
+		item.URL = strings.TrimSpace(item.URL)
+	}
+
+	if !self.Web.SessionSecret.IsSet() {
+		self.Web.SessionSecret = Secret(security.NewToken())
+	}
+}
+
+// Marshal renders the configuration as the file's contents, with a header
+// explaining what the file is. A machine write cannot preserve comments a
+// person wrote, so the header is re-emitted every time and every list entry
+// has a place to put a note that does survive.
+func (self *Configuration) Marshal() ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.WriteString(fileHeader)
+
+	encoder := yaml.NewEncoder(&buffer)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(self); err != nil {
+		return nil, fmt.Errorf("config: encode: %w", err)
+	}
+	if err := encoder.Close(); err != nil {
+		return nil, fmt.Errorf("config: encode: %w", err)
+	}
+	return buffer.Bytes(), nil
+}
+
+// Save validates and then writes the configuration. It never writes a file
+// that would not load, so a rejected change leaves the previous file intact.
+func (self *Configuration) Save(filename string) error {
+	self.Normalize()
+	if err := self.Validate(); err != nil {
+		return err
+	}
+	content, err := self.Marshal()
+	if err != nil {
+		return err
+	}
+	// 0600: this file holds the passwords the kiosk logs into things with,
+	// and on a device the only account that needs it is the daemon's.
+	return atomicfile.Write(filename, content, 0o600)
+}
+
+// Clone returns a deep copy, so that a caller holding a snapshot cannot be
+// surprised by a reload happening underneath it.
+func (self *Configuration) Clone() *Configuration {
+	content, err := yaml.Marshal(self)
+	if err != nil {
+		// Marshalling a struct of scalars and slices cannot fail; if it ever
+		// does, carrying on with a shallow copy would be worse.
+		panic(fmt.Sprintf("config: cannot clone: %s", err))
+	}
+	clone := &Configuration{}
+	if err := yaml.Unmarshal(content, clone); err != nil {
+		panic(fmt.Sprintf("config: cannot clone: %s", err))
+	}
+	return clone
+}
+
+// RestoreSecrets copies every secret that arrived as the redacted placeholder
+// back from the previous configuration. The web interface is never shown a
+// password, so when it posts a form back it sends the placeholder; without
+// this, opening the settings page and saving it would erase every credential
+// on the device.
+func RestoreSecrets(updated, previous *Configuration) {
+	if updated.VNC.Password.IsRedacted() {
+		updated.VNC.Password = previous.VNC.Password
+	}
+	if updated.Fleet.EnrollmentToken.IsRedacted() {
+		updated.Fleet.EnrollmentToken = previous.Fleet.EnrollmentToken
+	}
+	// Playlist items are matched by identifier rather than by position,
+	// because the interface can reorder them in the same request that saves
+	// them.
+	previousLogins := map[string]*Login{}
+	for index := range previous.Playlist.Items {
+		item := &previous.Playlist.Items[index]
+		if item.Login != nil {
+			previousLogins[item.Identifier] = item.Login
+		}
+	}
+	for index := range updated.Playlist.Items {
+		item := &updated.Playlist.Items[index]
+		if item.Login == nil || !item.Login.Password.IsRedacted() {
+			continue
+		}
+		if previousLogin, found := previousLogins[item.Identifier]; found {
+			item.Login.Password = previousLogin.Password
+		}
+	}
+
+	// These two are never sent to the interface at all, so an update that did
+	// not come from a reload would otherwise clear them and log everybody out.
+	if updated.Web.SessionSecret == "" {
+		updated.Web.SessionSecret = previous.Web.SessionSecret
+	}
+	if updated.Web.PasswordHash == "" {
+		updated.Web.PasswordHash = previous.Web.PasswordHash
+	}
+}
+
+const fileHeader = `# cue.yaml — the configuration for one display.
+#
+# This file is the single source of truth for everything this device does. It
+# is written both by hand and by the web interface; a machine write reformats
+# it and does not keep comments, so put anything you want to remember in the
+# "title" of a playlist item or the "location" of the device.
+#
+# After editing by hand, send the daemon SIGHUP (or restart the container) to
+# apply the change:
+#
+#     docker kill --signal HUP cue
+#
+# Documentation: docs/reference/configuration.md
+#
+# This file contains passwords. It is written with mode 0600 and should not be
+# copied anywhere it would be readable by anybody else.
+
+`
