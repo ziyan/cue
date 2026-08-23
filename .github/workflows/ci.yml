@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  daemon:
+    name: Daemon
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false # dependencies are vendored
+
+      - name: Check formatting
+        run: make check
+
+      - name: Vet
+        run: go vet -mod=vendor . ./cmd/... ./internal/... ./tools/...
+
+      - name: Build
+        run: make build
+
+      # mulint is deliberately absent: it is a local-only check, so a
+      # contributor without it installed is never blocked. See mulint.yaml.
+      - name: Lint
+        run: make lint-ci
+
+      - name: Test
+        run: |
+          go install gotest.tools/gotestsum@latest
+          gotestsum --format testname -- -mod=vendor -race -cover \
+            -coverprofile=coverage.out . ./cmd/... ./internal/... ./tools/...
+          go tool cover -func=coverage.out | tail -1
+
+  image:
+    name: Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      # Building the image on every change catches the two ways it silently
+      # breaks: a package that has been renamed, and the collection step
+      # dropping a library nothing noticed was missing until the X server
+      # would not start.
+      - name: Build
+        run: docker build -f deploy/Dockerfile -t cue:ci .
+
+      - name: Check it runs
+        run: docker run --rm cue:ci version
+
+      # The real check. This starts the whole daemon inside the image against
+      # a virtual screen and proves it puts a picture on it: every program
+      # running, a screenshot of the configured size, the playlist rotating,
+      # and the watchdog satisfied. A machine with no display attached can
+      # still tell whether the display works.
+      - name: Prove it puts a picture on the screen
+        run: go run ./tools/smoke -image cue:ci
