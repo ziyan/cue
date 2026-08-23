@@ -110,9 +110,23 @@ func main() {
 			// not been committed yet, which is not this program's problem.
 			continue
 		}
-		if bytes.IndexByte(content, 0) >= 0 {
+		if isBinary(content) {
+			// A compiled program has no business being in the repository, and
+			// one was committed by a "go build" that wrote into the working
+			// directory followed by "git add -A". It is caught here rather
+			// than only in .gitignore, because an ignore rule protects
+			// against the names somebody thought of.
+			fmt.Fprintf(os.Stderr, "%s: a compiled binary is committed (%d bytes)\n"+
+				"    build into build/ instead; the Makefile does\n", filename, len(content))
+			found++
 			continue
 		}
+		if bytes.IndexByte(content, 0) >= 0 {
+			// Something with NUL bytes in it: an image, a compressed file.
+			// Not text, so not worth scanning for credentials.
+			continue
+		}
+
 		scanned++
 		found += scan(filename, string(content))
 	}
@@ -122,6 +136,15 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("check-secrets: clean (%d files)\n", scanned)
+}
+
+// isBinary reports whether a file is a compiled program rather than text.
+// The four bytes at the start of an ELF file are the reliable test; a NUL
+// anywhere is the loose one, and it also catches the compressed and image
+// files that legitimately live in a repository, so it is only used to stop
+// scanning them for credentials.
+func isBinary(content []byte) bool {
+	return bytes.HasPrefix(content, []byte("\x7fELF"))
 }
 
 func scan(filename, content string) int {

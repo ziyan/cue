@@ -1,6 +1,17 @@
 /build
 /dist
 
+# A stray "go build ./tools/<name>" writes its binary into the working
+# directory under that name, and one of them was committed. The Makefile
+# builds into /build; nothing should produce a binary here.
+/changelog
+/checkpackages
+/checksecrets
+/cue
+/deploy-tool
+/release
+/smoke
+
 # Local tooling state. Nothing here belongs to the project; it belongs to
 # whoever is working on it. Named explicitly because the first commit of a
 # fresh repository is made with "git add -A".

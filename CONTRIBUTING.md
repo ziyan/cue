@@ -79,6 +79,10 @@ trace back.
   the interface's editing both refer to it.
 - **Nothing in this project is a shell script.** Not at build time, not at run
   time. A helper that is genuinely needed is a Go program under `tools/`.
+- **Nothing compiled is committed.** `go build ./tools/changelog` writes its
+  binary into the working directory under that name, and one of them was
+  committed here by a `git add -A` that nobody read. `make check-secrets`
+  refuses a tracked ELF file, and the Makefile builds into `build/`.
 - **Stop a process group, not a process.** Chromium is a dozen processes;
   signalling only its root leaves renderers holding the graphics device open,
   and the next browser cannot start.
