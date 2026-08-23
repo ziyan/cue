@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := all
 
 .PHONY: all help build test benchmark coverage format check lint lint-ci mulint \
-	check-secrets clean docker docker-smoke dev dev-config watch vendor
+	check-secrets clean docker docker-smoke deploy dev dev-config watch vendor
 
 GO ?= go
 BUILD_DIR ?= build
@@ -96,6 +96,11 @@ docker: ## Build the container image
 
 docker-smoke: docker ## Run the whole daemon in the image against a virtual screen and prove it works
 	@$(GO) run -mod=vendor ./tools/smoke -image $(DOCKER_TAG)
+
+deploy: docker ## Send this build to a machine and start it (HOST=... [DISPLAY_MANAGER=stop] [CONFIG=...])
+	@$(GO) run -mod=vendor ./tools/deploy -host $(HOST) -image $(DOCKER_TAG) \
+		$(if $(CONFIG),-config $(CONFIG),) \
+		$(if $(filter stop,$(DISPLAY_MANAGER)),-stop-display-manager,)
 
 watch: ## Rebuild on source change (requires inotifywait)
 	@set -e; \

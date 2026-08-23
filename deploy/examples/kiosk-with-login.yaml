@@ -1,0 +1,84 @@
+# An example for the case this project was built for: one dashboard, shown all
+# the time, that expires its session and puts announcements on top of itself.
+#
+# Copy it to /etc/cue/cue.yaml on the device, put the real address and
+# credentials in, and send the daemon SIGHUP — or set it all up through the
+# web interface instead, which is easier and does not involve a text editor on
+# a machine with no shell.
+
+device:
+  name: Reception
+  timezone: Europe/London
+
+display:
+  server: xorg
+  # The console the X server draws on. It has to match the device the
+  # container is given; see deploy/docker-compose.yml.
+  virtualTerminal: 2
+  cursor: false
+  outputs:
+    - name: "*"
+      mode: preferred
+
+browser:
+  user: cue
+  sandbox: true
+  # Appliances on private networks have certificates nothing will verify.
+  # Turning this on removes the protection TLS was there to give, so it is
+  # here rather than hidden in a list of arguments.
+  ignoreCertificateErrors: true
+
+playlist:
+  # One page, shown all the time.
+  interval: 0s
+  items:
+    - url: https://cameras.example.com/protect/dashboard/all
+      title: Cameras
+
+      # Checked every few seconds, not once when the tab opens. That is the
+      # point: this dashboard expires its session and redirects the tab back
+      # to a login form, where it would otherwise sit until somebody walked
+      # over with a keyboard.
+      login:
+        whenUrlMatches: "/login"
+        usernameSelector: "input[name=username]"
+        passwordSelector: "input[name=password]"
+        submitSelector: "button[type=submit]"
+        # Ticking "remember my credentials" makes the session last far
+        # longer, which on a screen nobody visits is the difference between
+        # signing in every few hours and every few weeks.
+        alsoClick:
+          - "input[name=rememberMe]"
+        username: display
+        password: "put the real one here"
+        # How the daemon knows it worked. Without this it only knows it typed
+        # something in.
+        expectUrlMatches: "/protect/"
+        # A wrong password submitted in a loop locks the account out, which is
+        # much worse than a screen showing a login page.
+        minimumInterval: 60s
+
+      # The announcements that appear on top of the page and stay there. On a
+      # screen nobody touches, one of these hides the dashboard for weeks.
+      dismiss:
+        - selector: "button"
+          whenTextMatches: "Got it|Dismiss|Close|Not now|Maybe later"
+
+watchdog:
+  enabled: true
+
+vnc:
+  enabled: true
+  # The loopback address keeps it behind the web interface's own password.
+  listen: 127.0.0.1:5900
+
+web:
+  listen: :8080
+
+audio:
+  enabled: false
+
+time:
+  enabled: true
+  servers:
+    - pool.ntp.org
