@@ -79,6 +79,14 @@ func (self *Daemon) applyLayout(ctx context.Context) {
 	screen := connection.Screen()
 	self.browser.SetScreenSize(screen.Width, screen.Height)
 
+	// Nothing else will give a window the keyboard: there is no window
+	// manager here. A browser that has never been focused paints one frame
+	// and then stops, so the screen holds that frame for ever while the
+	// browser goes on working perfectly. See display.FocusTopWindow.
+	if err := connection.FocusTopWindow(); err != nil {
+		log.Debugf("%s", err)
+	}
+
 	if changed {
 		outputs, err := connection.Outputs()
 		if err == nil {

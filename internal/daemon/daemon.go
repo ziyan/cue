@@ -230,6 +230,11 @@ func (self *Daemon) Run(ctx context.Context) error {
 		self.arrangeDisplay(ctx)
 	}()
 
+	go func() {
+		defer deferutil.Recover()
+		self.keepSomethingFocused(ctx)
+	}()
+
 	self.watchdog.Start(ctx)
 
 	for {
@@ -314,6 +319,40 @@ func (self *Daemon) prepareDirectories(configuration *config.Configuration) erro
 		}
 	}
 	return nil
+}
+
+// keepSomethingFocused makes sure a window has the keyboard.
+//
+// It runs for as long as the daemon does, because the browser opens its window
+// after the display has been arranged and opens new ones whenever a page asks
+// it to, and each time there is nobody else to hand the keyboard over. It is
+// two questions and usually no answer, so it costs nothing.
+func (self *Daemon) keepSomethingFocused(ctx context.Context) {
+	const interval = 5 * time.Second
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+
+		connection, err := display.Open(ctx, self.store.Current().Display.Number, self.xserver.Cookie())
+		if err != nil {
+			continue
+		}
+
+		focused, err := connection.FocusedWindow()
+		// PointerRoot and None both mean nothing has it.
+		if err == nil && focused > 1 {
+			connection.Close()
+			continue
+		}
+		if err := connection.FocusTopWindow(); err != nil {
+			log.Debugf("%s", err)
+		}
+		connection.Close()
+	}
 }
 
 // probeDisplay is the watchdog's first question: does the X server answer at

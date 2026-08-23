@@ -147,7 +147,12 @@ being plugged in — with a `/sys` poll as the always-available fallback.
       down it that reaches the device's own handler.
 - [x] (2026-08-23 03:00Z) Milestone 11 — documentation, decision records,
       release workflow.
-- [ ] Validation on real hardware. **This is the only thing outstanding.** The
+- [x] (2026-08-23 14:22Z) Validation on real hardware. Deployed to the test
+      machine and confirmed by a picture of the panel: UniFi Protect full
+      screen at 2560x1440, signed in by the login rule, no browser chrome,
+      four live camera feeds, all four programs running with no restarts.
+      Five faults were found and fixed in the doing; see Surprises.
+- [x] Superseded note — what follows described the wait for that machine. The
       machine set aside for it (`carbon`) went off the network partway through
       and has not come back after forty minutes of polling; it is not in this
       machine's neighbour table, so it is powered down rather than merely
@@ -334,6 +339,38 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   twenty minutes to find out by building under emulation. Putting the fault
   back makes it say so: "arm64: xserver-xorg-video-intel is not built for this
   architecture; the release build would fail".
+
+- Observation: five faults stood between "the daemon reports itself healthy"
+  and "the dashboard is on the screen", and every one of them was invisible to
+  the daemon's own view of the world. They were found by taking a picture of
+  the screen from outside the browser and noticing it did not match what the
+  browser said it was showing.
+
+  1. The browser window was 800x600 on a 2560x1440 screen. `--kiosk` and
+     `--start-fullscreen` work by asking a window manager, and there is no
+     window manager in this image, so both were accepted and did nothing. The
+     window is now sized over the protocol, which asks nobody.
+  2. Sizing a window takes it *out* of full screen, so the first fix put a tab
+     strip and an address bar on the wall. The size and the state have to be
+     set in two calls, because the protocol refuses a request naming both.
+  3. Chromium refused to start after any redeployment: its profile lock records
+     the host name, a container gets a new one each time, and the lock is then
+     read as "in use by another Chromium process on another computer". The
+     daemon starts the only browser that uses that profile, so it clears the
+     lock.
+  4. The page would not load: `net::ERR_CERT_AUTHORITY_INVALID`, although
+     `--ignore-certificate-errors` was on the command line. It turns out
+     Chromium does not honour that flag in the host's network namespace.
+     Public certificates work either way, so nothing looks wrong until the one
+     page the screen exists for is the one that fails. The container uses
+     published ports now.
+  5. The daemon asked for the tab list before the browser had opened a window,
+     was told there were none, and opened one of its own — which in kiosk mode
+     is a second window, not full screen and not in front. The readiness check
+     waits for the first window now.
+
+  Evidence: a photograph of the panel is in the retrospective's transcript —
+  four live camera feeds, full screen, signed in, on real hardware.
 
 ## Decision Log
 

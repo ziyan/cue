@@ -202,13 +202,34 @@ func (self *Browser) explainFailure(process *supervise.Process) {
 	}
 }
 
-// probe is the readiness check: the browser answers on its debugging port.
+// probe is the readiness check: the browser answers on its debugging port and
+// has opened its first window.
+//
+// The second half matters more than it looks. Chromium answers on the port a
+// moment before it has a page, and a daemon that asks for the tab list in that
+// moment is told there are none — so instead of pointing the window that is
+// already on the screen at the first playlist item, it opens another one. In
+// kiosk mode the first window is full screen and the second is not, so the
+// screen goes on showing the browser's own start page for ever while the
+// daemon drives a window nobody can see. Everything reports itself healthy.
+//
+// This was found on a real device, by taking a picture of the screen from the
+// X server and noticing it did not match what the browser said it was showing.
 func (self *Browser) probe(ctx context.Context) error {
 	version, err := self.client.Version(ctx)
 	if err != nil {
 		return err
 	}
-	log.Debugf("the browser is %s", version.Browser)
+
+	pages, err := self.client.Pages(ctx)
+	if err != nil {
+		return err
+	}
+	if len(pages) == 0 {
+		return fmt.Errorf("browser: %s is up but has not opened a window yet", version.Browser)
+	}
+
+	log.Debugf("the browser is %s, with %d page(s) open", version.Browser, len(pages))
 	return nil
 }
 
@@ -239,6 +260,10 @@ func (self *Browser) prepare(ctx context.Context) error {
 	}
 
 	if err := self.clearCrashFlag(); err != nil {
+		log.Warningf("%s", err)
+	}
+
+	if err := self.clearProfileLock(); err != nil {
 		log.Warningf("%s", err)
 	}
 
@@ -285,6 +310,32 @@ func (self *Browser) clearCrashFlag() error {
 		return fmt.Errorf("browser: cannot write %s: %w", filename, err)
 	}
 	log.Debugf("cleared the browser's unclean-shutdown flag")
+	return nil
+}
+
+// clearProfileLock removes the lock Chromium leaves in a profile to stop two
+// browsers using it at once.
+//
+// The lock is a symbolic link naming the host and process that holds it, and
+// Chromium refuses to start when it finds one from a different host: "The
+// profile appears to be in use by another Chromium process (34) on another
+// computer". Inside a container the host name is generated afresh for every
+// container, so a profile that survives — which is the whole point of keeping
+// it — carries a lock from a machine that, as far as Chromium can tell, is
+// somebody else's. The browser then never starts again, and says so only in
+// output that is discarded by default.
+//
+// Removing it is safe here in a way it would not be on a desktop: this daemon
+// starts the only browser that uses this profile, and it is about to start it.
+func (self *Browser) clearProfileLock() error {
+	profile := self.profileDirectory()
+
+	for _, name := range []string{"SingletonLock", "SingletonCookie", "SingletonSocket"} {
+		path := filepath.Join(profile, name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("browser: cannot remove the stale profile lock %s: %w", path, err)
+		}
+	}
 	return nil
 }
 

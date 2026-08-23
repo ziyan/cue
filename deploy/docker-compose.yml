@@ -11,17 +11,24 @@ services:
     container_name: cue
     restart: unless-stopped
 
-    # Host networking, for three reasons that all matter:
+    # Published ports rather than the host's network namespace.
     #
-    #   - The web interface and the VNC server should answer on the machine's
-    #     own address, which is what somebody types into a laptop.
-    #   - Kernel hotplug events are delivered per network namespace, so a
-    #     container on a bridge network never hears a monitor being plugged
-    #     in. Cue falls back to polling /sys, which works either way, but the
-    #     events are what make it instant.
-    #   - A kiosk usually shows something on the same local network, and
-    #     bridge networking puts a translation layer between them for nothing.
-    network_mode: host
+    # Host networking looks like the obvious choice for an appliance, and it
+    # was what this used at first. Chromium does not honour
+    # --ignore-certificate-errors in it: a self-signed certificate — which is
+    # what every appliance on a private network has — is refused with
+    # ERR_CERT_AUTHORITY_INVALID, while the same image on a bridge network
+    # loads the same page. Certificates from a public authority work either
+    # way, so nothing appears to be wrong until the one page the screen exists
+    # for will not load.
+    #
+    # Nothing is given up. The interface and the VNC server answer on the
+    # machine's own address through these ports, and a monitor being plugged
+    # in is noticed by polling /sys — which is how it is noticed anyway, since
+    # a container on a bridge network never receives kernel hotplug events.
+    ports:
+      - "8080:8080"
+      - "5900:5900"
 
     # The X server needs the graphics device, two consoles, and — if anybody is
     # going to touch or type at the screen — the input devices.

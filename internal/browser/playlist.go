@@ -58,9 +58,13 @@ func (self *Browser) openTabs(ctx context.Context) error {
 		return err
 	}
 
-	// Chromium always has one tab open at start-up. Reuse it for the first
-	// item rather than opening a second and closing the first, which makes
-	// the screen flash.
+	// Chromium always has one tab open at start-up, and in kiosk mode that
+	// one is the full-screen window on the wall. Reusing it is not an
+	// optimisation: a tab created instead of reused gets a window of its own,
+	// which is not full screen and not in front, so the screen would go on
+	// showing the browser's start page while the daemon drove something
+	// nobody can see. The readiness check waits for this tab to exist for
+	// exactly that reason; see probe.
 	reusable := make([]cdp.Target, 0, len(existing))
 	reusable = append(reusable, existing...)
 
@@ -100,8 +104,71 @@ func (self *Browser) openTabs(ctx context.Context) error {
 			return err
 		}
 	}
+
+	self.fillTheScreen(ctx, session, tabs)
+
 	log.Noticef("showing %d page(s)", len(tabs))
 	return nil
+}
+
+// fillTheScreen makes the browser's window the size of the screen.
+//
+// It has to be done here, over the protocol, and not with a command line flag.
+// --kiosk and --start-fullscreen both work by asking the window manager to
+// make the window full screen, and this image has no window manager: the flags
+// are accepted, nothing happens, and Chromium keeps the 800x600 window it
+// opened with. Everything then looks healthy — the browser is running, the
+// page has loaded, its own screenshot is of the page — while the screen on the
+// wall shows a corner of it, or whatever was painted there first.
+//
+// That is exactly what happened on the first real device this was put on, and
+// nothing but a photograph of the screen would have shown it.
+func (self *Browser) fillTheScreen(ctx context.Context, session *cdp.Session, tabs map[string]string) {
+	self.mutex.Lock()
+	width, height := self.screenWidth, self.screenHeight
+	self.mutex.Unlock()
+
+	if width <= 0 || height <= 0 {
+		return
+	}
+
+	windows := map[int]bool{}
+	for _, target := range tabs {
+		window, bounds, err := session.WindowForTarget(ctx, target)
+		if err != nil {
+			log.Debugf("cannot find the window of a tab: %s", err)
+			continue
+		}
+		if windows[window] {
+			continue
+		}
+		windows[window] = true
+
+		// Full screen is by definition the size of the screen, so there is
+		// nothing to compare and nothing to do. Comparing sizes as well is
+		// what made this flap: a full-screen window reports itself one pixel
+		// short of the screen, so it was resized, which took it out of full
+		// screen, so it was resized again, for ever.
+		if bounds.WindowState == "fullscreen" {
+			continue
+		}
+
+		// Two steps, and both are needed. Setting a size takes the window out
+		// of full screen — which is how the address bar and the tab strip
+		// appeared on a wall — so the size is set first and full screen is
+		// asked for again afterwards. The protocol will not accept both in
+		// one call: a state and a rectangle are mutually exclusive.
+		wanted := cdp.WindowBounds{Left: 0, Top: 0, Width: width, Height: height}
+		if err := session.SetWindowBounds(ctx, window, wanted); err != nil {
+			log.Warningf("cannot make the browser window fill the screen: %s", err)
+			continue
+		}
+		if err := session.SetWindowBounds(ctx, window, cdp.WindowBounds{WindowState: "fullscreen"}); err != nil {
+			log.Warningf("cannot put the browser window back into full screen: %s", err)
+		}
+		log.Noticef("the browser window was %dx%d and is now %dx%d and full screen",
+			bounds.Width, bounds.Height, width, height)
+	}
 }
 
 // rotate moves to the next item when the current one's time is up. The wait is

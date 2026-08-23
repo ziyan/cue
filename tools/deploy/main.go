@@ -90,16 +90,48 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	}
 	fmt.Printf("    Docker %s\n", strings.TrimSpace(version))
 
+	// Stop the previous deployment before looking at what holds the graphics
+	// device, or its own X server is found and reported as the thing in the
+	// way — which is true, and unhelpful, and stops a redeployment dead.
+	step("stopping any previous deployment")
+	_ = remote(host, "docker", "rm", "-f", name)
+
 	if stopDisplayManager {
 		step("stopping anything that holds the graphics device")
+
+		// Stopping and disabling are two different things and both are
+		// needed, in that order. Debian's gdm is a *static* unit and gdm3 is
+		// an alias for it, so "systemctl disable" fails on both and leaves
+		// the greeter running — which was diagnosed once as "something is
+		// still running an X server" with no clue as to what to do about it.
 		for _, manager := range []string{"gdm", "gdm3", "lightdm", "sddm", "xdm"} {
 			// Failure is the normal case: most of these are not installed.
-			_ = remote(host, "systemctl", "disable", "--now", manager)
+			_ = remote(host, "systemctl", "stop", manager)
+			_ = remote(host, "systemctl", "disable", manager)
 		}
-		remaining, _ := remoteOutput(host, "pgrep", "-a", "-f", "Xorg|Xwayland")
-		if strings.TrimSpace(remaining) != "" {
+
+		// And the target that starts one at boot. Without this the display
+		// manager comes back on the next reboot and takes the graphics device
+		// before the daemon can, so the screen works until the machine is
+		// restarted and then does not. Undo with
+		// "systemctl set-default graphical.target".
+		if err := remote(host, "systemctl", "set-default", "multi-user.target"); err != nil {
+			fmt.Println("    could not set the boot target; a display manager may come back on the next restart")
+		} else {
+			fmt.Println("    this machine will now boot without a desktop; undo with set-default graphical.target")
+		}
+		var remaining []string
+		for _, server := range []string{"Xorg", "Xwayland"} {
+			output, err := remoteOutput(host, "pgrep", "-a", "-x", server)
+			// pgrep exits non-zero when it matches nothing, which is what
+			// success looks like here.
+			if err == nil && strings.TrimSpace(output) != "" {
+				remaining = append(remaining, strings.TrimSpace(output))
+			}
+		}
+		if len(remaining) > 0 {
 			return fmt.Errorf("something is still running an X server on %s, and it holds the graphics device:\n%s",
-				host, remaining)
+				host, strings.Join(remaining, "\n"))
 		}
 		fmt.Println("    nothing is holding it now")
 	}
@@ -130,7 +162,6 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	}
 
 	step("starting the container")
-	_ = remote(host, "docker", "rm", "-f", name)
 
 	// Input and sound are passed through only when the machine has them.
 	// Naming a device that is not there is an error, and a screen nobody
@@ -179,10 +210,22 @@ func containerArguments(image, name string, terminal int, optionalDevices []stri
 		"docker", "run", "-d",
 		"--name", name,
 		"--restart", "unless-stopped",
-		// The web interface and the VNC server should answer on the machine's
-		// own address, and kernel hotplug events are only delivered in the
-		// host's network namespace.
-		"--network", "host",
+		// Published ports rather than the host's network namespace. Host
+		// networking looks like the obvious choice for an appliance and was
+		// the first thing tried, but Chromium does not honour
+		// --ignore-certificate-errors in it: a self-signed certificate — which
+		// is what every appliance on a private network has — is refused with
+		// ERR_CERT_AUTHORITY_INVALID, while the same image on a bridge
+		// network loads the same page. Public certificates work either way,
+		// so nothing about it looks broken until the one page that matters
+		// will not load.
+		//
+		// Nothing is lost: the interface and the VNC server answer on the
+		// machine's address through these, and hotplug is noticed by polling
+		// /sys rather than by kernel events, which a container never receives
+		// on a bridge network anyway.
+		"-p", "8080:8080",
+		"-p", "5900:5900",
 		// Chromium exhausts Docker's default 64 megabytes and then crashes
 		// tabs with no explanation anybody can act on.
 		"--shm-size", "1g",
@@ -249,15 +292,69 @@ func step(format string, arguments ...interface{}) {
 	fmt.Printf("==> "+format+"\n", arguments...)
 }
 
+// quoteForRemoteShell renders one argument so that the shell on the other end
+// treats it as a single word.
+//
+// This is not optional and getting it wrong is not obvious. ssh does not take
+// an argument list: it joins whatever it is given with spaces and hands the
+// result to a shell on the remote machine, which parses it again. So an
+// argument containing a pipe, a bracket or a space means something entirely
+// different there. Asking whether an X server was still running with the
+// pattern "Xorg|Xwayland" ran pgrep and piped its output into Xwayland, which
+// tried to start an X server, failed, and was reported as the X server that
+// was still running — a refusal to deploy caused by the check itself.
+func quoteForRemoteShell(argument string) string {
+	if argument == "" {
+		return "''"
+	}
+	safe := true
+	for _, character := range argument {
+		switch {
+		case character >= 'a' && character <= 'z':
+		case character >= 'A' && character <= 'Z':
+		case character >= '0' && character <= '9':
+		case strings.ContainsRune("-_./:=,+@", character):
+		default:
+			safe = false
+		}
+		if !safe {
+			break
+		}
+	}
+	if safe {
+		return argument
+	}
+	// Single quotes protect everything except a single quote, which is ended,
+	// escaped, and reopened.
+	return "'" + strings.ReplaceAll(argument, "'", `'''`) + "'"
+}
+
+// remoteCommand builds the ssh invocation, quoting every argument for the
+// shell that will parse them on the other side.
+func remoteCommand(host string, arguments []string) *exec.Cmd {
+	quoted := make([]string, 0, len(arguments))
+	for _, argument := range arguments {
+		quoted = append(quoted, quoteForRemoteShell(argument))
+	}
+	return exec.Command("ssh", host, strings.Join(quoted, " "))
+}
+
+// remote runs a command on the machine. A failure carries what was said with
+// it: a deployment that stops with "exit status 1" and nothing else is a
+// deployment somebody has to reproduce by hand to understand.
 func remote(host string, arguments ...string) error {
-	command := exec.Command("ssh", append([]string{host}, arguments...)...)
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
-	return command.Run()
+	output, err := remoteOutput(host, arguments...)
+	if err != nil {
+		if trimmed := strings.TrimSpace(output); trimmed != "" {
+			return fmt.Errorf("%s: %w: %s", strings.Join(arguments, " "), err, trimmed)
+		}
+		return fmt.Errorf("%s: %w", strings.Join(arguments, " "), err)
+	}
+	return nil
 }
 
 func remoteOutput(host string, arguments ...string) (string, error) {
-	command := exec.Command("ssh", append([]string{host}, arguments...)...)
+	command := remoteCommand(host, arguments)
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -266,7 +363,7 @@ func remoteOutput(host string, arguments ...string) (string, error) {
 }
 
 func remoteInput(host string, input io.Reader, arguments ...string) error {
-	command := exec.Command("ssh", append([]string{host}, arguments...)...)
+	command := remoteCommand(host, arguments)
 	command.Stdin = input
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr

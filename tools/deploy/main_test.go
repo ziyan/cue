@@ -20,13 +20,25 @@ func TestTheContainerGetsTheConsoleItIsToldToDrawOn(t *testing.T) {
 	}
 }
 
+func TestTheContainerDoesNotUseTheHostsNetwork(t *testing.T) {
+	// Chromium does not honour --ignore-certificate-errors in the host's
+	// network namespace, so a self-signed certificate — which is what every
+	// appliance on a private network has — is refused. Public certificates
+	// still work, so nothing looks broken until the one page that matters
+	// will not load.
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+	if strings.Contains(joined, "--network host") {
+		t.Errorf("the container uses the host's network:\n%s", joined)
+	}
+}
+
 func TestTheGraphicsDeviceAndTheStateAreAlwaysThere(t *testing.T) {
 	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
 	for _, expected := range []string{
 		"--device /dev/dri:/dev/dri",
 		"-v /etc/cue:/etc/cue",
 		"-v /var/lib/cue:/var/lib/cue",
-		"--network host",
+		"-p 8080:8080",
 		"--shm-size 1g",
 		"--cap-add SYS_TTY_CONFIG",
 		"--cap-add SYS_TIME",

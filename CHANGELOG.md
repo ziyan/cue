@@ -8,6 +8,10 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- Proved on real hardware: a laptop with its display manager stopped, driving
+  its own panel at 2560x1440 through Xorg, showing a UniFi Protect dashboard
+  full screen and signed in by the login rule.
+
 - The container image builds for arm64 as well as amd64. Two of the X drivers
   are built only for x86 and are now installed only there; asking for them
   elsewhere failed the build outright, which would have broken the first

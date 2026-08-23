@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"image/png"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -26,6 +27,16 @@ func NewDisplayCommand() *cli.Command {
 				Name:   "probe",
 				Usage:  "list the display connectors the kernel can see, with or without an X server",
 				Action: probeDisplay,
+			},
+			{
+				Name:  "screenshot",
+				Usage: "write a picture of what the screen is actually showing, taken from the X server rather than from the browser",
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "number", Usage: "X display number to connect to"},
+					&cli.StringFlag{Name: "authority", Usage: "path to the X authority file (defaults to $XAUTHORITY)"},
+					&cli.StringFlag{Name: "output", Aliases: []string{"o"}, Value: "screen.png", Usage: "where to write the picture"},
+				},
+				Action: captureScreen,
 			},
 			{
 				Name:  "outputs",
@@ -131,6 +142,51 @@ func showOutputs(ctx context.Context, command *cli.Command) error {
 		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", name, status, geometry, output.Rotation, preferred)
 	}
 	return writer.Flush()
+}
+
+// captureScreen writes what the X server is showing. It exists for the
+// question the browser's own screenshot cannot answer: the browser shows what
+// it believes it drew, and a window that was never sized to the screen, or a
+// second program sitting on top of the page, looks perfectly fine in that
+// picture and wrong on the wall.
+func captureScreen(ctx context.Context, command *cli.Command) error {
+	authority := command.String("authority")
+	if authority == "" {
+		authority = os.Getenv("XAUTHORITY")
+	}
+	if authority == "" {
+		return fmt.Errorf("no X authority file given; pass --authority or set XAUTHORITY")
+	}
+	cookie, err := readCookie(authority)
+	if err != nil {
+		return err
+	}
+
+	connection, err := display.Open(ctx, command.Int("number"), cookie)
+	if err != nil {
+		return err
+	}
+	defer connection.Close()
+
+	picture, err := connection.Capture(ctx)
+	if err != nil {
+		return err
+	}
+
+	filename := command.String("output")
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	if err := png.Encode(file, picture); err != nil {
+		return err
+	}
+
+	bounds := picture.Bounds()
+	fmt.Printf("wrote %s (%dx%d)\n", filename, bounds.Dx(), bounds.Dy())
+	return nil
 }
 
 func firstFew(values []string, count int) []string {

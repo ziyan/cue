@@ -44,6 +44,14 @@ func (self *Browser) enforceRules(ctx context.Context) {
 			continue
 		}
 
+		// Re-assert the window size. It is checked before it is set, so this
+		// costs one question most of the time — and it means a screen that
+		// changes size, because a monitor was plugged in, is followed by the
+		// window rather than leaving the page in a corner of it.
+		if session, err := self.browser(ctx); err == nil {
+			self.fillTheScreen(ctx, session, tabs)
+		}
+
 		for identifier, target := range tabs {
 			item, found := self.itemFor(identifier)
 			if !found {

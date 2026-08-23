@@ -238,6 +238,49 @@ func (self *Session) read() {
 
 // --- the handful of commands this project uses -----------------------------
 
+// WindowBounds is where a browser window is and how big it is.
+//
+// Every field is omitted when it is zero, which is not tidiness: the protocol
+// refuses a request that names both a state and a rectangle, so asking for
+// full screen means sending nothing but the state.
+type WindowBounds struct {
+	Left        int    `json:"left,omitempty"`
+	Top         int    `json:"top,omitempty"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+	WindowState string `json:"windowState,omitempty"`
+}
+
+// WindowForTarget returns the window one tab is in, and its current bounds.
+func (self *Session) WindowForTarget(ctx context.Context, target string) (int, WindowBounds, error) {
+	var reply struct {
+		WindowId int          `json:"windowId"`
+		Bounds   WindowBounds `json:"bounds"`
+	}
+	parameters := map[string]interface{}{}
+	if target != "" {
+		parameters["targetId"] = target
+	}
+	if err := self.Call(ctx, "Browser.getWindowForTarget", parameters, &reply); err != nil {
+		return 0, WindowBounds{}, err
+	}
+	return reply.WindowId, reply.Bounds, nil
+}
+
+// SetWindowBounds moves and resizes a browser window.
+//
+// This is how the window gets to be the size of the screen. It cannot be done
+// with a command line flag: --kiosk and --start-fullscreen both work by asking
+// the window manager to make the window full screen, and this image has no
+// window manager to ask, so the window stays whatever size Chromium opened it
+// at. Setting the bounds over the protocol asks nobody and always works.
+func (self *Session) SetWindowBounds(ctx context.Context, window int, bounds WindowBounds) error {
+	return self.Call(ctx, "Browser.setWindowBounds", map[string]interface{}{
+		"windowId": window,
+		"bounds":   bounds,
+	}, nil)
+}
+
 // CreateTarget opens a tab and returns its identifier. Sent on a browser
 // session, not a tab session.
 func (self *Session) CreateTarget(ctx context.Context, address string) (string, error) {
