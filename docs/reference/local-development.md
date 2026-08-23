@@ -10,6 +10,12 @@ You need Go and Docker. There is no JavaScript toolchain.
     make docker         # the container image, tagged cue:dev
     make docker-smoke   # start that image against a virtual screen and prove it works
 
+`make check-packages` asks Debian whether every package the image installs
+exists for every architecture the image is published for. It is not part of
+`make lint` because it needs the network; continuous integration runs it as a
+step of its own, and the release workflow runs it before spending twenty
+minutes building for two architectures under emulation.
+
 `make docker-smoke` is the test that matters. It starts the real image, sets
 the device up, waits for a page to reach the screen, checks that every program
 is running, takes a screenshot and checks its size, watches the playlist

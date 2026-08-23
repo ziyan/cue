@@ -35,12 +35,15 @@ RUN CGO_ENABLED=0 go build -mod=vendor \
 # ---------------------------------------------------------------------------
 FROM debian:trixie-slim AS rootfs
 
+# Which architecture this image is being built for. buildx sets it; a plain
+# "docker build" does not, and the default covers that.
+ARG TARGETARCH=amd64
+
 # PACKAGES is what the image is for. Each line says why it is here.
 ENV PACKAGES="\
     chromium chromium-sandbox \
     xserver-xorg-core \
-    xserver-xorg-video-amdgpu xserver-xorg-video-intel \
-    xserver-xorg-video-nouveau xserver-xorg-video-vesa xserver-xorg-video-fbdev \
+    xserver-xorg-video-amdgpu xserver-xorg-video-nouveau xserver-xorg-video-fbdev \
     xserver-xorg-input-libinput \
     x11-xkb-utils xkb-data \
     xvfb \
@@ -49,6 +52,16 @@ ENV PACKAGES="\
     libgl1-mesa-dri mesa-va-drivers libglx-mesa0 libvulkan1 \
     fonts-liberation2 fonts-dejavu-core fonts-noto-color-emoji fontconfig \
     ca-certificates tzdata"
+
+# Two X drivers exist only for x86, and asking for them on any other
+# architecture fails the build outright — which is how the first
+# multi-architecture release would have broken. The intel driver is for older
+# Intel chips, since modesetting drives the modern ones; the vesa driver is the
+# last resort for hardware with no kernel mode setting at all. Neither has an
+# equivalent to miss on ARM, where the graphics are always driven by a kernel
+# driver. tools/checkpackages checks this against Debian's own indexes so it
+# cannot drift back.
+ENV X86_PACKAGES="xserver-xorg-video-intel xserver-xorg-video-vesa"
 
 # EXCLUDED names the packages whose *files* are left out. Two kinds:
 #
@@ -75,6 +88,9 @@ ENV EXCLUDED="\
     adwaita-icon-theme"
 
 RUN set -eux; \
+    if [ "${TARGETARCH}" = "amd64" ] || [ "${TARGETARCH}" = "386" ]; then \
+        PACKAGES="${PACKAGES} ${X86_PACKAGES}"; \
+    fi; \
     apt-get update -qq; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${PACKAGES}; \
     dpkg-query -W -f='${binary:Package}\n' | sort -u > /tmp/installed.txt; \

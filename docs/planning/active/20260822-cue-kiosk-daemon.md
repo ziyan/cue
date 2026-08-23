@@ -322,6 +322,19 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   browser that did not need it. A cached session is now asked whether it is
   still open before it is handed out.
 
+- Observation: the release workflow would have failed. It publishes the image
+  for amd64 and arm64, and two of the X drivers it installed — the Intel one
+  and the VESA one — are built only for x86. The arm64 half of the build would
+  have stopped with "Unable to locate package", after every other stage had
+  already succeeded, at the moment of the first release.
+  Evidence: Debian's own arm64 index has no `xserver-xorg-video-intel` and no
+  `xserver-xorg-video-vesa`. They are installed only on x86 now, and
+  `tools/checkpackages` reads the lists out of the Dockerfile and checks each
+  package against Debian's index for each architecture — ten seconds, against
+  twenty minutes to find out by building under emulation. Putting the fault
+  back makes it say so: "arm64: xserver-xorg-video-intel is not built for this
+  architecture; the release build would fail".
+
 ## Decision Log
 
 - Decision: the module path is `github.com/ziyan/cue`, the binary is `cue`, the

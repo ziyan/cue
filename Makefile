@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := all
 
 .PHONY: all help build test benchmark coverage format check lint lint-ci mulint \
-	check-secrets clean docker docker-smoke deploy dev dev-config watch vendor
+	check-secrets check-packages clean docker docker-smoke deploy dev dev-config watch vendor
 
 GO ?= go
 BUILD_DIR ?= build
@@ -54,6 +54,12 @@ lint: lint-ci mulint ## Run every linter (what to run before committing)
 
 check-secrets: ## Fail if a credential or a private address is in a tracked file
 	@$(GO) run -mod=vendor ./tools/checksecrets
+
+# Not part of lint-ci: it fetches Debian's package indexes, and a linter that
+# needs the network fails for reasons that have nothing to do with the change.
+# CI runs it as a step of its own.
+check-packages: ## Fail if the image asks for a package an architecture does not have
+	@$(GO) run -mod=vendor ./tools/checkpackages
 
 lint-ci: check-secrets ## Run the linters CI runs
 	@set -e; \

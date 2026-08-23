@@ -43,6 +43,11 @@ jobs:
       - name: Collect the release notes
         run: go run ./tools/changelog "${{ steps.version.outputs.version }}" | tee release-notes.md
 
+      # Before spending twenty minutes building for two architectures under
+      # emulation, check that both can actually be built.
+      - name: Check the packages exist for every architecture
+        run: make check-packages
+
       - name: Build the binaries
         run: go run ./tools/release "${{ steps.version.outputs.version }}" dist
 

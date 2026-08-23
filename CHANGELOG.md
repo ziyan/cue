@@ -8,6 +8,11 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- The container image builds for arm64 as well as amd64. Two of the X drivers
+  are built only for x86 and are now installed only there; asking for them
+  elsewhere failed the build outright, which would have broken the first
+  multi-architecture release.
+
 - Proved against a real dashboard: half an hour of continuous operation with
   four live camera streams, no restarts, no watchdog failures, and memory
   flat.
