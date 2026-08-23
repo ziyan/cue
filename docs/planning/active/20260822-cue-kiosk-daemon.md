@@ -470,6 +470,19 @@ a virtual screen instead of Xorg — changed:
 That is the browser sandboxed, in the host's hardware groups, signed into the
 real dashboard, with the clock right and nothing having had to be restarted.
 
+It was then left running for half an hour against the live dashboard, because
+this is meant to run for months and had only ever been run for minutes:
+
+    t+2m   mem=609MiB  restarts=0 watchdog=0 failures  showing the dashboard
+    t+16m  mem=619MiB  restarts=0 watchdog=0 failures  showing the dashboard
+    t+30m  mem=583MiB  restarts=0 watchdog=0 failures  showing the dashboard
+
+Memory oscillates between about 560 and 620 megabytes with no trend, which is
+four live camera streams being decoded and nothing accumulating: no leak in
+the daemon, and none in the cached protocol connections, which was the thing
+worth checking. Nothing was restarted, the watchdog never failed a probe, the
+session did not expire, and the clock stayed within a fifth of a millisecond.
+
 The remote view was then proved too, which nothing else exercises: the smoke
 test opens the WebSocket the browser's viewer uses and reads
 `RFB 003.008` back through it, then answers with the same version and reads

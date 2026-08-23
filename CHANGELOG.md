@@ -8,6 +8,10 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- Proved against a real dashboard: half an hour of continuous operation with
+  four live camera streams, no restarts, no watchdog failures, and memory
+  flat.
+
 - The first version of everything. One Go daemon, shipped in a distroless
   image, that turns a headless Linux machine with a screen attached into a
   managed display: it starts and supervises an X server, Chromium in kiosk
