@@ -411,22 +411,32 @@ func (self *Browser) closeUnexpectedTabs(ctx context.Context) {
 		return
 	}
 
-	session, err := self.browser(ctx)
-	if err != nil {
-		return
-	}
-	pages, err := self.client.Pages(ctx)
-	if err != nil {
-		return
-	}
-
 	self.mutex.Lock()
 	ours := make(map[string]bool, len(self.tabs))
 	for _, identifier := range self.tabs {
 		ours[identifier] = true
 	}
 	seenBefore := self.unexpectedTabs
+	client := self.client
 	self.mutex.Unlock()
+
+	// First, before anything is asked of the browser. If the daemon does not
+	// know which tabs are its own then every tab is unexpected, and this would
+	// close the window on the wall — and with the last window gone, the
+	// browser with it. That is the state whenever openTabs has not run or did
+	// not finish, which is exactly when this must do nothing at all.
+	if len(ours) == 0 || client == nil {
+		return
+	}
+
+	session, err := self.browser(ctx)
+	if err != nil {
+		return
+	}
+	pages, err := client.Pages(ctx)
+	if err != nil {
+		return
+	}
 
 	seenNow := make(map[string]bool)
 	for _, page := range pages {

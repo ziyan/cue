@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ziyan/cue/internal/util/cdp"
 )
@@ -30,6 +31,14 @@ func (self *Browser) browser(ctx context.Context) (*cdp.Session, error) {
 		}
 		self.mutex.Unlock()
 		existing.Close()
+	}
+
+	// There is no client until the browser has started and said which port it
+	// is on. Callers run on timers and can arrive before that, or after a
+	// browser has gone; an error is the answer, not a panic in whichever
+	// goroutine happened to ask.
+	if self.client == nil {
+		return nil, errors.New("browser: it has not started yet")
 	}
 
 	session, err := self.client.AttachBrowser(ctx)

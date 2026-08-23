@@ -113,6 +113,11 @@ All notable changes to this project are recorded here, in the categories of
   that would not start logged `yaml: unmarshal errors:` over and over and said
   nothing whatever about its configuration.
 
+- Asking for the browser before it has started is an error rather than a
+  panic. Everything that drives the browser runs on a timer and can arrive
+  before it is up, or after one has gone; the panic was recovered by whichever
+  goroutine caught it, which is a rotation loop that quietly stops rotating.
+
 - Name servers are written even where the file cannot be replaced. In a
   container `/etc/resolv.conf` is bind-mounted, so its inode cannot be
   swapped — the atomic write failed and `cue` gave up on setting DNS at all,
