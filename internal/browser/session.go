@@ -21,7 +21,15 @@ func (self *Browser) browser(ctx context.Context) (*cdp.Session, error) {
 	existing := self.browserSession
 	self.mutex.Unlock()
 	if existing != nil {
-		return existing, nil
+		if !existing.Closed() {
+			return existing, nil
+		}
+		self.mutex.Lock()
+		if self.browserSession == existing {
+			self.browserSession = nil
+		}
+		self.mutex.Unlock()
+		existing.Close()
 	}
 
 	session, err := self.client.AttachBrowser(ctx)
@@ -50,10 +58,16 @@ func (self *Browser) session(ctx context.Context, target string) (*pageSession, 
 	existing := self.sessions[target]
 	self.mutex.Unlock()
 	if existing != nil {
-		// A session whose connection has gone is indistinguishable from a
-		// working one until something is sent on it, so a failed call is what
-		// invalidates the cache; see forgetSession.
-		return &pageSession{Session: existing}, nil
+		if !existing.Closed() {
+			return &pageSession{Session: existing}, nil
+		}
+		// The connection has gone — a renderer crashed, or the tab was closed
+		// and reopened underneath us. Keeping it would mean every rule and
+		// every probe on this tab failing forever while the browser itself is
+		// perfectly healthy, which the watchdog would eventually answer by
+		// restarting a browser that did not need it.
+		log.Debugf("the connection to a tab has gone; opening another")
+		self.forgetSession(target)
 	}
 
 	pages, err := self.client.Pages(ctx)

@@ -304,6 +304,24 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   two-second bound so that a leaked pipe cannot stop the supervisor
   supervising.
 
+- Observation: a protocol command sent on a connection that had just died
+  returned *success*. The reader closes every pending reply channel when the
+  connection goes, and the caller read the zero value out of the closed
+  channel as a reply with no error and no result — so every command that wants
+  no result back, which is navigating, reloading and switching tab, reported
+  that it had worked. A kiosk would sit on the wrong page with nothing in any
+  log to say why.
+  Evidence: `TestACallOnAClosedSessionFailsRatherThanHanging` passed the call
+  and failed the assertion. A receive from a closed channel is now told apart
+  from a real reply.
+
+- Observation: a tab's protocol connection was cached and never invalidated,
+  so a renderer that crashed left a dead connection behind and every rule and
+  every probe on that tab failed forever — while the browser itself was
+  perfectly healthy and the watchdog would eventually answer by restarting a
+  browser that did not need it. A cached session is now asked whether it is
+  still open before it is handed out.
+
 ## Decision Log
 
 - Decision: the module path is `github.com/ziyan/cue`, the binary is `cue`, the

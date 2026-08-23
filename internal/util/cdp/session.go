@@ -88,6 +88,21 @@ func (self *Client) Attach(ctx context.Context, target Target) (*Session, error)
 	return session, nil
 }
 
+// Closed reports whether this session's connection has gone. A caller that
+// keeps sessions — the browser keeps one per tab, because the rules are
+// evaluated every few seconds — has to ask, or a tab whose renderer crashed
+// leaves a dead connection cached and every call on it fails forever.
+func (self *Session) Closed() bool {
+	select {
+	case <-self.done:
+		return true
+	default:
+	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.closed
+}
+
 // Close ends the session. Everything waiting for a reply is released.
 func (self *Session) Close() {
 	self.closeOnce.Do(func() {
@@ -134,7 +149,16 @@ func (self *Session) Call(ctx context.Context, method string, parameters interfa
 	}
 
 	select {
-	case incoming := <-reply:
+	case incoming, delivered := <-reply:
+		if !delivered {
+			// The reader closed every pending reply channel because the
+			// connection has gone. Without this check the zero value would be
+			// read as a reply with no error and no result, and a command that
+			// wants no result — navigating, reloading, switching tab — would
+			// report success on a connection that no longer exists. A kiosk
+			// then sits on the wrong page with nothing in any log.
+			return fmt.Errorf("cdp: %s: the browser closed the connection", method)
+		}
 		if incoming.Error != nil {
 			return fmt.Errorf("cdp: %s: %w", method, incoming.Error)
 		}
