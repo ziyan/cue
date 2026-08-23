@@ -116,6 +116,11 @@ All notable changes to this project are recorded here, in the categories of
   its last command, so a failing test showed FAIL on the screen and returned
   success — which is what a check for silent failures must never do itself.
 
+- Proved by migration: the machine this project was written to replace now
+  runs `cue`. Its supervisor-and-bash stack is gone, along with 22 packages —
+  Chromium, the X server, x11vnc, supervisor — because all of it is inside the
+  image now. Two faults turned up in the doing and are fixed below.
+
 - The screen size is read from the root window rather than from the X
   connection setup. The setup block is sent once, when the client connects, and
   is never updated — so after this daemon resized the screen it still reported

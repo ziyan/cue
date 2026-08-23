@@ -311,6 +311,19 @@ being plugged in — with a `/sys` poll as the always-available fallback.
   decoded before being swapped in (measured again afterwards: zero new
   elements, zero blank frames), and the interface asks for a scaled JPEG.
 
+- Observation: the browser filled 1152x864 of a 1280x1024 screen.
+  Evidence: the second machine migrated to cue. `apply.go` logged "screen
+  1280x1024; VGA-1 1280x1024@60", correctly, and `layout.go` then logged "the
+  screen is 1152x864" — the size read back a fifth of a second later.
+  `Screen()` read the X connection setup block, which is sent once when the
+  client connects and never updated, so it still held the size the server
+  started at. Everything downstream was given a stale number and used it
+  faithfully.
+  Implication: it asks the root window now, which RandR does update. carbon
+  never showed this because its X server happened to start at the size it was
+  about to be set to — the bug needed a machine whose starting mode differed,
+  and there was exactly one.
+
 ## Not done, and why
 
 - **Forcing a disconnected output on.** `pendant` writes `on` to
