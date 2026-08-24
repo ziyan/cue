@@ -295,19 +295,36 @@ func (self *Server) probe(ctx context.Context) error {
 // presents as a screen that is black until somebody logs in and deletes a
 // file they have never heard of.
 func (self *Server) clearStaleLock() error {
-	lock := fmt.Sprintf("/tmp/.X%d-lock", self.configuration().Display.Number)
-	socket := display.SocketPath(self.configuration().Display.Number)
+	number := self.configuration().Display.Number
+	lock := fmt.Sprintf("/tmp/.X%d-lock", number)
+	socket := display.SocketPath(number)
+
+	// Anybody already on this display, ours or not.
+	//
+	// This deliberately does not use probe(), which authenticates with this
+	// daemon's own cookie: a server belonging to somebody else refuses that
+	// cookie, so probe() would report "nothing there" for precisely the case
+	// that matters and the daemon would carry on and start a second server on
+	// a display that already has one.
+	//
+	// The case that matters is a container given the host's network — which
+	// is how cue is deployed, because managing the machine's network needs
+	// it. The abstract X socket belongs to the network namespace rather than
+	// the mount namespace, so the container shares the machine's. On a
+	// workstation with a desktop running, Chromium and the X server both
+	// reach for that socket before the file, and what happens next depends on
+	// whether the machine's X server accepts the connection. Refusing to
+	// start is the only answer that is right in every case.
+	if where, found := display.SomethingIsAnsweringOn(number); found {
+		return fmt.Errorf("xserver: something is already answering on %s (%s), and this daemon "+
+			"will not start a second X server there or take over the first. "+
+			"If that is a desktop on this machine, stop it or give cue a display of its own "+
+			"with display.number; if it is a previous cue that has not finished stopping, "+
+			"this will succeed on the next attempt", self.DisplayName(), where)
+	}
 
 	if _, err := os.Stat(lock); err != nil {
 		return nil
-	}
-
-	// If something answers, the lock is not stale and starting a second
-	// server would be a mistake.
-	probeContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := self.probe(probeContext); err == nil {
-		return fmt.Errorf("xserver: an X server is already running on %s", self.DisplayName())
 	}
 
 	log.Noticef("removing the lock left by a previous X server: %s", lock)

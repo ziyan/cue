@@ -165,6 +165,41 @@ func SocketPath(displayNumber int) string {
 	return fmt.Sprintf("/tmp/.X11-unix/X%d", displayNumber)
 }
 
+// AbstractSocketPath is the other way a client reaches an X server on Linux:
+// an abstract socket, named like the file but living in the kernel rather than
+// the filesystem. Xlib and xcb try it first, which matters here because the
+// abstract namespace belongs to the network namespace, not the mount
+// namespace — so a container started with the host's network can reach the
+// host's X server even though it cannot see its socket file.
+func AbstractSocketPath(displayNumber int) string {
+	return "@" + SocketPath(displayNumber)
+}
+
+// SomethingIsAnsweringOn reports whether an X server already has this display
+// number, and by which socket.
+//
+// It opens the socket and does not authenticate: the question is whether
+// anybody is there, and a server that refuses our cookie is emphatically there.
+// Probing with the cookie would answer the opposite question and miss exactly
+// the case that matters — somebody else's X server.
+//
+// Both sockets are tried, and the abstract one first, because that is the one
+// a container in the host's network namespace shares with the machine.
+func SomethingIsAnsweringOn(displayNumber int) (where string, found bool) {
+	for _, candidate := range []string{
+		AbstractSocketPath(displayNumber),
+		SocketPath(displayNumber),
+	} {
+		connection, err := net.DialTimeout("unix", candidate, time.Second)
+		if err != nil {
+			continue
+		}
+		_ = connection.Close()
+		return candidate, true
+	}
+	return "", false
+}
+
 // Name is the value of DISPLAY that reaches this server.
 func Name(displayNumber int) string {
 	return fmt.Sprintf(":%d", displayNumber)

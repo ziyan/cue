@@ -121,6 +121,18 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+- The daemon refuses to start an X server on a display something is already
+  answering on. The check it had looked for a lock file, which a container
+  cannot see when the server belongs to the machine outside it — and `cue` is
+  deployed with the host's network, because managing the machine's network
+  needs it. The abstract X socket belongs to the network namespace rather than
+  the mount namespace, so in that arrangement the container shares the
+  machine's: on a workstation with a desktop running, Chromium reaches for the
+  real X server before the container's own. What stopped it there was the
+  daemon's private cookie, which is a lock on the door and not a reason to walk
+  up to it. Both sockets are now checked, unauthenticated, before anything
+  starts.
+
 - The screen size is read from the root window rather than from the X
   connection setup. The setup block is sent once, when the client connects, and
   is never updated — so after this daemon resized the screen it still reported
