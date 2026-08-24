@@ -78,6 +78,7 @@ function render() {
 function chrome(active) {
   return h("header", { class: "bar" },
     h("div", { class: "brand" },
+      h("img", { class: "mark", src: "/favicon.svg", alt: "" }),
       h("strong", { text: state.device.name || "Cue" }),
       h("span", { class: "mono", text: state.device.identifier || "" })),
     h("nav", { class: "tabs" },

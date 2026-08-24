@@ -89,6 +89,14 @@ All notable changes to this project are recorded here, in the categories of
   buttons too small for a finger.
 - `cue config`, `cue display probe`, `cue health` and `cue version`.
 
+### Changed
+
+- The interface carries Cue's own mark. The tab icon was a placeholder drawn
+  inline in the HTML — a blue rectangle on a blue square — and the header had
+  no mark at all. Both now use the product's, a display panel in the brand's
+  colours, and it is a file rather than a data URI so the page and the icon
+  stop being one thing to edit.
+
 ### Removed
 
 - `browser.debuggingPort`. It was a setting twice and caused a different failure
