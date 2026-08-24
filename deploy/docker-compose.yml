@@ -100,6 +100,13 @@ services:
       # The browser profile, the device identifier, and — if the device is
       # enrolled — its fleet credential.
       - /var/lib/cue:/var/lib/cue
+      # The machine's device database, read only. The X server does not go
+      # looking in /dev/input; it asks udev what input devices exist, and udev
+      # answers out of here. Without it the X server says "the server relies
+      # on udev to provide the list of input devices" and then adds none of
+      # them: a screen with no keyboard and no mouse, while /dev/input is full
+      # of them.
+      - /run/udev:/run/udev:ro
 
     # The health check is the daemon's own: it reports unhealthy when the
     # browser is not running, and stays healthy through a planned restart so

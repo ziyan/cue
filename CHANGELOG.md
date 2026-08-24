@@ -121,6 +121,15 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+- The screen has a keyboard and a mouse again. The container was given
+  `/dev/input` but not `/run/udev`, and the X server does not go looking in
+  `/dev/input` — it asks udev what exists, and udev answers out of that
+  database. It found none, and said so only as an informational line saying it
+  relies on udev. Every other sign was healthy: the devices were all there, and
+  the daemon's own Device page listed every one of them, because that reads the
+  kernel directly. The machine's database is now mounted read only, and the
+  daemon says plainly at start-up when it is missing.
+
 - The daemon refuses to start an X server on a display something is already
   answering on. The check it had looked for a lock file, which a container
   cannot see when the server belongs to the machine outside it — and `cue` is

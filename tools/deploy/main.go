@@ -246,6 +246,16 @@ func containerArguments(image, name string, terminal int, optionalDevices []stri
 		// Chromium exhausts Docker's default 64 megabytes and then crashes
 		// tabs with no explanation anybody can act on.
 		"--shm-size", "1g",
+		// The machine's device database, read only.
+		//
+		// The X server does not go looking in /dev/input; it asks udev what
+		// input devices exist, and udev answers out of this directory. A
+		// container without it gets an X server that says "the server relies
+		// on udev to provide the list of input devices" and then adds none of
+		// them — so the screen has no keyboard and no mouse, while
+		// /dev/input is full of them and the daemon's own Device page lists
+		// every one, because that reads the kernel directly.
+		"-v", "/run/udev:/run/udev:ro",
 		// The graphics device, the console layer, and the one console the X
 		// server is told to draw on.
 		"--device", "/dev/dri:/dev/dri",

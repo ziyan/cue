@@ -103,3 +103,19 @@ func TestTheLogIsBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestTheMachinesDeviceDatabaseIsMounted(t *testing.T) {
+	// The X server does not go looking in /dev/input; it asks udev, and udev
+	// answers out of /run/udev. Passing the input devices without the
+	// database gets a screen with no keyboard and no mouse, and nothing
+	// anywhere that looks like an error — the X server asked and the answer
+	// was none.
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, []string{"/dev/input"}), " ")
+
+	if !strings.Contains(joined, "/run/udev:/run/udev:ro") {
+		t.Errorf("the machine's udev database is not mounted, so the screen will have no input:\n%s", joined)
+	}
+	if !strings.Contains(joined, "/dev/input") {
+		t.Errorf("the input devices are not passed through:\n%s", joined)
+	}
+}

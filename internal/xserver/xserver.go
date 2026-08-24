@@ -323,6 +323,14 @@ func (self *Server) clearStaleLock() error {
 			"this will succeed on the next attempt", self.DisplayName(), where)
 	}
 
+	// Not fatal: a screen with a dashboard on it and no keyboard is still
+	// doing its job, and plenty of these have neither attached. It is said
+	// once, plainly, because the alternative is somebody standing in front of
+	// a screen that ignores them with nothing anywhere to explain why.
+	if problem, ok := inputWillWork(); !ok {
+		log.Warningf("%s", problem)
+	}
+
 	if _, err := os.Stat(lock); err != nil {
 		return nil
 	}
