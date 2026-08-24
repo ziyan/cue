@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"net/http"
@@ -184,10 +185,24 @@ func run(image string, port int, keep bool) error {
 	// The interface asks for a new one every few seconds. On a 4K screen the
 	// full-size lossless picture was 5.6 MB, which is a hundred megabytes a
 	// minute to leave a browser tab open on.
-	fmt.Printf("    full %d bytes, small %d bytes\n", len(image_), len(small))
-	if len(small) >= len(image_) {
-		return withLogs(fmt.Errorf("the small screenshot is %d bytes against the full %d, so it is not smaller",
-			len(small), len(image_)))
+	// JPEG, because the small one always is: most of what is on these
+	// screens is video from a camera, which PNG stores appallingly.
+	smallConfig, err := jpeg.DecodeConfig(bytes.NewReader(small))
+	if err != nil {
+		return withLogs(fmt.Errorf("the small screenshot is not the JPEG it should be: %w", err))
+	}
+	fmt.Printf("    full %d bytes %dx%d, small %d bytes %dx%d\n",
+		len(image_), width, height, len(small), smallConfig.Width, smallConfig.Height)
+	// The width, not the byte count: a flat test page compresses to about the
+	// same size either way, and a picture that is still full size would slip
+	// through a check on bytes alone.
+	if smallConfig.Width >= width {
+		return withLogs(fmt.Errorf("the small screenshot is %d pixels wide against the full %d, so it is not smaller",
+			smallConfig.Width, width))
+	}
+	if smallConfig.Height*width != smallConfig.Width*height {
+		return withLogs(fmt.Errorf("the small screenshot is %dx%d, which is not the shape of the %dx%d screen",
+			smallConfig.Width, smallConfig.Height, width, height))
 	}
 
 	step("checking that dark mode reaches the page")

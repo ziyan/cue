@@ -1,0 +1,70 @@
+package web
+
+import (
+	"image"
+	"image/color"
+)
+
+// shrink scales a picture down to fit inside a width, by averaging.
+//
+// It exists so that making the picture smaller costs the screen nothing. The
+// obvious way — asking Chromium for a scaled capture — re-lays the page out at
+// the clipped size while it takes the picture, and that is visible on the wall:
+// the dashboard jumps to another size and back, every few seconds, for as long
+// as anybody has the interface open. The screen is the product here, and
+// nothing shown *about* it may disturb it.
+//
+// Averaging rather than sampling because these are photographs from cameras.
+// Nearest-neighbour on a camera image at half size is a mess of aliasing, and
+// the whole point of the smaller picture is that it still shows what the
+// screen shows.
+func shrink(source image.Image, width int) image.Image {
+	bounds := source.Bounds()
+	if bounds.Dx() <= width || width <= 0 {
+		return source
+	}
+
+	height := bounds.Dy() * width / bounds.Dx()
+	if height < 1 {
+		height = 1
+	}
+	target := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	for y := 0; y < height; y++ {
+		// The band of source rows this output row stands for.
+		top := bounds.Min.Y + y*bounds.Dy()/height
+		bottom := bounds.Min.Y + (y+1)*bounds.Dy()/height
+		if bottom <= top {
+			bottom = top + 1
+		}
+		for x := 0; x < width; x++ {
+			left := bounds.Min.X + x*bounds.Dx()/width
+			right := bounds.Min.X + (x+1)*bounds.Dx()/width
+			if right <= left {
+				right = left + 1
+			}
+
+			var red, green, blue, count uint64
+			for sourceY := top; sourceY < bottom; sourceY++ {
+				for sourceX := left; sourceX < right; sourceX++ {
+					r, g, b, _ := source.At(sourceX, sourceY).RGBA()
+					// RGBA returns 16 bits per channel.
+					red += uint64(r >> 8)
+					green += uint64(g >> 8)
+					blue += uint64(b >> 8)
+					count++
+				}
+			}
+			if count == 0 {
+				continue
+			}
+			target.Set(x, y, color.RGBA{
+				R: uint8(red / count),
+				G: uint8(green / count),
+				B: uint8(blue / count),
+				A: 255,
+			})
+		}
+	}
+	return target
+}

@@ -121,6 +121,19 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+- The screenshot is read from the X server instead of from the browser, which
+  fixes three things at once. It is now a picture of the screen rather than of
+  what the browser believes it drew — a window that was never sized to the
+  screen, a page covered by something else, or a renderer that stopped painting
+  all looked perfect in the old one. It is available when the browser is the
+  problem, which is exactly when somebody wants to see the screen; asking the
+  browser then answered "nothing is on the screen yet", while a crashed
+  Chromium still leaves its last frame on the glass. And it costs the screen
+  nothing: asking Chromium for a *scaled* capture re-laid the page out while it
+  took the picture, so the dashboard visibly jumped to another size and back
+  every few seconds for as long as anybody had the interface open. The smaller
+  picture is now made here, by averaging, which the screen cannot see at all.
+
 - A zoom the browser remembered is cleared at every start. Chromium keeps a
   zoom per host in the profile, for ever. It takes one keystroke to set — ctrl
   and minus, or ctrl and a scroll wheel — and on a screen on a wall nobody is

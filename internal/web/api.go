@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
+	"image/png"
 	"net/http"
 	"time"
 
@@ -280,45 +282,71 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 	writeJSON(response, http.StatusOK, self.store.Current())
 }
 
-// screenshot is a picture of what is on the screen this moment. It is the
-// fastest way to answer "what is it showing" from somewhere else, and unlike
-// the VNC view it needs nothing but an image tag.
+// screenshot is a picture of what is on the screen this moment, read from the
+// X server rather than from the browser.
+//
+// The browser can take a picture of itself, and for a long time that is what
+// this did. It is the wrong picture twice over.
+//
+// It is not what is on the screen. It is what the browser believes it drew,
+// and a window that was never sized to the screen, a page covered by something
+// else, or a renderer that stopped painting all look perfect in it. Reading
+// the root window shows the screen, which is the thing anybody asking this
+// question wants to know about.
+//
+// And it is not available exactly when it is wanted. Asking the browser for a
+// picture when the browser is the problem answers "nothing is on the screen
+// yet", which is the moment somebody most needs to see the screen — a crashed
+// Chromium still leaves its last frame on the glass, and this shows it.
+//
+// Taking it from X also costs the screen nothing. Asking Chromium for a
+// *scaled* capture re-lays the page out while it takes the picture, and that
+// is visible on the wall: the dashboard jumps to another size and back, every
+// few seconds, for as long as anybody has the interface open.
 func (self *Server) screenshot(response http.ResponseWriter, request *http.Request) {
 	ctx, cancel := context.WithTimeout(request.Context(), 20*time.Second)
 	defer cancel()
 
-	// A full-size lossless picture of a 4K screen is several megabytes. That
-	// is the right thing to hand somebody who asked for a screenshot, and the
-	// wrong thing entirely to put on a page that asks for a new one every
-	// three seconds: on the first real device this ran on, the picture was
-	// 5.6 MB, which is 110 MB a minute to leave a browser tab open on, and
-	// the card it goes in was empty for as long as each one took to arrive.
-	//
-	// So the interface asks for a small one, and says so in the request.
-	quality, scale := 0, 0.0
-	if request.URL.Query().Get("small") != "" {
-		// A dashboard seen in a card a few hundred pixels wide. JPEG because
-		// most of what is on these screens is video from a camera, which PNG
-		// stores appallingly.
-		quality, scale = 70, 0.5
+	configuration := self.store.Current()
+	connection, err := display.Open(ctx, configuration.Display.Number, self.device.XServer().Cookie())
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable,
+			fmt.Sprintf("the X server cannot be reached, so there is nothing to photograph: %s", err))
+		return
 	}
+	defer connection.Close()
 
-	image, err := self.device.Browser().Screenshot(ctx, quality, scale)
+	picture, err := connection.Capture(ctx)
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 
-	contentType := "image/png"
-	if quality > 0 {
-		contentType = "image/jpeg"
+	// A lossless picture of a 4K screen is several megabytes, which is the
+	// right thing to hand somebody who asked for a screenshot and the wrong
+	// thing entirely on a page that asks for a new one every three seconds:
+	// on the first real device this ran on it was 5.6 MB, or 110 MB a minute
+	// to leave a browser tab open on. So the interface asks for a small one.
+	if request.URL.Query().Get("small") != "" {
+		response.Header().Set("Content-Type", "image/jpeg")
+		response.Header().Set("Cache-Control", "no-store")
+		response.WriteHeader(http.StatusOK)
+		// JPEG because most of what is on these screens is video from a
+		// camera, which PNG stores appallingly.
+		_ = jpeg.Encode(response, shrink(picture, smallScreenshotWidth), &jpeg.Options{Quality: 70})
+		return
 	}
-	response.Header().Set("Content-Type", contentType)
+
+	response.Header().Set("Content-Type", "image/png")
 	// A screenshot is out of date the moment it is taken.
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusOK)
-	_, _ = response.Write(image)
+	_ = png.Encode(response, picture)
 }
+
+// smallScreenshotWidth is wide enough for the card it goes in on a large
+// monitor, and small enough that fetching one every few seconds is nothing.
+const smallScreenshotWidth = 960
 
 func (self *Server) show(response http.ResponseWriter, request *http.Request) {
 	identifier := mux.Vars(request)["item"]
