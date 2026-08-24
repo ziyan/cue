@@ -104,15 +104,20 @@ docker-smoke: docker ## Run the whole daemon in the image against a virtual scre
 	@$(GO) run -mod=vendor ./tools/smoke -image $(DOCKER_TAG)
 
 # Some tests need a program the image has and a development machine does not —
-# certutil, for one. On a development machine those tests skip, and a skip
-# proves nothing: the point of them is that the *image* has what the code
-# needs. So the test binaries are built statically and run inside the image
-# itself, where nothing skips.
+# certutil and an X server, for two. On a development machine those tests skip,
+# and a skip proves nothing: the point of them is that the *image* has what the
+# code needs. So the test binaries are built and run inside the image itself,
+# where nothing skips.
+#
+# Built with the race detector, because the tests that only run here are the
+# ones that open X connections, and the bug that took a display down in the
+# field was two goroutines opening one at the same moment. Without -race that
+# test passes on a good day.
 docker-test: docker ## Run the tests inside the image, where the programs they need exist
 	@mkdir -p build/tests
 	@for package in $(IMAGE_TESTED_PACKAGES); do \
 		name=$$(basename $$package); \
-		CGO_ENABLED=0 $(GO) test -mod=vendor -c -o build/tests/$$name.test ./$$package || exit 1; \
+		CGO_ENABLED=1 $(GO) test -mod=vendor -race -c -o build/tests/$$name.test ./$$package || exit 1; \
 		echo "==> $$package, inside $(DOCKER_TAG)"; \
 		docker run --rm -e TMPDIR=/tmp \
 			-v $(PWD)/build/tests/$$name.test:/$$name.test:ro \

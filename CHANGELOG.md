@@ -139,6 +139,15 @@ All notable changes to this project are recorded here, in the categories of
   the root window; `display.cursor` takes `hidden`, `auto` or `always`, and
   still accepts the `true` and `false` it used to be.
 
+- The daemon no longer dies when two things open an X connection at the same
+  moment. `randr.Init` and `dpms.Init` register their extension in
+  package-level maps inside the X bindings, and those maps are not guarded: two
+  goroutines opening a display together write the same map, and Go stops the
+  whole program with "concurrent map writes" — a fatal error, not a panic, so
+  no recover catches it. Three things here open connections, and adding a
+  fourth that opens on a timer turned a race that had always been there into
+  one that took a display down. Opens are serialised now.
+
 - The screenshot is read from the X server instead of from the browser, which
   fixes three things at once. It is now a picture of the screen rather than of
   what the browser believes it drew — a window that was never sized to the

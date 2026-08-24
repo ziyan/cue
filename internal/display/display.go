@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/jezek/xgb"
@@ -96,6 +97,10 @@ type Screen struct {
 	Height int `json:"height"`
 }
 
+// extensionMutex serialises the extension registration inside Open. See the
+// comment where it is taken.
+var extensionMutex sync.Mutex
+
 // Open connects to an X server over its Unix socket, authenticating with the
 // cookie the daemon generated when it started the server. The socket is
 // addressed directly rather than through the DISPLAY environment variable so
@@ -143,6 +148,24 @@ func Open(ctx context.Context, displayNumber int, cookie []byte) (*Display, erro
 		connection: xConnection,
 		root:       xproto.Setup(xConnection).DefaultScreen(xConnection).Root,
 	}
+
+	// randr.Init and dpms.Init register their extension in package-level maps
+	// inside xgb, the first time each is initialised on any connection, and
+	// those maps are not guarded. Two goroutines opening a display at the same
+	// moment write the same map, and Go stops the whole program with
+	// "concurrent map writes" — a fatal error, not a panic, so no recover
+	// anywhere can catch it and the daemon simply dies.
+	//
+	// It killed a display in the field. Three things in this daemon open
+	// connections — the layout, the thing that keeps a window focused, and the
+	// pointer watcher — and the last of those opens on a timer, which took a
+	// race that had always been there and made it likely enough to hit at
+	// start-up.
+	//
+	// Opens are rare and short, so serialising all of them is the cheap fix
+	// and the whole of it.
+	extensionMutex.Lock()
+	defer extensionMutex.Unlock()
 
 	if err := randr.Init(xConnection); err == nil {
 		if _, err := randr.QueryVersion(xConnection, 1, 5).Reply(); err == nil {

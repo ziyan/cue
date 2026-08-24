@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,5 +121,51 @@ func TestTheWallpaperReachesTheScreen(t *testing.T) {
 			t.Errorf("at %v the screen is %v, want %v — the wallpaper is not reaching the root window as drawn",
 				at, gotColour, want)
 		}
+	}
+}
+
+func TestManyDisplaysCanBeOpenedAtOnce(t *testing.T) {
+	// This killed a display in the field.
+	//
+	// randr.Init and dpms.Init register their extension in package-level maps
+	// inside xgb, and those maps are not guarded. Two goroutines opening a
+	// display at the same moment write the same map and Go stops the whole
+	// program with "concurrent map writes" — a fatal error, not a panic, so
+	// nothing recovers and the daemon dies outright. Three things here open
+	// connections, and one of them opens on a timer.
+	//
+	// Run under -race, which CI does, this fails on the unguarded version
+	// even when the timing does not happen to line up.
+	const number, width, height = 72, 160, 120
+	startVirtualScreen(t, number, width, height)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const openers = 8
+	failures := make(chan error, openers)
+	var waiting sync.WaitGroup
+	for index := 0; index < openers; index++ {
+		waiting.Add(1)
+		go func() {
+			defer waiting.Done()
+			connection, err := Open(ctx, number, nil)
+			if err != nil {
+				failures <- err
+				return
+			}
+			// Ask it something, so the connection is actually used rather
+			// than merely made.
+			if _, _, err := connection.Pointer(); err != nil {
+				failures <- err
+			}
+			connection.Close()
+		}()
+	}
+	waiting.Wait()
+	close(failures)
+
+	for err := range failures {
+		t.Errorf("opening a display concurrently failed: %s", err)
 	}
 }
