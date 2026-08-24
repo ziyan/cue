@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Reading the X server's own log.
@@ -13,10 +15,18 @@ import (
 //
 // Its timestamps are the kernel's monotonic clock — seconds since the machine
 // booted — so a line reading "[3885935.672]" is forty-five days after a boot
-// nobody remembers, and cannot be compared with anything else. The server does
-// print the wall-clock time, once, in the line that names its own log file,
-// and that pairs a monotonic reading with a real one. Everything else can be
-// converted from that.
+// nobody remembers, and cannot be compared with anything else. Since that is
+// seconds since boot, and the machine knows when it booted, every line can be
+// given a real time.
+//
+// The server does also print a wall clock once, in the line naming its own log
+// file, and anchoring to that is the obvious thing to do and is wrong. It
+// writes that string in whatever zone its own process has, which is the
+// container's — UTC — while the daemon has been told to think in the zone the
+// screen is in. Anchoring to it put every line four hours out on the first
+// device it was tried on, and the error is invisible: the timestamps look
+// perfectly reasonable, they are simply not the times anything happened. The
+// boot clock has no zone in it and cannot go wrong that way.
 //
 // And its severities are two characters in the middle of the text — (EE), (WW)
 // — which is enough to grep for and not enough to read a page of.
@@ -57,13 +67,17 @@ var markers = map[string]string{
 
 // ParseLog turns the X server's log into entries with real timestamps.
 //
+// bootTime is when the machine started, which is what the server's stamps are
+// measured from. A zero value means it could not be determined, and then the
+// readings are reported as they are rather than converted into times that
+// would be confidently wrong.
+//
 // Lines the server wrote as continuations — indented, with no stamp of their
 // own — are joined to the line above, because on their own they are fragments
 // and the thing they continue is what gives them meaning.
-func ParseLog(content string) []LogEntry {
+func ParseLog(content string, bootTime time.Time) []LogEntry {
 	lines := strings.Split(content, "\n")
-
-	monotonicAt, wallAt, anchored := findAnchor(lines)
+	anchored := !bootTime.IsZero()
 
 	entries := make([]LogEntry, 0, len(lines))
 	for _, line := range lines {
@@ -85,7 +99,7 @@ func ParseLog(content string) []LogEntry {
 		if stamped {
 			entry.Monotonic = monotonic
 			if anchored {
-				entry.At = wallAt.Add(time.Duration((monotonic - monotonicAt) * float64(time.Second)))
+				entry.At = bootTime.Add(time.Duration(monotonic * float64(time.Second)))
 			}
 		}
 		entry.Severity, entry.Text = splitMarker(entry.Text)
@@ -94,30 +108,23 @@ func ParseLog(content string) []LogEntry {
 	return entries
 }
 
-// findAnchor looks for the one line that gives both clocks: the server names
-// its own log file and prints the date while doing it.
+// BootTime is the instant the X server's timestamps are measured from.
 //
-//	[3885935.672] (++) Log file: "/run/cue/xorg.log", Time: Mon Aug 24 08:50:15 2026
-func findAnchor(lines []string) (monotonic float64, wall time.Time, ok bool) {
-	const marker = ", Time: "
-	for _, line := range lines {
-		index := strings.Index(line, marker)
-		if index < 0 || !strings.Contains(line, "Log file:") {
-			continue
-		}
-		stamp, _, stamped := splitStamp(line)
-		if !stamped {
-			continue
-		}
-		// The X server writes this with the C library's own format.
-		when, err := time.ParseInLocation("Mon Jan  2 15:04:05 2006",
-			strings.TrimSpace(line[index+len(marker):]), time.Local)
-		if err != nil {
-			continue
-		}
-		return stamp, when, true
+// The server stamps with CLOCK_MONOTONIC, so that is the clock read here.
+// /proc/uptime looks like the obvious source and is the wrong one: on a modern
+// kernel its first field is CLOCK_BOOTTIME, which keeps counting while the
+// machine is suspended, and CLOCK_MONOTONIC does not. On a laptop that has
+// been closed and opened a few times the two are days apart — on the first one
+// this was checked against, 1.39 days — and every converted timestamp is out
+// by exactly the time the machine spent asleep, while looking perfectly
+// plausible.
+func BootTime() (time.Time, bool) {
+	var reading unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &reading); err != nil {
+		return time.Time{}, false
 	}
-	return 0, time.Time{}, false
+	elapsed := time.Duration(reading.Sec)*time.Second + time.Duration(reading.Nsec)
+	return time.Now().Add(-elapsed), true
 }
 
 // splitStamp takes the "[  1234.567]" off the front of a line.

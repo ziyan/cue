@@ -518,7 +518,12 @@ func (self *Server) xorgLog(response http.ResponseWriter, request *http.Request)
 		_, _ = fmt.Fprint(response, raw)
 		return
 	}
-	writeJSON(response, http.StatusOK, xserver.ParseLog(raw))
+	// The X server's stamps are seconds since the machine booted, so that is
+	// what they are converted against. Its own printed date is in the
+	// container's zone rather than the one the screen is in, and anchoring to
+	// it is wrong by whole hours without looking wrong.
+	bootTime, _ := xserver.BootTime()
+	writeJSON(response, http.StatusOK, xserver.ParseLog(raw, bootTime))
 }
 
 // --- the small shared pieces ------------------------------------------------

@@ -15,7 +15,15 @@ All notable changes to this project are recorded here, in the categories of
   the mode being driven is the panel's native one, which of four sockets the
   television is on. The kernel offers the raw bytes and decodes none of them.
 
-- The X server's log is parsed rather than dumped. Its timestamps are the
+- The X server's log is parsed rather than dumped, and its timestamps are
+  converted against `CLOCK_MONOTONIC` — the clock it actually stamps with.
+  Two anchors that look right are both wrong: the wall-clock date the server
+  prints once is written in the container's timezone rather than the screen's,
+  which put every line four hours out on the first device tried; and
+  `/proc/uptime` is `CLOCK_BOOTTIME`, which keeps counting through suspend, so
+  on a laptop that has been closed a few times it was out by 1.39 days. Both
+  failures look entirely plausible in the output. Checked against the daemon's
+  own independent timestamp for the same event: two milliseconds apart. Its timestamps are the
   kernel's monotonic clock — seconds since the machine booted, comparable with
   nothing — and it prints a wall clock exactly once, beside one of them, which
   is enough to convert the rest. Severities come out of the middle of the text

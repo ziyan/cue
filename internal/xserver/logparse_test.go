@@ -23,15 +23,14 @@ X Protocol Version 11, Revision 0
 
 func TestTheMonotonicStampsBecomeRealTimes(t *testing.T) {
 	// "[3885935.672]" is seconds since the machine booted: forty-five days
-	// after a boot nobody remembers, and comparable with nothing. The server
-	// prints the wall clock once, beside a monotonic reading, and everything
-	// else follows from that.
-	entries := ParseLog(realLog)
+	// after a boot nobody remembers, and comparable with nothing. Seconds
+	// since boot plus when the machine booted is a real time.
+	boot := time.Date(2026, time.July, 11, 4, 25, 40, 0, time.Local)
+	entries := ParseLog(realLog, boot)
 	if len(entries) == 0 {
 		t.Fatal("nothing was parsed")
 	}
 
-	anchor := time.Date(2026, time.August, 24, 8, 50, 15, 0, time.Local)
 	var checked int
 	for _, entry := range entries {
 		if entry.Monotonic == 0 {
@@ -40,9 +39,7 @@ func TestTheMonotonicStampsBecomeRealTimes(t *testing.T) {
 		if entry.At.IsZero() {
 			t.Fatalf("%q kept its monotonic stamp and got no real time", entry.Text)
 		}
-		// The anchor line is at 3885935.680; a line 1.02 seconds later must
-		// land 1.02 seconds after the wall time it was paired with.
-		expected := anchor.Add(time.Duration((entry.Monotonic - 3885935.680) * float64(time.Second)))
+		expected := boot.Add(time.Duration(entry.Monotonic * float64(time.Second)))
 		if difference := entry.At.Sub(expected); difference > time.Millisecond || difference < -time.Millisecond {
 			t.Errorf("%q is at %s, want %s", entry.Text, entry.At, expected)
 		}
@@ -53,8 +50,32 @@ func TestTheMonotonicStampsBecomeRealTimes(t *testing.T) {
 	}
 }
 
+func TestTheServersOwnPrintedDateIsNotUsed(t *testing.T) {
+	// It writes that date in its own process's zone, which is the container's
+	// — UTC — while the daemon has been told to think in the zone the screen
+	// is in. On the first device this was tried on the two were four hours
+	// apart, and anchoring to the printed date put every line four hours out
+	// while looking entirely reasonable.
+	//
+	// The log below says "Time: Mon Aug 24 08:50:15 2026". A boot time that
+	// disagrees with it must win.
+	boot := time.Date(2020, time.January, 1, 0, 0, 0, 0, time.UTC)
+	entries := ParseLog(realLog, boot)
+
+	for _, entry := range entries {
+		if entry.Monotonic == 0 {
+			continue
+		}
+		if entry.At.Year() == 2026 {
+			t.Fatalf("%q was anchored to the date the server printed, not to the boot time", entry.Text)
+		}
+		return
+	}
+	t.Fatal("no stamped line was found")
+}
+
 func TestSeverityComesOutOfTheMiddleOfTheText(t *testing.T) {
-	entries := ParseLog(realLog)
+	entries := ParseLog(realLog, time.Time{})
 
 	found := map[string]string{}
 	for _, entry := range entries {
@@ -79,7 +100,7 @@ func TestSeverityComesOutOfTheMiddleOfTheText(t *testing.T) {
 func TestAContinuationJoinsTheLineItContinues(t *testing.T) {
 	// "to make sure that you have the latest version." is a fragment on its
 	// own. The line above is what gives it meaning.
-	entries := ParseLog(realLog)
+	entries := ParseLog(realLog, time.Time{})
 	for _, entry := range entries {
 		if strings.Contains(entry.Text, "Before reporting problems") {
 			if !strings.Contains(entry.Text, "latest version") {
@@ -92,11 +113,9 @@ func TestAContinuationJoinsTheLineItContinues(t *testing.T) {
 }
 
 func TestALogWithNoAnchorStillParses(t *testing.T) {
-	// A log truncated past its header, which is what a tail of the last two
-	// hundred lines usually is. There is nothing to convert against, so the
-	// monotonic readings are reported as they are rather than as a wall time
-	// invented from nothing.
-	entries := ParseLog("[100.5] (EE) something went wrong\n[101.0] (II) and then this\n")
+	// No boot time, so nothing to convert against: the readings are reported
+	// as they are rather than as wall times invented from nothing.
+	entries := ParseLog("[100.5] (EE) something went wrong\n[101.0] (II) and then this\n", time.Time{})
 	if len(entries) != 2 {
 		t.Fatalf("got %d entries, want 2", len(entries))
 	}
@@ -114,7 +133,29 @@ func TestALogWithNoAnchorStillParses(t *testing.T) {
 }
 
 func TestAnEmptyLogIsNotAnEntry(t *testing.T) {
-	if entries := ParseLog("\n\n   \n"); len(entries) != 0 {
+	if entries := ParseLog("\n\n   \n", time.Time{}); len(entries) != 0 {
 		t.Errorf("blank lines became %d entries", len(entries))
+	}
+}
+
+func TestTheAnchorIsTheClockTheServerActuallyUses(t *testing.T) {
+	// The X server stamps with CLOCK_MONOTONIC. /proc/uptime looks like the
+	// obvious source for the same number and is not: its first field is
+	// CLOCK_BOOTTIME, which keeps counting while a machine is suspended. On
+	// the laptop this was checked against, the two were 1.39 days apart, and
+	// every converted timestamp was out by exactly the time the machine had
+	// spent asleep — while looking perfectly plausible.
+	boot, ok := BootTime()
+	if !ok {
+		t.Skip("no monotonic clock here")
+	}
+
+	if boot.After(time.Now()) {
+		t.Errorf("the machine booted in the future: %s", boot)
+	}
+	// A boot time is in the past but not absurdly so; this catches a reading
+	// in the wrong units, which is the way this goes wrong silently.
+	if age := time.Since(boot); age > 10*365*24*time.Hour {
+		t.Errorf("the machine appears to have booted %s ago, so the units are wrong", age)
 	}
 }
