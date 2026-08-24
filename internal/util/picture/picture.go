@@ -1,11 +1,14 @@
-package web
+// Package picture holds the small amount of image work this daemon does for
+// itself: making a picture smaller, without a dependency and without asking
+// the browser, which cannot be asked without disturbing the screen.
+package picture
 
 import (
 	"image"
 	"image/color"
 )
 
-// shrink scales a picture down to fit inside a width, by averaging.
+// Shrink scales a picture down to fit inside a width, by averaging.
 //
 // It exists so that making the picture smaller costs the screen nothing. The
 // obvious way — asking Chromium for a scaled capture — re-lays the page out at
@@ -18,7 +21,7 @@ import (
 // Nearest-neighbour on a camera image at half size is a mess of aliasing, and
 // the whole point of the smaller picture is that it still shows what the
 // screen shows.
-func shrink(source image.Image, width int) image.Image {
+func Shrink(source image.Image, width int) image.Image {
 	bounds := source.Bounds()
 	if bounds.Dx() <= width || width <= 0 {
 		return source

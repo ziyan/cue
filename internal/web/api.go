@@ -22,6 +22,7 @@ import (
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/drm"
+	"github.com/ziyan/cue/internal/util/picture"
 	"github.com/ziyan/cue/internal/util/security"
 	"github.com/ziyan/cue/internal/version"
 	"github.com/ziyan/cue/internal/watchdog"
@@ -316,7 +317,7 @@ func (self *Server) screenshot(response http.ResponseWriter, request *http.Reque
 	}
 	defer connection.Close()
 
-	picture, err := connection.Capture(ctx)
+	screen, err := connection.Capture(ctx)
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, err.Error())
 		return
@@ -333,7 +334,7 @@ func (self *Server) screenshot(response http.ResponseWriter, request *http.Reque
 		response.WriteHeader(http.StatusOK)
 		// JPEG because most of what is on these screens is video from a
 		// camera, which PNG stores appallingly.
-		_ = jpeg.Encode(response, shrink(picture, smallScreenshotWidth), &jpeg.Options{Quality: 70})
+		_ = jpeg.Encode(response, picture.Shrink(screen, smallScreenshotWidth), &jpeg.Options{Quality: 70})
 		return
 	}
 
@@ -341,7 +342,7 @@ func (self *Server) screenshot(response http.ResponseWriter, request *http.Reque
 	// A screenshot is out of date the moment it is taken.
 	response.Header().Set("Cache-Control", "no-store")
 	response.WriteHeader(http.StatusOK)
-	_ = png.Encode(response, picture)
+	_ = png.Encode(response, screen)
 }
 
 // smallScreenshotWidth is wide enough for the card it goes in on a large

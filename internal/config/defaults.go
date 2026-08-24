@@ -30,6 +30,7 @@ func Default() *Configuration {
 			Number:            0,
 			VirtualTerminal:   2,
 			Cursor:            CursorAuto,
+			Wallpaper:         true,
 			CursorIdleTimeout: Duration(3 * time.Second),
 			Outputs: []Output{
 				{Name: "*", Mode: ModePreferred, Position: "0x0", Rotate: "normal"},

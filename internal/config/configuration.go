@@ -118,6 +118,14 @@ type Display struct {
 	// written in its file.
 	Cursor CursorMode `yaml:"cursor" json:"cursor"`
 
+	// Wallpaper paints the project's mark on the root window, which is what
+	// the screen shows in the seconds before the browser has drawn anything
+	// and again if it goes away. Off means whatever the X server leaves
+	// behind, which is black on most drivers and the grey stipple pattern
+	// from 1987 on some — indistinguishable, on a wall, from a machine that
+	// failed to boot.
+	Wallpaper bool `yaml:"wallpaper" json:"wallpaper"`
+
 	// CursorIdleTimeout is how long the pointer stays visible after it stops
 	// moving, in "auto".
 	CursorIdleTimeout Duration `yaml:"cursorIdleTimeout" json:"cursorIdleTimeout"`

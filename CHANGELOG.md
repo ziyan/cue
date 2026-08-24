@@ -121,6 +121,16 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+### Added
+
+- A wallpaper: the Cue mark on the root window, which is what the screen shows
+  in the seconds before the browser has drawn anything and again if it goes
+  away. Before it, that was whatever the X server left behind — black on most
+  drivers, and on some the grey stipple pattern from 1987, which on a wall in
+  front of people is indistinguishable from a machine that failed to boot.
+
+### Fixed
+
 - The mouse pointer appears when somebody moves it and goes away when they
   stop. It was hidden by starting the X server with `-nocursor`, which cannot
   be undone while the server runs — so a screen with a touchscreen or a mouse

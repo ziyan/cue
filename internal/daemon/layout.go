@@ -7,6 +7,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/util/drm"
+	"github.com/ziyan/cue/internal/wallpaper"
 )
 
 // arrangeDisplay keeps the screen arranged as monitors come and go.
@@ -78,6 +79,15 @@ func (self *Daemon) applyLayout(ctx context.Context) {
 
 	screen := connection.Screen()
 	self.browser.SetScreenSize(screen.Width, screen.Height)
+
+	// Before the browser has anything on the screen, and after it if it goes
+	// away. Cheap, and it is the difference between a screen that is starting
+	// and a screen that looks broken.
+	if configuration.Display.Wallpaper {
+		if err := connection.SetRootBackground(wallpaper.Draw(screen.Width, screen.Height)); err != nil {
+			log.Debugf("%s", err)
+		}
+	}
 
 	// Nothing else will give a window the keyboard: there is no window
 	// manager here. A browser that has never been focused paints one frame

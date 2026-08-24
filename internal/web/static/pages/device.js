@@ -121,6 +121,9 @@ export function device(main) {
                 configuration.display.cursorIdleTimeout = `${seconds}s`;
               }, "Seconds of not moving")
             : null),
+        h("div", {},
+          checkbox("Show the Cue mark before the browser has drawn", configuration.display.wallpaper, (value) => { configuration.display.wallpaper = value; }),
+          h("span", { class: "dim", text: "What the screen shows while it is starting, and if the browser goes away. Off leaves whatever the X server does, which on a wall is indistinguishable from a machine that failed to boot." })),
         field("Blank the screen after", "number", secondsOf(configuration.display.blankAfter), (value) => {
           const seconds = Math.max(0, parseInt(value, 10) || 0);
           configuration.display.blankAfter = `${seconds}s`;

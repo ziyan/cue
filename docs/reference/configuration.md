@@ -45,6 +45,7 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
       server: xorg             # or xvfb, which draws into memory
       number: 0                # the X display number
       virtualTerminal: 2       # the console to draw on: 2 means /dev/tty2
+      wallpaper: true         # the Cue mark, until the browser has drawn
       cursor: auto            # hidden, auto, or always
       cursorIdleTimeout: 3s   # how long it stays up after it stops moving
       framebuffer: ""          # force a size, e.g. 1920x1080, for a television that lies
@@ -91,6 +92,12 @@ them, with or without an X server running.
 The reconcile interval is what makes replugging a cable work: every few seconds
 the daemon compares the kernel's view of the connectors with what it last
 applied, and reapplies the layout when they differ.
+
+`wallpaper` paints the Cue mark on the root window. It is what the screen shows
+in the seconds before the browser has drawn anything, and again if the browser
+goes away. Turning it off leaves whatever the X server does — black on most
+drivers, and on some the grey stipple pattern from 1987, which on a wall in
+front of people is indistinguishable from a machine that failed to boot.
 
 `cursor` is what the mouse pointer does.
 

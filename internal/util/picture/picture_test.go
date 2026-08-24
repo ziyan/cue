@@ -1,4 +1,4 @@
-package web
+package picture
 
 import (
 	"image"
@@ -19,7 +19,7 @@ func solid(width, height int, shade color.RGBA) *image.RGBA {
 func TestShrinkKeepsTheShape(t *testing.T) {
 	// A 4K screen down to the width the card uses, keeping its proportions:
 	// a picture that arrives the wrong shape is worse than a large one.
-	small := shrink(solid(2560, 1440, color.RGBA{0, 0, 0, 255}), 960)
+	small := Shrink(solid(2560, 1440, color.RGBA{0, 0, 0, 255}), 960)
 
 	if got := small.Bounds().Dx(); got != 960 {
 		t.Errorf("width is %d, want 960", got)
@@ -47,7 +47,7 @@ func TestShrinkAveragesRatherThanSamples(t *testing.T) {
 		}
 	}
 
-	small := shrink(source, 8)
+	small := Shrink(source, 8)
 	red, _, _, _ := small.At(4, 4).RGBA()
 	if value := red >> 8; value < 100 || value > 155 {
 		t.Errorf("a checkerboard averaged to %d, want about 128 — it is being sampled, not averaged", value)
@@ -56,7 +56,7 @@ func TestShrinkAveragesRatherThanSamples(t *testing.T) {
 
 func TestAPictureAlreadySmallEnoughIsUntouched(t *testing.T) {
 	source := solid(320, 240, color.RGBA{1, 2, 3, 255})
-	if got := shrink(source, 960); got != image.Image(source) {
+	if got := Shrink(source, 960); got != image.Image(source) {
 		t.Error("a picture smaller than the target was copied rather than returned as it was")
 	}
 }
@@ -65,7 +65,7 @@ func TestShrinkDoesNotDivideByZero(t *testing.T) {
 	// A screen one pixel tall is not a real screen, but a capture that failed
 	// half way could produce one, and this must not take the daemon down.
 	for _, size := range []image.Point{{X: 1, Y: 1}, {X: 4000, Y: 1}, {X: 1, Y: 4000}} {
-		small := shrink(solid(size.X, size.Y, color.RGBA{0, 0, 0, 255}), 960)
+		small := Shrink(solid(size.X, size.Y, color.RGBA{0, 0, 0, 255}), 960)
 		if small.Bounds().Dx() < 1 || small.Bounds().Dy() < 1 {
 			t.Errorf("%v shrank to %v", size, small.Bounds())
 		}
