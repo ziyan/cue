@@ -121,6 +121,16 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+- A zoom the browser remembered is cleared at every start. Chromium keeps a
+  zoom per host in the profile, for ever. It takes one keystroke to set — ctrl
+  and minus, or ctrl and a scroll wheel — and on a screen on a wall nobody is
+  standing there to notice or undo it. The profile on the first device held
+  `zoom_level: -1.5778829311823859` for one host, which is three quarters, and
+  that is what put the dashboard in a corner with black down two sides: the
+  window was the right size, the screen was the right size, the mode was right,
+  and every flag on the command line said 1. A deliberate zoom belongs in
+  `browser.deviceScaleFactor`, where it is written down.
+
 - The page gets the pixels the screen has. The browser was scaling by the DPI
   the X server reported, which comes from the physical size the panel claims:
   on one screen that worked out to 72 DPI, so it chose a scale of 0.75 — the

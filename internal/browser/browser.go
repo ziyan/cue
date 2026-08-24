@@ -324,6 +324,10 @@ func (self *Browser) prepare(ctx context.Context) error {
 		log.Warningf("%s", err)
 	}
 
+	if err := self.clearZoomLevels(); err != nil {
+		log.Warningf("%s", err)
+	}
+
 	if err := self.clearProfileLock(); err != nil {
 		log.Warningf("%s", err)
 	}
@@ -345,6 +349,64 @@ func (self *Browser) prepare(ctx context.Context) error {
 		log.Warningf("%s", err)
 	}
 
+	return nil
+}
+
+// clearZoomLevels puts the browser back to a hundred per cent.
+//
+// Chromium remembers a zoom per host, in the profile, for ever. It is one
+// keystroke to set — ctrl and minus, or ctrl and a scroll wheel — and on a
+// screen on a wall there is nobody standing in front of it to notice or to
+// undo it. It survives every restart, and it is not visible anywhere: the
+// window is the right size, the screen is the right size, the mode is right,
+// and the page is drawn shrunk into a corner with black down two sides.
+//
+// This is exactly how it was found. The profile on the first device held
+// zoom_level -1.5778829311823859 for one host, which is 1.2 to that power, or
+// three quarters, and devicePixelRatio reported 0.75 while every flag on the
+// command line said 1.
+//
+// A deliberate zoom belongs in browser.deviceScaleFactor, where it is written
+// down and survives a profile being thrown away. An accidental one belongs
+// nowhere, so it is removed at every start.
+func (self *Browser) clearZoomLevels() error {
+	filename := filepath.Join(self.profileDirectory(), "Default", "Preferences")
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		// No profile yet, which is a first run.
+		return nil
+	}
+
+	var preferences map[string]interface{}
+	if err := json.Unmarshal(content, &preferences); err != nil {
+		return fmt.Errorf("browser: cannot read %s, so a stored zoom may remain: %w", filename, err)
+	}
+
+	partition, _ := preferences["partition"].(map[string]interface{})
+	if partition == nil {
+		return nil
+	}
+
+	var removed []string
+	for _, key := range []string{"per_host_zoom_levels", "default_zoom_level"} {
+		if _, found := partition[key]; found {
+			delete(partition, key)
+			removed = append(removed, key)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+
+	updated, err := json.Marshal(preferences)
+	if err != nil {
+		return fmt.Errorf("browser: cannot rewrite %s: %w", filename, err)
+	}
+	if err := os.WriteFile(filename, updated, 0o600); err != nil {
+		return fmt.Errorf("browser: cannot write %s: %w", filename, err)
+	}
+	log.Noticef("removed a zoom the browser had remembered (%s); pages are shown at their own size",
+		strings.Join(removed, ", "))
 	return nil
 }
 
