@@ -44,6 +44,7 @@ func Default() *Configuration {
 			DarkMode:            true,
 			EphemeralCache:      true,
 			CloseUnexpectedTabs: true,
+			DeviceScaleFactor:   1,
 		},
 		Playlist: Playlist{
 			Interval: Duration(30 * time.Second),

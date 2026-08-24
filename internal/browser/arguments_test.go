@@ -297,3 +297,31 @@ func TestOnlyFlagsThisChromiumKnowsArePassed(t *testing.T) {
 		}
 	}
 }
+
+func TestThePageGetsThePixelsTheScreenHas(t *testing.T) {
+	// Left to itself the browser scales the page by the DPI the X server
+	// reports, which comes from what the panel says its physical size is. On
+	// the screen this was found on that worked out to 72 DPI and the browser
+	// chose 0.75: the window filled the screen, the page laid itself out at
+	// 3412x1918 and was drawn shrunk into a corner with black down two sides.
+	// Nothing was broken, and nothing anywhere said anything.
+	line := commandLine(t, newTestBrowser(t, nil))
+	if !strings.Contains(line, "--force-device-scale-factor=1") {
+		t.Errorf("the scale is left to the panel's opinion of itself:\n%s", line)
+	}
+
+	doubled := commandLine(t, newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.DeviceScaleFactor = 2
+	}))
+	if !strings.Contains(doubled, "--force-device-scale-factor=2") {
+		t.Errorf("a configured scale was not passed:\n%s", doubled)
+	}
+
+	// Zero is how somebody asks for the old behaviour back.
+	off := commandLine(t, newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Browser.DeviceScaleFactor = 0
+	}))
+	if strings.Contains(off, "--force-device-scale-factor") {
+		t.Errorf("a scale of zero should leave it to the browser:\n%s", off)
+	}
+}

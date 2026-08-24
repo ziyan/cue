@@ -100,6 +100,7 @@ applied, and reapplies the layout when they differ.
       ignoreCertificateErrors: false
       darkMode: true           # a wall in a dark room at full brightness
       forceDarkContent: false  # darken pages that ignore the above
+      deviceScaleFactor: 1     # the page gets the pixels the screen has
       ephemeralCache: true     # empty the disk cache at every start
       closeUnexpectedTabs: true
       extraArguments: []
@@ -123,6 +124,20 @@ and by then nothing could bind it, so the browser never came up at all.
 
 An old `debuggingPort:` left in a configuration file is ignored, and removed the
 next time the file is written.
+
+`deviceScaleFactor` is how many device pixels the browser draws for each pixel
+a page asks for. Left to itself it works this out from the DPI the X server
+reports, which comes from the physical size the panel claims over EDID — a
+genuinely high number on a laptop panel, and often nonsense on a television.
+One screen reported a size working out to 72 DPI, so the browser chose 0.75:
+the window filled the screen, the page laid itself out at 3412x1918, and it was
+drawn shrunk into a corner with black down two sides. Nothing was broken and
+nothing said anything.
+
+A screen on a wall has a fixed number of pixels and a dashboard designed for
+pixels, so the default is 1 and the panel's opinion is not consulted. Raise it
+for a screen somebody stands close to; `0` restores the old behaviour of asking
+the panel.
 
 `darkMode` tells pages this browser prefers dark, through
 `prefers-color-scheme`. A page that offers a dark theme takes it, and one that

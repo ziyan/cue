@@ -123,6 +123,11 @@ func (self *Configuration) Validate() error {
 		add("browser.binary", "must not be empty")
 	}
 
+	if scale := self.Browser.DeviceScaleFactor; scale < 0 || scale > 4 {
+		add("browser.deviceScaleFactor", "must be between 0 and 4; 1 gives a page the pixels the screen has, "+
+			"and 0 lets the browser work it out from what the panel says its DPI is")
+	}
+
 	if self.Playlist.Interval < 0 {
 		add("playlist.interval", "must not be negative")
 	}

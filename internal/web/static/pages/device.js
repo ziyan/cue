@@ -152,6 +152,11 @@ export function device(main) {
           checkbox("Forget everything on restart", configuration.browser.ephemeralCache, (value) => { configuration.browser.ephemeralCache = value; }),
           h("span", { class: "dim", text: "Starts with an empty profile every time. It cures a corrupted cache permanently, at the cost of signing in again after every restart." }))),
       h("div", { class: "row" },
+        field("Scale", "number", configuration.browser.deviceScaleFactor, (value) => {
+          const scale = parseFloat(value);
+          configuration.browser.deviceScaleFactor = isNaN(scale) ? 1 : scale;
+        }, "1 gives a page the pixels the screen actually has. Raise it for a screen somebody stands close to. 0 lets the browser decide from what the panel claims its size is, which on a television is often nonsense.")),
+      h("div", { class: "row" },
         h("div", {},
           checkbox("Close windows this daemon did not open", configuration.browser.closeUnexpectedTabs, (value) => { configuration.browser.closeUnexpectedTabs = value; }),
           h("span", { class: "dim", text: "A page that opens a window gets one stacked in front of the dashboard, and with no window manager it stays there. Windows are given a moment to close themselves first, and what was closed is written to the log. Turn it off if a page here signs in through a popup." }))),

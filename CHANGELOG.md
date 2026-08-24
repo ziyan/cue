@@ -121,6 +121,14 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+- The page gets the pixels the screen has. The browser was scaling by the DPI
+  the X server reported, which comes from the physical size the panel claims:
+  on one screen that worked out to 72 DPI, so it chose a scale of 0.75 — the
+  window filled the 2560x1440 screen, the page laid itself out at 3412x1918,
+  and it was drawn shrunk into a corner with black down two sides. Nothing was
+  broken and nothing anywhere said so. `browser.deviceScaleFactor` now defaults
+  to 1 and the panel's opinion of itself is not consulted.
+
 - The screen has a keyboard and a mouse again. The container was given
   `/dev/input` but not `/run/udev`, and the X server does not go looking in
   `/dev/input` — it asks udev what exists, and udev answers out of that

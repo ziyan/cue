@@ -210,6 +210,25 @@ type Browser struct {
 	// own is unaffected; a page that has one follows it.
 	DarkMode bool `yaml:"darkMode" json:"darkMode"`
 
+	// DeviceScaleFactor is how many device pixels the browser draws for each
+	// pixel a page asks for. 1 means the page gets the screen it actually has.
+	//
+	// Left to itself the browser works this out from the DPI the X server
+	// reports, which comes from the physical size of the panel, which comes
+	// from whatever the panel says about itself over EDID. On a laptop panel
+	// that is a genuinely high number and the browser doubles everything; on a
+	// television it is often nonsense. The screen this was found on reported a
+	// size that worked out to 72 DPI, so the browser chose 0.75: the window
+	// filled the screen, the page laid itself out at 3412x1918, and it was
+	// drawn shrunk into the corner with black around two sides. Nothing was
+	// broken and nothing said anything.
+	//
+	// A screen on a wall wants none of that. It has a fixed number of pixels
+	// and a dashboard designed for pixels, so the default is 1 and the panel's
+	// opinion is not consulted. Set it higher for a screen somebody stands
+	// close to.
+	DeviceScaleFactor float64 `yaml:"deviceScaleFactor" json:"deviceScaleFactor"`
+
 	// ForceDarkContent darkens pages that have no dark theme of their own, by
 	// inverting their colours.
 	//

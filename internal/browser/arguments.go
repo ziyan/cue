@@ -137,6 +137,14 @@ func (self *Browser) arguments() []string {
 		}
 	}
 
+	if settings.DeviceScaleFactor > 0 {
+		// Without this the browser scales the page by whatever the X server
+		// says the panel's DPI is, and a screen on a wall wants the pixels it
+		// has. See config.Browser.DeviceScaleFactor.
+		arguments = append(arguments,
+			fmt.Sprintf("--force-device-scale-factor=%g", settings.DeviceScaleFactor))
+	}
+
 	if !settings.Sandbox {
 		// Spelled out rather than buried: without the sandbox, a bug in the
 		// renderer is a bug in whatever account the browser runs as, and this
