@@ -31,8 +31,10 @@ var logoPNG []byte
 var background = color.RGBA{R: 0x11, G: 0x12, B: 0x14, A: 0xff}
 
 // logoFraction is how much of the shorter side of the screen the mark takes.
-// Small enough to look deliberate, large enough to read across a room.
-const logoFraction = 6
+// Small enough to look deliberate, large enough to read across a room. The
+// mark is landscape and has a transparent margin of its own, so what is drawn
+// is smaller than this again.
+const logoFraction = 5
 
 // Draw makes a picture the size of the screen with the mark in the middle.
 func Draw(width, height int) image.Image {

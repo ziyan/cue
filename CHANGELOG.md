@@ -131,6 +131,12 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- Shrinking a picture keeps its transparency. Every pixel came back opaque,
+  which is invisible on a screenshot — a screen has no transparent pixels — and
+  put a black box around the mark on the wallpaper, because the logo's
+  transparent margin averaged to opaque black and was then drawn over the
+  background.
+
 - A wallpaper: the Cue mark on the root window, which is what the screen shows
   in the seconds before the browser has drawn anything and again if it goes
   away. Before it, that was whatever the X server left behind — black on most

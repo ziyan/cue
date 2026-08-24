@@ -71,3 +71,39 @@ func TestShrinkDoesNotDivideByZero(t *testing.T) {
 		}
 	}
 }
+
+func TestTransparencySurvivesShrinking(t *testing.T) {
+	// The first version wrote every pixel opaque. On a screenshot that is
+	// invisible — a screen has no transparent pixels — and on the wallpaper it
+	// put a black box around the mark, because the logo's transparent margin
+	// averaged to opaque black and was then drawn over the background.
+	source := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			if x < 32 {
+				// Transparent: nothing there at all.
+				source.Set(x, y, color.RGBA{})
+			} else {
+				source.Set(x, y, color.RGBA{R: 200, G: 100, B: 50, A: 255})
+			}
+		}
+	}
+
+	small := Shrink(source, 16)
+
+	if _, _, _, alpha := small.At(2, 8).RGBA(); alpha != 0 {
+		t.Errorf("a transparent area came back with alpha %d, so it will draw as a box", alpha>>8)
+	}
+	if _, _, _, alpha := small.At(13, 8).RGBA(); alpha>>8 != 255 {
+		t.Errorf("an opaque area came back with alpha %d", alpha>>8)
+	}
+}
+
+func TestAnOpaquePictureStaysOpaque(t *testing.T) {
+	// The screenshot path depends on this: a screen is opaque and has to stay
+	// so, or the JPEG encoder gets a picture with holes in it.
+	small := Shrink(solid(64, 64, color.RGBA{R: 10, G: 20, B: 30, A: 255}), 16)
+	if _, _, _, alpha := small.At(8, 8).RGBA(); alpha>>8 != 255 {
+		t.Errorf("an opaque picture came back with alpha %d", alpha>>8)
+	}
+}

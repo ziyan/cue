@@ -17,6 +17,12 @@ import (
 // as anybody has the interface open. The screen is the product here, and
 // nothing shown *about* it may disturb it.
 //
+// Transparency is carried through. The first version of this threw the alpha
+// away and wrote every pixel opaque, which is invisible on a screenshot — the
+// screen has no transparent pixels — and put a black box around the mark on
+// the wallpaper, because the transparent margin of the logo averaged to opaque
+// black.
+//
 // Averaging rather than sampling because these are photographs from cameras.
 // Nearest-neighbour on a camera image at half size is a mess of aliasing, and
 // the whole point of the smaller picture is that it still shows what the
@@ -47,14 +53,19 @@ func Shrink(source image.Image, width int) image.Image {
 				right = left + 1
 			}
 
-			var red, green, blue, count uint64
+			var red, green, blue, alpha, count uint64
 			for sourceY := top; sourceY < bottom; sourceY++ {
 				for sourceX := left; sourceX < right; sourceX++ {
-					r, g, b, _ := source.At(sourceX, sourceY).RGBA()
-					// RGBA returns 16 bits per channel.
+					r, g, b, a := source.At(sourceX, sourceY).RGBA()
+					// RGBA returns 16 bits per channel, already multiplied by
+					// the alpha — which is what makes averaging them and the
+					// alpha separately the right thing to do, and what makes
+					// the result storable in a color.RGBA, which is premultiplied
+					// too.
 					red += uint64(r >> 8)
 					green += uint64(g >> 8)
 					blue += uint64(b >> 8)
+					alpha += uint64(a >> 8)
 					count++
 				}
 			}
@@ -65,7 +76,7 @@ func Shrink(source image.Image, width int) image.Image {
 				R: uint8(red / count),
 				G: uint8(green / count),
 				B: uint8(blue / count),
-				A: 255,
+				A: uint8(alpha / count),
 			})
 		}
 	}
