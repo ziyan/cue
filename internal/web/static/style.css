@@ -157,6 +157,15 @@ label.inline input { width: auto; }
 
 .screenshot { width: 100%; border-radius: 8px; border: 1px solid var(--border); background: #000; display: block; aspect-ratio: 16 / 9; object-fit: contain; }
 
+.log { max-height: 26rem; overflow: auto; background: var(--sunken, #0b0c0e); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.65rem; font-size: 0.82rem; }
+.log-line { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.1rem 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.log-time { color: var(--text-dim); flex: none; }
+.log-tag { flex: none; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.04em; opacity: 0.85; }
+.log-tag.error { color: var(--bad); }
+.log-tag.warning { color: var(--warn, #d19a2f); }
+.log-text { white-space: pre-wrap; word-break: break-word; }
+.log-line.error .log-text { color: var(--bad); }
+.log-line.warning .log-text { color: var(--warn, #d19a2f); }
 .screenshot.stale { opacity: 0.55; }
 .viewer { flex: 1; min-height: 60vh; background: #000; border-radius: var(--radius); border: 1px solid var(--border); position: relative; overflow: hidden; display: flex; }
 .viewer > div { flex: 1; }

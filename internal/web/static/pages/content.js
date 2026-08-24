@@ -211,3 +211,57 @@ export function secondsOf(value) {
   const total = (parseInt(match[1] || 0, 10) * 3600) + (parseInt(match[2] || 0, 10) * 60) + Math.round(parseFloat(match[3] || 0));
   return total === 0 ? "" : String(total);
 }
+
+// choice is a plain dropdown for a setting with a known, short list of
+// answers: a rotation, a mode, a log level.
+//
+// Typing a value into a box is how a setting gets a typo in it, and a typo in
+// a rotation is a screen that comes up sideways or an X server that will not
+// start. Where the answers are known, they are offered.
+export function choice(label, options, value, onChange, hint) {
+  const element = h("select", {});
+  const values = options.map((option) => (typeof option === "string" ? option : option.value));
+
+  for (const option of options) {
+    const optionValue = typeof option === "string" ? option : option.value;
+    const optionLabel = typeof option === "string" ? option : option.label;
+    element.append(h("option", { value: optionValue, selected: optionValue === value }, optionLabel));
+  }
+
+  // A value the device already has but this list does not — a mode a monitor
+  // stopped offering, a timezone from a newer database — is added rather than
+  // silently replaced by whatever happens to be first.
+  if (value && !values.includes(value)) {
+    element.prepend(h("option", { value, selected: true }, `${value} (not offered now)`));
+  }
+
+  element.addEventListener("change", () => onChange(element.value));
+  return h("label", {},
+    h("span", { text: label }),
+    element,
+    hint ? h("span", { class: "dim", style: "margin-top:0.25rem", text: hint }) : null);
+}
+
+// searchable is a dropdown for a list too long to scroll: the timezones, of
+// which there are hundreds.
+//
+// It is an input with a datalist rather than anything clever, so it filters as
+// you type, still accepts a value that is not on the list, and needs no
+// keyboard handling of its own — which matters, because this interface is
+// sometimes driven by a finger on the screen it is configuring.
+export function searchable(label, options, value, onChange, hint) {
+  const listName = "list-" + label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const input = h("input", { type: "text", value: value || "", list: listName, autocomplete: "off" });
+  const list = h("datalist", { id: listName });
+  for (const option of options) {
+    list.append(h("option", { value: option }));
+  }
+  input.addEventListener("change", () => onChange(input.value.trim()));
+  input.addEventListener("input", () => onChange(input.value.trim()));
+
+  return h("label", {},
+    h("span", { text: label }),
+    input,
+    list,
+    hint ? h("span", { class: "dim", style: "margin-top:0.25rem", text: hint }) : null);
+}

@@ -44,6 +44,12 @@ type Connector struct {
 	// Monitor is what the monitor says it is, read from its EDID. Empty when
 	// nothing is plugged in or the monitor did not say.
 	Monitor string `json:"monitor"`
+
+	// Display is the rest of what the monitor said about itself: its maker,
+	// how big the panel physically is, the mode it is actually made of. Nil
+	// when there is no EDID to read, which is every disconnected socket and
+	// some adapters.
+	Display *Monitor `json:"display,omitempty"`
 }
 
 const sysfsRoot = "/sys/class/drm"
@@ -78,6 +84,12 @@ func Connectors() ([]Connector, error) {
 		}
 		if edid, err := os.ReadFile(filepath.Join(directory, "edid")); err == nil && len(edid) >= 128 {
 			connector.Monitor = MonitorName(edid)
+			if monitor, ok := DecodeMonitor(edid); ok {
+				connector.Display = &monitor
+				if connector.Monitor == "" {
+					connector.Monitor = strings.TrimSpace(monitor.Manufacturer + " " + monitor.Model)
+				}
+			}
 		}
 		connectors = append(connectors, connector)
 	}

@@ -51,6 +51,14 @@ type Device struct {
 
 	// Timezone names the zone used for everything the device displays and
 	// logs, for example "Asia/Tokyo". Empty means UTC.
+	//
+	// This is the daemon's own idea of local time, and the browser's with it,
+	// so a dashboard that shows a clock shows this zone. It does not touch the
+	// machine outside the container and could not: the host's /etc/localtime
+	// is not mounted. Set this to London on a host set to New York and the
+	// screen reads London while "date" on the machine reads New York — the
+	// same instant, labelled differently. The instant itself comes from the
+	// clock, which is shared, and which is what the time section is about.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone"`
 }
 
@@ -569,6 +577,15 @@ type Audio struct {
 // wrong clock, so a device whose battery has died shows an error page until
 // this has done its work.
 type Time struct {
+	// Enabled runs a time client on the device. On by default, because a
+	// clock that is wrong by more than a few minutes makes every HTTPS
+	// dashboard refuse to load, and a screen showing a certificate error is
+	// the most common way one of these fails.
+	//
+	// Turn it off where the machine already keeps its own time — a host
+	// running chrony or systemd-timesyncd already does. Two time daemons on
+	// one clock is not a small conflict: they correct against each other, and
+	// the clock is shared with the machine because it is the machine's.
 	Enabled bool `yaml:"enabled" json:"enabled"`
 
 	// Servers are the NTP servers to use.

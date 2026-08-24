@@ -26,6 +26,7 @@ import (
 	"github.com/ziyan/cue/internal/util/security"
 	"github.com/ziyan/cue/internal/version"
 	"github.com/ziyan/cue/internal/watchdog"
+	"github.com/ziyan/cue/internal/xserver"
 )
 
 // Status is everything the overview page shows, in one response, because a
@@ -283,6 +284,12 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 	writeJSON(response, http.StatusOK, self.store.Current())
 }
 
+// timezones lists the zones this machine can actually be set to, for the
+// dropdown on the Device page.
+func (self *Server) timezones(response http.ResponseWriter, request *http.Request) {
+	writeJSON(response, http.StatusOK, Timezones())
+}
+
 // screenshot is a picture of what is on the screen this moment, read from the
 // X server rather than from the browser.
 //
@@ -492,10 +499,26 @@ func (self *Server) leaveFleet(response http.ResponseWriter, request *http.Reque
 // xorgLog is the end of the X server's own log. When a screen stays black,
 // the reason is always in it, and getting at it otherwise would mean a shell
 // on a machine that has none.
+// xorgLog returns the X server's own log, parsed.
+//
+// Raw, it is hard to read in two ways that matter when a screen is black. Its
+// timestamps are the kernel's monotonic clock — seconds since the machine
+// booted — so they compare with nothing; and its severities are two characters
+// in the middle of the text, which is enough to grep for and not enough to
+// read a page of. Both are dealt with in xserver.ParseLog.
+//
+// ?format=text returns it exactly as the server wrote it, for pasting into a
+// bug report.
 func (self *Server) xorgLog(response http.ResponseWriter, request *http.Request) {
-	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	response.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprint(response, self.device.XServer().LogTail(200))
+	raw := self.device.XServer().LogTail(400)
+
+	if request.URL.Query().Get("format") == "text" {
+		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		response.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(response, raw)
+		return
+	}
+	writeJSON(response, http.StatusOK, xserver.ParseLog(raw))
 }
 
 // --- the small shared pieces ------------------------------------------------

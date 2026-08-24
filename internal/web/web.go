@@ -174,6 +174,7 @@ func (self *Server) addRoutes() {
 	guarded.Use(self.requireSession)
 
 	guarded.Path("/status").Methods(http.MethodGet).HandlerFunc(self.status)
+	guarded.Path("/timezones").Methods(http.MethodGet).HandlerFunc(self.timezones)
 	guarded.Path("/configuration").Methods(http.MethodGet).HandlerFunc(self.readConfiguration)
 	guarded.Path("/configuration").Methods(http.MethodPut).HandlerFunc(self.writeConfiguration)
 	guarded.Path("/screenshot.png").Methods(http.MethodGet).HandlerFunc(self.screenshot)

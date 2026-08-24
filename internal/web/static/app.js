@@ -46,7 +46,23 @@ async function start() {
     return;
   }
   window.addEventListener("hashchange", render);
+  window.addEventListener("device-renamed", (event) => {
+    if (!event.detail || state.device.name === event.detail.name) return;
+    state.device.name = event.detail.name;
+    render();
+  });
   render();
+}
+
+// nameTheDocument puts the device's name in the browser tab.
+//
+// Somebody looking after more than one of these has a tab open on each, and
+// tabs are narrow: "Cue" on all of them tells them nothing, and the name is
+// the only thing that distinguishes one screen from another. The page a tab is
+// on comes second, because it changes and the device does not.
+function nameTheDocument(page) {
+  const name = state.device.name || "Cue";
+  document.title = page && page.title && page.path !== "" ? `${name} — ${page.title}` : name;
 }
 
 function render() {
@@ -56,6 +72,7 @@ function render() {
   }
   root.className = "";
   clear(root);
+  nameTheDocument(null);
 
   if (state.needsSetup) {
     root.append(wizard());
@@ -72,6 +89,7 @@ function render() {
   const main = h("main", { class: page.path === "screen" ? "wide" : "" });
   root.append(h("div", { class: "shell" }, chrome(page), main));
 
+  nameTheDocument(page);
   stopCurrentPage = page.render(main) || null;
 }
 

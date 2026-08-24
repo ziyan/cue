@@ -30,8 +30,13 @@ func startVirtualScreen(t *testing.T, number int, width, height int) {
 		t.Skipf("display :%d is taken on this machine (%s)", number, where)
 	}
 
+	// -noreset for the same reason the daemon passes it to the real server:
+	// without it an X server throws everything away when its last client
+	// disconnects. The readiness check below connects and disconnects, which
+	// is exactly that, and the test's own connection then arrives in the
+	// middle of the reset and is dropped.
 	server := exec.Command(path, Name(number),
-		"-screen", "0", itoa(width)+"x"+itoa(height)+"x24", "-nolisten", "tcp")
+		"-screen", "0", itoa(width)+"x"+itoa(height)+"x24", "-nolisten", "tcp", "-noreset")
 	if err := server.Start(); err != nil {
 		t.Skipf("cannot start Xvfb: %s", err)
 	}
@@ -40,14 +45,21 @@ func startVirtualScreen(t *testing.T, number int, width, height int) {
 		_, _ = server.Process.Wait()
 	})
 
+	// Waiting for the socket to accept a connection is not enough: it appears
+	// before the server will finish a handshake on it, and a test that starts
+	// then gets a broken pipe. So the wait is a real connection, retried.
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, found := SomethingIsAnsweringOn(number); found {
+		attempt, cancel := context.WithTimeout(context.Background(), time.Second)
+		connection, err := Open(attempt, number, nil)
+		cancel()
+		if err == nil {
+			connection.Close()
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Skip("Xvfb did not start in time")
+	t.Skip("Xvfb did not become usable in time")
 }
 
 func itoa(value int) string {
@@ -149,7 +161,22 @@ func TestManyDisplaysCanBeOpenedAtOnce(t *testing.T) {
 		waiting.Add(1)
 		go func() {
 			defer waiting.Done()
-			connection, err := Open(ctx, number, nil)
+
+			// Retried, because eight simultaneous connects overflow the X
+			// server's accept queue and the kernel resets some of them. That
+			// is the server's backlog, not the thing under test: what is
+			// being tested is what happens *after* the connection is made,
+			// when each goroutine registers the extensions in maps they all
+			// share.
+			var connection *Display
+			var err error
+			for attempt := 0; attempt < 5; attempt++ {
+				connection, err = Open(ctx, number, nil)
+				if err == nil {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
 			if err != nil {
 				failures <- err
 				return

@@ -46,6 +46,7 @@ export const api = {
   restart: (program) => request("POST", `/api/v1/restart/${encodeURIComponent(program)}`),
   xorgLog: () => request("GET", "/api/v1/logs/xorg"),
 
+  timezones: () => request("GET", "/api/v1/timezones"),
   network: () => request("GET", "/api/v1/network"),
   scanWireless: (name) => request("POST", `/api/v1/network/scan/${encodeURIComponent(name)}`),
 

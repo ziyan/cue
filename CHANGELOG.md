@@ -8,6 +8,36 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- The monitor's own description of itself, decoded and shown on the Device
+  page: maker, model, serial, year, the physical size of the panel, the mode it
+  is actually made of, and the density those imply. Almost every hard question
+  about one of these screens is answered by it — why a page is scaled, whether
+  the mode being driven is the panel's native one, which of four sockets the
+  television is on. The kernel offers the raw bytes and decodes none of them.
+
+- The X server's log is parsed rather than dumped. Its timestamps are the
+  kernel's monotonic clock — seconds since the machine booted, comparable with
+  nothing — and it prints a wall clock exactly once, beside one of them, which
+  is enough to convert the rest. Severities come out of the middle of the text
+  and become something the page can colour and filter on, and continuation
+  lines are joined to the line they continue. The raw file is still one click
+  away for a bug report.
+
+- Settings with a known set of answers are dropdowns: the timezone, which is
+  searchable and comes from the zones this machine actually has; the socket,
+  the mode and the rotation for each output, built from what the monitors
+  report; the log level. A timezone typed as "Europe/london" is a clock an hour
+  wrong with nothing to say why, and a mode typed by hand that the monitor does
+  not have is a black screen.
+
+- The time client can be turned off from the interface, for a machine that
+  already runs chrony or systemd-timesyncd. Two time daemons correcting one
+  clock against each other is worse than neither.
+
+- The browser tab is named after the device, and follows a rename. Somebody
+  looking after several has a tab open on each, and "Cue" on all of them says
+  nothing.
+
 - `browser.forceDarkContent`, which darkens pages that ignore
   `prefers-color-scheme`. Plenty of dashboards have a theme of their own, kept
   in an account and defaulting to light, and on a wall in a dark room that page
