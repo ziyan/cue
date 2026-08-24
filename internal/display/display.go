@@ -51,6 +51,11 @@ type Display struct {
 	// work there as well as on real hardware.
 	randrAvailable bool
 	dpmsAvailable  bool
+
+	// hidden is the empty cursor, made the first time the pointer is hidden
+	// and kept because a cursor is a server resource and remaking one every
+	// few seconds would leak them.
+	hidden xproto.Cursor
 }
 
 // Output is one physical connector, as the daemon reports it.

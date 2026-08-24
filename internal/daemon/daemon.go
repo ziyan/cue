@@ -250,6 +250,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 
 	self.watchdog.Start(ctx)
 
+	// Shows the mouse pointer while somebody is moving it and hides it again
+	// when they stop; see watchPointer.
+	go self.watchPointer(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():

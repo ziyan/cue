@@ -119,6 +119,10 @@ func (self *Configuration) Validate() error {
 		}
 	}
 
+	if !self.Display.Cursor.Valid() {
+		add("display.cursor", "must be hidden, auto or always")
+	}
+
 	if self.Browser.Binary == "" {
 		add("browser.binary", "must not be empty")
 	}

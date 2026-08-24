@@ -114,10 +114,13 @@ func (self *Server) arguments() []string {
 		"-xkb",
 	}
 
-	if !self.configuration().Display.Cursor {
+	if !self.configuration().Display.Cursor.ServerDrawsOne() {
 		// The X server is started with no cursor, so there is nothing to
 		// send; drawing one for the viewer alone is confusing, because it
 		// does not appear on the screen in the room.
+		//
+		// In "auto" the server has a cursor and the daemon hides it, so the
+		// viewer sees exactly what the room sees — which is the point.
 		arguments = append(arguments, "-nocursor")
 	}
 	if settings.ViewOnly {

@@ -147,8 +147,11 @@ func (self *Daemon) displayRestartWouldBeNeeded(running config.Display, updated 
 	case running.Number != updated.Display.Number:
 	case running.Server == config.ServerXvfb && running.Framebuffer != updated.Display.Framebuffer:
 		// Xvfb's screen size is fixed when it starts; RandR cannot change it.
-	case running.Cursor != updated.Display.Cursor:
-		// Both servers are told about the cursor on the command line.
+	case running.Cursor.ServerDrawsOne() != updated.Display.Cursor.ServerDrawsOne():
+		// Whether the server has a cursor at all is on its command line and
+		// cannot be changed afterwards. Which is not the same question as
+		// whether one is *shown*: moving between "auto" and "always" is the
+		// daemon's own business and must not blank the screen to do it.
 	default:
 		return false
 	}

@@ -240,7 +240,10 @@ func (self *Server) hardwareArguments() []string {
 		arguments = append(arguments, fmt.Sprintf("vt%d", terminal))
 	}
 
-	if !self.configuration().Display.Cursor {
+	if !self.configuration().Display.Cursor.ServerDrawsOne() {
+		// Only for "hidden". This cannot be undone while the server runs —
+		// it means there is no cursor at all, ever — so "auto" needs the
+		// server to make one and hides it from the client side instead.
 		arguments = append(arguments, "-nocursor")
 	}
 	arguments = append(arguments, self.configuration().Display.ExtraArguments...)

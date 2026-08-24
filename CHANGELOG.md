@@ -121,6 +121,14 @@ All notable changes to this project are recorded here, in the categories of
   Chromium, the X server, x11vnc, supervisor — because all of it is inside the
   image now. Two faults turned up in the doing and are fixed below.
 
+- The mouse pointer appears when somebody moves it and goes away when they
+  stop. It was hidden by starting the X server with `-nocursor`, which cannot
+  be undone while the server runs — so a screen with a touchscreen or a mouse
+  was impossible to aim, because there was no way to see where you were. The
+  server keeps its cursor now and the daemon hides it, using an empty cursor on
+  the root window; `display.cursor` takes `hidden`, `auto` or `always`, and
+  still accepts the `true` and `false` it used to be.
+
 - The screenshot is read from the X server instead of from the browser, which
   fixes three things at once. It is now a picture of the screen rather than of
   what the browser believes it drew — a window that was never sized to the

@@ -61,7 +61,12 @@ func TestTheFlagsThatKeepAKioskAliveAreThere(t *testing.T) {
 		"-noreset":  "without it the server throws away every client when the last one disconnects, so a browser crash takes the screen with it",
 		"-keeptty":  "the daemon is process 1 of a container and has no controlling terminal; without this the server fails in a way that names neither",
 		"-nolisten": "the X protocol over TCP has no place on a device like this",
-		"-nocursor": "a kiosk with a pointer parked in the middle of it looks broken",
+		// -nocursor is deliberately not here any more. A kiosk with a pointer
+		// parked in the middle of it still looks broken, but the daemon hides
+		// it now rather than the server, because a server started without one
+		// can never show it — and a screen with a touchscreen or a mouse is
+		// unusable if the pointer can never appear. See
+		// TestOnlyHiddenStartsTheServerWithoutACursor.
 	} {
 		if !strings.Contains(line, flag) {
 			t.Errorf("%s is missing: %s\n%s", flag, why, line)
@@ -69,12 +74,23 @@ func TestTheFlagsThatKeepAKioskAliveAreThere(t *testing.T) {
 	}
 }
 
-func TestTheCursorCanBeAskedFor(t *testing.T) {
-	server := newTestServer(t, func(configuration *config.Configuration) {
-		configuration.Display.Cursor = true
-	})
-	if line := arguments(t, server); strings.Contains(line, "-nocursor") {
-		t.Errorf("the cursor was hidden although it was asked for:\n%s", line)
+func TestOnlyHiddenStartsTheServerWithoutACursor(t *testing.T) {
+	// -nocursor means the server has no cursor at all and cannot be given one
+	// later, so "auto" — which shows the pointer while somebody is moving it —
+	// needs the server to make one. Passing -nocursor for "auto" would leave
+	// the daemon toggling a cursor that does not exist.
+	for mode, wantHidden := range map[config.CursorMode]bool{
+		config.CursorHidden: true,
+		config.CursorAuto:   false,
+		config.CursorAlways: false,
+	} {
+		server := newTestServer(t, func(configuration *config.Configuration) {
+			configuration.Display.Cursor = mode
+		})
+		line := arguments(t, server)
+		if got := strings.Contains(line, "-nocursor"); got != wantHidden {
+			t.Errorf("cursor %q: -nocursor present = %v, want %v\n%s", mode, got, wantHidden, line)
+		}
 	}
 }
 

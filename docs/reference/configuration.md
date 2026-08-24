@@ -45,7 +45,8 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
       server: xorg             # or xvfb, which draws into memory
       number: 0                # the X display number
       virtualTerminal: 2       # the console to draw on: 2 means /dev/tty2
-      cursor: false            # a kiosk with a pointer parked in it looks broken
+      cursor: auto            # hidden, auto, or always
+      cursorIdleTimeout: 3s   # how long it stays up after it stops moving
       framebuffer: ""          # force a size, e.g. 1920x1080, for a television that lies
       modeline: ""             # add a mode the monitor did not offer
       modeName: cue            # what to call that mode
@@ -90,6 +91,22 @@ them, with or without an X server running.
 The reconcile interval is what makes replugging a cable work: every few seconds
 the daemon compares the kernel's view of the connectors with what it last
 applied, and reapplies the layout when they differ.
+
+`cursor` is what the mouse pointer does.
+
+`auto`, the default, shows it while somebody is moving it and hides it again a
+few seconds after they stop (`cursorIdleTimeout`). That is what a screen wants:
+a pointer parked in the middle of a dashboard is the sort of thing people
+photograph and send to you, and a screen with a touchscreen or a mouse is
+impossible to aim if the pointer can never appear at all.
+
+`hidden` starts the X server with no cursor whatsoever. It cannot be undone
+while the server runs, which is why it is not the default. `always` leaves the
+pointer up like any other machine.
+
+`true` and `false` are still accepted and mean `always` and `hidden`: that is
+what this setting used to be, and it is written into the file of every device
+already in service.
 
 ## browser
 

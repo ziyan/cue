@@ -109,7 +109,18 @@ export function device(main) {
       h("div", { class: "row" },
         field("Force the drawing surface size", "text", configuration.display.framebuffer, (value) => { configuration.display.framebuffer = value; }, "Empty fits the screens; 1920x1080 for a television that lies"),
         h("div", {},
-          checkbox("Show the mouse pointer", configuration.display.cursor, (value) => { configuration.display.cursor = value; })),
+          h("label", {},
+            h("span", { text: "Mouse pointer" }),
+            selector(["auto", "hidden", "always"], configuration.display.cursor || "auto", (value) => {
+              configuration.display.cursor = value;
+            }),
+            h("span", { class: "dim", style: "margin-top:0.25rem", text: "Auto shows it while somebody is moving it and hides it again when they stop. Hidden means the screen has no pointer at all, which makes a touchscreen or a mouse impossible to aim." })),
+          (configuration.display.cursor || "auto") === "auto"
+            ? field("Hide it again after", "number", secondsOf(configuration.display.cursorIdleTimeout), (value) => {
+                const seconds = Math.max(1, parseInt(value, 10) || 3);
+                configuration.display.cursorIdleTimeout = `${seconds}s`;
+              }, "Seconds of not moving")
+            : null),
         field("Blank the screen after", "number", secondsOf(configuration.display.blankAfter), (value) => {
           const seconds = Math.max(0, parseInt(value, 10) || 0);
           configuration.display.blankAfter = `${seconds}s`;
@@ -126,6 +137,15 @@ export function device(main) {
   // Everything about the browser that is a decision rather than a detail. The
   // binary, the profile paths and the extra arguments stay in the file: they
   // are for somebody debugging, not for somebody setting a screen up.
+  function selector(options, value, onChange) {
+    const element = h("select", {});
+    for (const option of options) {
+      element.append(h("option", { value: option, selected: option === value }, option));
+    }
+    element.addEventListener("change", () => onChange(element.value));
+    return element;
+  }
+
   function browserCard() {
     return h("div", { class: "card" },
       h("h2", { text: "The browser" }),

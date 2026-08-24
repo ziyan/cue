@@ -103,10 +103,24 @@ type Display struct {
 	// Zero lets the server choose, which needs the whole of /dev.
 	VirtualTerminal int `yaml:"virtualTerminal" json:"virtualTerminal"`
 
-	// Cursor shows the mouse pointer. Off by default: a kiosk with a pointer
-	// parked in the middle of it looks broken. Turning it on is useful while
-	// somebody is driving the screen over VNC.
-	Cursor bool `yaml:"cursor" json:"cursor"`
+	// Cursor is what the mouse pointer does: "hidden", "auto" or "always".
+	//
+	// "auto" is the default and is what a screen wants. A pointer parked in
+	// the middle of a dashboard looks broken and is the sort of thing people
+	// photograph and send to you; a pointer that cannot be made to appear at
+	// all makes a screen with a mouse or a touchscreen impossible to use,
+	// because there is no way to see where you are. So: nothing until
+	// somebody moves it, and nothing again once they stop.
+	//
+	// "hidden" starts the X server with no cursor at all, which is the old
+	// behaviour and cannot be undone while it runs. true and false still read
+	// as "always" and "hidden": every device in service has one of those
+	// written in its file.
+	Cursor CursorMode `yaml:"cursor" json:"cursor"`
+
+	// CursorIdleTimeout is how long the pointer stays visible after it stops
+	// moving, in "auto".
+	CursorIdleTimeout Duration `yaml:"cursorIdleTimeout" json:"cursorIdleTimeout"`
 
 	// Framebuffer forces the size of the drawing surface, for example
 	// "1920x1080". Empty means the size the outputs need. Set it when a

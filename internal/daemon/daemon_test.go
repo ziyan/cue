@@ -24,8 +24,11 @@ func TestWhatNeedsTheXServerRestartedAndWhatDoesNot(t *testing.T) {
 		"the display number": {
 			func(display *config.Display) { display.Number = 3 }, true,
 		},
-		"the cursor, which is a command line flag": {
-			func(display *config.Display) { display.Cursor = !display.Cursor }, true,
+		"taking the server's cursor away, which is a command line flag": {
+			func(display *config.Display) { display.Cursor = config.CursorHidden }, true,
+		},
+		"showing a cursor the server already has, which the daemon does itself": {
+			func(display *config.Display) { display.Cursor = config.CursorAlways }, false,
 		},
 		"an output's mode, which RandR can change": {
 			func(display *config.Display) { display.Outputs[0].Mode = "1280x720" }, false,
