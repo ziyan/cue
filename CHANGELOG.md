@@ -6,6 +6,23 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Removed
+
+- Fleet enrolment, and with it every outbound connection a device made of its
+  own accord. `internal/fleet`, the `fleet:` configuration section, the two API
+  endpoints and the card in the interface are gone. A device now talks to
+  nothing but what its playlist points at.
+
+  The tunnel carried an authentication bypass — a request arriving on it was
+  treated as signed in, without a password — which was sound while the tunnel
+  authenticated the device first, and is exactly the sort of thing that must
+  not be left behind once the feature justifying it is gone. It was removed
+  with it.
+
+  A `fleet:` section left in a configuration file is reported and ignored
+  rather than refused, so a device already in service upgrades without being
+  edited first.
+
 ### Fixed
 
 - A deployment that cannot reach the machine fails instead of hanging. The

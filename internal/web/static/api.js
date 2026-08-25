@@ -50,6 +50,4 @@ export const api = {
   network: () => request("GET", "/api/v1/network"),
   scanWireless: (name) => request("POST", `/api/v1/network/scan/${encodeURIComponent(name)}`),
 
-  enrolInFleet: (url, token) => request("POST", "/api/v1/fleet", { url, token }),
-  leaveFleet: () => request("DELETE", "/api/v1/fleet"),
 };

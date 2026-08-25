@@ -19,9 +19,8 @@ import (
 	"github.com/ziyan/cue/internal/util/picture"
 )
 
-// logo is the mark this project shares with the fleet service it can enrol
-// with. Rendered once from that project's SVG at a size no screen will need to
-// enlarge, and embedded so that the daemon has no file to find at run time.
+// logo is this project's mark, rendered once at a size no screen will need to
+// enlarge and embedded so that the daemon has no file to find at run time.
 //
 //go:embed logo.png
 var logoPNG []byte

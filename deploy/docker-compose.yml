@@ -97,8 +97,7 @@ services:
       # rewrites the file atomically, and a rename cannot replace a file that
       # is itself a bind mount.
       - /etc/cue:/etc/cue
-      # The browser profile, the device identifier, and — if the device is
-      # enrolled — its fleet credential.
+      # The browser profile and the device identifier.
       - /var/lib/cue:/var/lib/cue
       # The machine's device database, read only. The X server does not go
       # looking in /dev/input; it asks udev what input devices exist, and udev

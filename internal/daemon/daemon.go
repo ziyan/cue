@@ -22,7 +22,6 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
-	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
@@ -47,8 +46,7 @@ type Daemon struct {
 	network   *network.Manager
 	watchdog  *watchdog.Watchdog
 
-	web   *web.Server
-	fleet *fleet.Tunnel
+	web *web.Server
 
 	xProcess        *supervise.Process
 	browserProcess  *supervise.Process
@@ -106,11 +104,6 @@ func (self *Daemon) Browser() *browser.Browser {
 // Watchdog is the running watchdog, for the web interface.
 func (self *Daemon) Watchdog() *watchdog.Watchdog {
 	return self.watchdog
-}
-
-// Fleet is the enrolment tunnel, for the interface's report of it.
-func (self *Daemon) Fleet() *fleet.Tunnel {
-	return self.fleet
 }
 
 // Network is the network manager, for the interface's Network page.
@@ -189,10 +182,6 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
-	// The fleet tunnel serves the web interface's own handler, so what the
-	// service can reach is exactly what an operator standing in front of the
-	// screen can reach. See internal/fleet.
-	self.fleet = fleet.NewTunnel(self.store, self.web.TunnelHandler())
 	if err := self.web.Start(ctx); err != nil {
 		// Not fatal: a screen that shows the right thing with no interface is
 		// far better than one that shows nothing because a port was taken.
@@ -219,7 +208,6 @@ func (self *Daemon) Run(ctx context.Context) error {
 
 	go func() {
 		defer deferutil.Recover()
-		self.fleet.Run(ctx)
 	}()
 
 	self.startProcesses(ctx, configuration)

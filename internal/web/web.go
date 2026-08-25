@@ -22,7 +22,6 @@ import (
 
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
-	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
@@ -61,10 +60,6 @@ type Device interface {
 
 	// TimeSync is the time client, for the clock report.
 	TimeSync() *timesync.Client
-
-	// Fleet is the enrolment tunnel, or nil when the daemon was built without
-	// one. Its state is reported and it is what unenrolling acts on.
-	Fleet() *fleet.Tunnel
 
 	// Network is the machine's own network, for the Network page.
 	Network() *network.Manager
@@ -184,8 +179,6 @@ func (self *Server) addRoutes() {
 	guarded.Path("/logs/xorg").Methods(http.MethodGet).HandlerFunc(self.xorgLog)
 	guarded.Path("/network").Methods(http.MethodGet).HandlerFunc(self.networkState)
 	guarded.Path("/network/scan/{interface}").Methods(http.MethodPost).HandlerFunc(self.scanWireless)
-	guarded.Path("/fleet").Methods(http.MethodPost).HandlerFunc(self.enrolInFleet)
-	guarded.Path("/fleet").Methods(http.MethodDelete).HandlerFunc(self.leaveFleet)
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)
 
 	// Everything else is the interface itself.

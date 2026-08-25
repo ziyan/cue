@@ -55,7 +55,7 @@ export function device(main) {
         h("div", { class: "dim", style: "margin-top:0.4rem", text: "If one of these is a key you meant to set, it is mistyped — from in front of the screen a mistyped key and a setting that does nothing look exactly the same." })));
     }
 
-    body.append(identityCard(), connectorsCard(), displayCard(), browserCard(), watchdogCard(), inputCard(), soundAndClockCard(), remoteCard(), fleetCard(), actionsCard(), logCard());
+    body.append(identityCard(), connectorsCard(), displayCard(), browserCard(), watchdogCard(), inputCard(), soundAndClockCard(), remoteCard(), actionsCard(), logCard());
 
     body.append(h("div", { class: "actions" },
       h("button", { class: "primary", onClick: save }, "Save"),
@@ -403,60 +403,6 @@ export function device(main) {
         }, "Seconds. Long, because signing in to a screen on a wall is a trip across the building")));
   }
 
-  function fleetCard() {
-    const state = status.fleet || {};
-
-    if (state.enrolled) {
-      return h("div", { class: "card" },
-        h("h2", { text: "Fleet management" }),
-        h("div", { class: "readout" },
-          h("span", { class: "label", text: "Service" }),
-          h("span", { class: "value mono truncate", text: state.url })),
-        h("div", { class: "readout" },
-          h("span", { class: "label", text: "Connection" }),
-          h("span", { class: "value" },
-            h("span", { class: `pill ${state.connected ? "good" : "bad"}`, text: state.connected ? "connected" : "not connected" }))),
-        h("div", { class: "readout" },
-          h("span", { class: "label", text: "Requests served" }),
-          h("span", { class: "value", text: String(state.streamsServed || 0) })),
-        state.lastError ? h("div", { class: "notice bad", text: state.lastError }) : null,
-        h("p", { class: "dim", text: "The device holds one connection out to the service; nothing is opened on the network here. What the service can do through it is exactly what this page can do." }),
-        h("div", { class: "actions" },
-          h("button", {
-            class: "danger",
-            onClick: async () => {
-              try {
-                await api.leaveFleet();
-                draw("This device is no longer enrolled.");
-              } catch (error) {
-                draw(null, String(error.message || error));
-              }
-            },
-          }, "Unenrol this device")));
-    }
-
-    const url = h("input", { type: "url", value: configuration.fleet.url || "https://cue.sh" });
-    const token = h("input", { type: "password", placeholder: "The token from the service" });
-
-    return h("div", { class: "card" },
-      h("h2", { text: "Fleet management" }),
-      h("p", { class: "dim", text: "Optional. Enrol this device with a management service to run it alongside others. Nothing is contacted until you do." }),
-      h("div", { class: "row" },
-        h("label", {}, h("span", { text: "Service" }), url),
-        h("label", {}, h("span", { text: "Enrolment token" }), token)),
-      state.lastError ? h("div", { class: "notice bad", text: state.lastError }) : null,
-      h("div", { class: "actions" },
-        h("button", {
-          onClick: async () => {
-            try {
-              await api.enrolInFleet(url.value, token.value);
-              draw("Enrolling. It may take a moment to connect.");
-            } catch (error) {
-              draw(null, String(error.message || error));
-            }
-          },
-        }, "Enrol")));
-  }
 
   function actionsCard() {
     const restart = async (program) => {

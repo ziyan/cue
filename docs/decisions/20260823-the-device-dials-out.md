@@ -1,6 +1,6 @@
 # A managed device dials out and serves the same interface it serves locally
 
-- Status: accepted
+- Status: reverted (2026-08-25) — the code is gone; see the note at the end
 - Date: 2026-08-23
 - Deciders: Ziyan Zhou
 
@@ -52,3 +52,18 @@ state directory. The token is then cleared from the configuration file.
   half and the protocol it speaks, which is small enough to reimplement: an
   enrolment endpoint that returns a secret, and a WebSocket that carries a
   yamux session whose streams are HTTP.
+
+## Reverted, 2026-08-25
+
+The fleet enrolment was taken out. `internal/fleet`, the `fleet:` configuration
+section, the two API endpoints and the card in the interface are all gone, and
+a device now makes no outbound connection of its own accord at all.
+
+This record is kept rather than deleted because the reasoning still holds and
+the problem has not gone away: a screen behind a router nobody administers is
+still hard to reach, and if that is solved again this is the shape it should
+take. What went with the code is worth naming — the tunnel carried an
+authentication bypass, where a request arriving on it was treated as signed in
+without a password. That was sound while the tunnel authenticated the device
+first, and it is exactly the sort of thing that should not be left behind as
+dead code once the thing justifying it is removed. It was removed with it.

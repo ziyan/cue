@@ -127,7 +127,7 @@ func TestAFailedCommandDoesNotPutThePassphraseInTheLog(t *testing.T) {
 	// The command that carries the passphrase is also the one most likely to
 	// fail, which is the whole problem: somebody debugging a network they
 	// cannot join is exactly who ends up reading this error, and the log is
-	// shown in the web interface and sent to the fleet service.
+	// shown in the web interface and copied into bug reports.
 	const passphrase = "a test network passphrase"
 
 	for _, command := range []string{

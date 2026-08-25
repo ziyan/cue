@@ -83,10 +83,6 @@ func Default() *Configuration {
 			Enabled: true,
 			Servers: []string{"pool.ntp.org"},
 		},
-		Fleet: Fleet{
-			Enabled: false,
-			URL:     "https://cue.sh",
-		},
 	}
 }
 

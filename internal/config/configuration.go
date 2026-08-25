@@ -20,7 +20,6 @@ type Configuration struct {
 	Network  Network  `yaml:"network" json:"network"`
 	Audio    Audio    `yaml:"audio" json:"audio"`
 	Time     Time     `yaml:"time" json:"time"`
-	Fleet    Fleet    `yaml:"fleet" json:"fleet"`
 
 	// IgnoredSettings are the names in the file that this version has no
 	// setting for. They are not fatal — a device already in service has the
@@ -37,13 +36,13 @@ type Configuration struct {
 // Device is what this screen is, as a human would describe it.
 type Device struct {
 	// Name is shown in the web interface, in the window title and, if the
-	// device is enrolled, in the fleet listing. It is not an identifier:
+	// It is not an identifier:
 	// Identifier is.
 	Name string `yaml:"name" json:"name"`
 
 	// Identifier is generated once, on the first run, and never changes. The
-	// fleet service keys the device on it, so regenerating it would create a
-	// second device rather than move this one.
+	// Nothing generates it twice, and regenerating it by hand would make the
+	// device look like a different one to anything keeping records about it.
 	Identifier string `yaml:"identifier" json:"identifier"`
 
 	// Location is free text an operator can use to say where the screen is.
@@ -81,7 +80,7 @@ type Log struct {
 // without being root.
 type Paths struct {
 	// State survives a restart: the browser profile, the device identifier
-	// and the fleet credential.
+	// is kept.
 	State string `yaml:"state" json:"state"`
 
 	// Runtime does not survive a restart: the X socket, the X authority
@@ -590,19 +589,4 @@ type Time struct {
 
 	// Servers are the NTP servers to use.
 	Servers []string `yaml:"servers" json:"servers"`
-}
-
-// Fleet is the optional enrolment into a management service. Off by default,
-// and everything about it is inert until an operator turns it on: the daemon
-// makes no outbound connection of its own accord.
-type Fleet struct {
-	Enabled bool `yaml:"enabled" json:"enabled"`
-
-	// URL is the service to enrol with.
-	URL string `yaml:"url,omitempty" json:"url"`
-
-	// EnrollmentToken is used once to register this device. It is cleared
-	// from the file after a successful enrolment, and the credential that
-	// replaces it is stored under Paths.State.
-	EnrollmentToken Secret `yaml:"enrollmentToken,omitempty" json:"enrollmentToken"`
 }

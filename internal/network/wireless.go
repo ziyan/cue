@@ -99,9 +99,9 @@ func (self *control) mustSucceed(command string) error {
 }
 
 // secretCommands are the commands whose arguments must not reach the log. The
-// log is read in the web interface, copied into bug reports and, on an
-// enrolled device, sent to the fleet service; a passphrase that reaches it has
-// to be treated as disclosed and the network's password changed.
+// log is read in the web interface and copied into bug reports; a passphrase
+// that reaches it has to be treated as disclosed and the network's password
+// changed.
 var secretCommands = []string{"SET_NETWORK", "SET ", "ADD_NETWORK"}
 
 // withoutSecrets renders a command for an error message. Commands that carry

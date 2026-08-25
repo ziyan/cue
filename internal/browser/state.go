@@ -7,7 +7,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 )
 
-// State is what the web interface and the fleet service are told about the
+// State is what the web interface is told about the
 // browser.
 type State struct {
 	Ready bool `json:"ready"`

@@ -279,14 +279,6 @@ func (self *Configuration) Validate() error {
 		add("time.servers", "must name at least one server when time synchronisation is enabled")
 	}
 
-	if self.Fleet.Enabled {
-		if self.Fleet.URL == "" {
-			add("fleet.url", "must not be empty when fleet management is enabled")
-		} else if parsed, err := url.Parse(self.Fleet.URL); err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") {
-			add("fleet.url", "%q is not an http or https address", self.Fleet.URL)
-		}
-	}
-
 	if len(problems) > 0 {
 		return problems
 	}

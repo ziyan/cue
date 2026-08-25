@@ -256,3 +256,29 @@ func TestTheErrorSaysWhichSettingWasWrong(t *testing.T) {
 		t.Errorf("the error does not say what the problem is: %q", err)
 	}
 }
+
+func TestAConfigurationWithTheRemovedFleetSectionStillLoads(t *testing.T) {
+	// Every device in service has a fleet section written into its file,
+	// because the daemon wrote it there. The setting is gone; the files are
+	// not, and a daemon that refused to start over one would turn the upgrade
+	// into a screen that has gone black on a machine nobody can reach.
+	configuration, err := Parse([]byte(`
+device:
+  name: Reception
+fleet:
+  enabled: true
+  url: https://example.invalid
+  enrollmentToken: a test placeholder token
+browser:
+  sandbox: false
+`))
+	if err != nil {
+		t.Fatalf("a file with the removed fleet section was refused: %s", err)
+	}
+	if configuration.Browser.Sandbox {
+		t.Error("the setting after the removed section was not read, so parsing stopped there")
+	}
+	if len(configuration.IgnoredSettings) == 0 {
+		t.Error("the removed section was skipped without being reported anywhere")
+	}
+}

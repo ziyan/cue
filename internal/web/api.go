@@ -15,7 +15,6 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
-	"github.com/ziyan/cue/internal/fleet"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/input"
 	"github.com/ziyan/cue/internal/network"
@@ -44,7 +43,6 @@ type Status struct {
 	Clock      timesync.State     `json:"clock"`
 	Sound      []audio.Device     `json:"sound"`
 	Input      []input.Device     `json:"input"`
-	Fleet      fleet.State        `json:"fleet"`
 	Network    network.State      `json:"network"`
 
 	// IgnoredSettings are names in the configuration file this version has no
@@ -130,9 +128,6 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 	defer clockCancel()
 	status.Clock = self.device.TimeSync().State(clockContext)
 
-	if tunnel := self.device.Fleet(); tunnel != nil {
-		status.Fleet = tunnel.State()
-	}
 	if manager := self.device.Network(); manager != nil {
 		status.Network = manager.State()
 	}
@@ -440,60 +435,6 @@ func (self *Server) scanWireless(response http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(response, http.StatusOK, map[string]interface{}{"networks": networks})
-}
-
-// enrolInFleet turns on fleet management and stores the token. The daemon's
-// tunnel notices on its next attempt; there is no need to restart anything.
-func (self *Server) enrolInFleet(response http.ResponseWriter, request *http.Request) {
-	var body struct {
-		URL   string `json:"url"`
-		Token string `json:"token"`
-	}
-	if err := decode(request, &body); err != nil {
-		writeError(response, http.StatusBadRequest, err.Error())
-		return
-	}
-	if body.Token == "" {
-		writeError(response, http.StatusBadRequest, "an enrolment token is needed")
-		return
-	}
-
-	err := self.store.Update(func(configuration *config.Configuration) error {
-		configuration.Fleet.Enabled = true
-		if body.URL != "" {
-			configuration.Fleet.URL = body.URL
-		}
-		configuration.Fleet.EnrollmentToken = config.Secret(body.Token)
-		return nil
-	})
-	if err != nil {
-		writeError(response, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-// leaveFleet unenrols the device: the stored credential is deleted and fleet
-// management is switched off. It is one file and one flag, which is what makes
-// this reversible from the device rather than only from the service.
-func (self *Server) leaveFleet(response http.ResponseWriter, request *http.Request) {
-	if err := fleet.ForgetCredential(self.store.Current()); err != nil {
-		writeError(response, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	err := self.store.Update(func(configuration *config.Configuration) error {
-		configuration.Fleet.Enabled = false
-		configuration.Fleet.EnrollmentToken = ""
-		return nil
-	})
-	if err != nil {
-		writeError(response, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	log.Noticef("this device has been unenrolled from fleet management")
-	writeJSON(response, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // xorgLog is the end of the X server's own log. When a screen stays black,

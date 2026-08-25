@@ -107,7 +107,7 @@ func separateUnknownFields(err error) (unknown, other []string) {
 // and tidies the ones an operator is likely to write loosely. It is safe to
 // call more than once and does not change a value that is already set:
 // identifiers in particular are generated once and never regenerated, because
-// the fleet service and the browser's tab bookkeeping both refer to them.
+// the browser's tab bookkeeping refers to them.
 func (self *Configuration) Normalize() {
 	if self.Device.Identifier == "" {
 		self.Device.Identifier = security.NewIdentifier()
@@ -200,9 +200,6 @@ func (self *Configuration) Clone() *Configuration {
 func RestoreSecrets(updated, previous *Configuration) {
 	if updated.VNC.Password.IsRedacted() {
 		updated.VNC.Password = previous.VNC.Password
-	}
-	if updated.Fleet.EnrollmentToken.IsRedacted() {
-		updated.Fleet.EnrollmentToken = previous.Fleet.EnrollmentToken
 	}
 	// Playlist items are matched by identifier rather than by position,
 	// because the interface can reorder them in the same request that saves

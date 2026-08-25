@@ -152,9 +152,6 @@ func redactSecrets(configuration *config.Configuration) {
 	if configuration.VNC.Password.IsSet() {
 		configuration.VNC.Password = placeholder
 	}
-	if configuration.Fleet.EnrollmentToken.IsSet() {
-		configuration.Fleet.EnrollmentToken = placeholder
-	}
 	if configuration.Web.SessionSecret.IsSet() {
 		configuration.Web.SessionSecret = placeholder
 	}

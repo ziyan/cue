@@ -36,8 +36,6 @@ var deliberatelyNotInTheInterface = []struct {
 	{"browserOutput", "whether to log the browser's own stderr; likewise"},
 	{"source", "the microphone; nothing reads it yet"},
 	{"trustedOrigins", "for a reverse proxy in front of the device"},
-	{"enrollmentToken", "typed into the fleet dialog, which sends it to a different " +
-		"endpoint rather than saving it as a setting"},
 	{"reconcileInterval", "how often the network is checked; the default is right, and " +
 		"a wrong value here is a device that stops recovering"},
 	{"modeName", "read from the hardware, not chosen"},

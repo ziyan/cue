@@ -20,7 +20,7 @@ The file holds the passwords the screen signs in with. It is written with mode
 
     device:
       name: Reception          # shown in the interface and on the screen's own page
-      identifier: 8n4q1v...    # generated once, never changes. The fleet keys on it
+      identifier: 8n4q1v...    # generated once, never changes
       location: Ground floor   # free text
       timezone: Europe/London  # empty means UTC
 
@@ -410,16 +410,6 @@ Correcting the clock needs `CAP_SYS_TIME`. Without it chronyd runs, finds a
 server, works out that the clock is wrong, and cannot do anything about it —
 which produces a device showing certificate errors with a healthy-looking time
 client on it.
-
-## fleet
-
-    fleet:
-      enabled: false
-      url: https://cue.sh
-      enrollmentToken: ""
-
-Off by default, and inert until turned on: the daemon makes no outbound
-connection of its own accord.
 
 ## When nothing is plugged in
 
