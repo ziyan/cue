@@ -1,7 +1,7 @@
 package web
 
 import (
-	"os"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -20,7 +20,7 @@ import (
 // A stylesheet cannot be tested for looking right. It can be tested for still
 // containing rules for the things the interface puts on the screen.
 func TestEveryClassTheInterfaceUsesIsStyled(t *testing.T) {
-	stylesheet, err := os.ReadFile(filepath.Join("static", "style.css"))
+	stylesheet, err := staticFiles.ReadFile("static/style.css")
 	if err != nil {
 		t.Fatalf("cannot read the stylesheet: %s", err)
 	}
@@ -69,17 +69,17 @@ func classesUsedInScripts(t *testing.T) []string {
 
 	var names []string
 	seen := map[string]bool{}
-	err := filepath.WalkDir("static", func(path string, entry os.DirEntry, err error) error {
+	err := fs.WalkDir(staticFiles, "static", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() && entry.Name() == "novnc" {
-			return filepath.SkipDir
+			return fs.SkipDir
 		}
 		if entry.IsDir() || filepath.Ext(path) != ".js" {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := staticFiles.ReadFile(path)
 		if err != nil {
 			return err
 		}
