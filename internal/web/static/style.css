@@ -197,6 +197,26 @@ label.inline input { width: auto; }
 }
 .viewer > div { flex: 1; min-width: 0; }
 
+/* --- sign in -------------------------------------------------------------- */
+
+.gate { min-height: 100dvh; display: grid; place-items: center; padding: 1.5rem; }
+.gate .card { width: 100%; max-width: 420px; margin: 0; }
+.gate h1 { font-size: 1.4rem; margin: 0 0 0.35rem; }
+.gate p.lead { color: var(--text-dim); margin: 0 0 1.25rem; }
+
+/* --- messages ------------------------------------------------------------- */
+
+.notice { padding: 0.6rem 0.85rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border); }
+.notice.bad { color: var(--bad); border-color: var(--bad); }
+.notice.good { color: var(--good); border-color: var(--good); }
+
+/* --- tables --------------------------------------------------------------- */
+
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 0.35rem 0.5rem 0.35rem 0; border-bottom: 1px solid var(--border); }
+th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+td.right, th.right { text-align: right; padding-right: 0; }
+
 /* --- small screens --------------------------------------------------------
    There were no breakpoints at all, which on a phone means a header that
    wraps into three rows, forms in columns two inches wide, and a VNC view the

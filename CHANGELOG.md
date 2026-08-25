@@ -6,6 +6,17 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Fixed
+
+- The sign-in box no longer stretches across the whole window. Removing a block
+  from the stylesheet by cutting between two landmarks took everything between
+  them, because the second landmark had moved to the end of the file — the
+  sign-in box's width, the message styling and the table rules went with it.
+  Nothing failed: the page rendered, every test passed, and the only way to
+  notice was to look at it. `TestEveryClassTheInterfaceUsesIsStyled` now checks
+  that every class the interface puts on an element has a rule, which is the
+  part of "does it look right" a test can actually hold.
+
 ### Added
 
 - The interface takes its accent from the logo. The mark is a warm gradient and
