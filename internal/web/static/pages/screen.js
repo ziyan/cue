@@ -58,6 +58,14 @@ export function screen(main) {
 
   main.append(bar, viewer, keyboardTrap);
 
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  const rfb = new RFB(container, `${scheme}//${location.host}/api/v1/vnc`, {});
+  rfb.scaleViewport = true;
+  rfb.background = "#000";
+  // An X server started with no cursor sends no cursor image, and noVNC's
+  // fallback dot is invisible, so the pointer would seem not to move at all.
+  rfb.showDotCursor = true;
+
   // Rotating the picture to fit a phone held upright was tried and taken out
   // again. Turning the canvas with CSS turns what you see and not where noVNC
   // thinks you touched: it works the pointer position out from the element's

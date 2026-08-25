@@ -6,6 +6,20 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Fixed
+
+- The Screen page showed nothing. The connection to the VNC server was
+  constructed in a block of code that was removed along with the rotation
+  experiment sitting next to it, leaving the rest of the page referring to a
+  connection that was never made. The page threw as it drew and stopped there.
+
+  Every page is now opened in a real browser by a test, and an exception
+  nothing catches fails the build. Neither Go nor `node --check` can see this:
+  a name that is used and never declared is valid syntax, so it parses clean
+  and throws only when the page is drawn. That had reached a device three
+  times.
+
+
 ### Removed
 
 - Fleet enrolment, and with it every outbound connection a device made of its
