@@ -196,3 +196,47 @@ func TestManyDisplaysCanBeOpenedAtOnce(t *testing.T) {
 		t.Errorf("opening a display concurrently failed: %s", err)
 	}
 }
+
+func TestThePointerCanBeHiddenAndShown(t *testing.T) {
+	// The first version of this put an empty cursor on the root window, which
+	// looked right and did nothing: a cursor is a per-window attribute, the
+	// browser sets its own, and the browser's window covers the screen — so
+	// the root window's cursor is the one nobody ever sees. XFIXES hides the
+	// cursor for the whole screen whatever it is over, and this checks the
+	// server actually accepts the calls rather than that a field was set.
+	const number, width, height = 73, 200, 150
+	startVirtualScreen(t, number, width, height)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	connection, err := Open(ctx, number, nil)
+	if err != nil {
+		t.Fatalf("cannot reach the test screen: %s", err)
+	}
+	defer connection.Close()
+
+	if err := connection.HidePointer(); err != nil {
+		t.Fatalf("hiding the pointer failed: %s", err)
+	}
+	if err := connection.ShowPointer(); err != nil {
+		t.Fatalf("showing the pointer failed: %s", err)
+	}
+
+	// Hides and shows are counted by the server: two hides would need two
+	// shows, and a loop that asked twice would leave the pointer invisible
+	// for ever. Asking twice must be harmless.
+	for i := 0; i < 3; i++ {
+		if err := connection.HidePointer(); err != nil {
+			t.Fatalf("hiding again failed: %s", err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if err := connection.ShowPointer(); err != nil {
+			t.Fatalf("showing again failed: %s", err)
+		}
+	}
+	if connection.pointerHidden {
+		t.Error("the pointer is still recorded as hidden after being shown")
+	}
+}

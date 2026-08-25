@@ -4,9 +4,6 @@ github.com/gorilla/mux
 # github.com/gorilla/websocket v1.5.3
 ## explicit; go 1.12
 github.com/gorilla/websocket
-# github.com/hashicorp/yamux v0.1.2
-## explicit; go 1.20
-github.com/hashicorp/yamux
 # github.com/insomniacslk/dhcp v0.0.0-20260728151720-c308df0fdcef
 ## explicit; go 1.23.0
 github.com/insomniacslk/dhcp/dhcpv4
@@ -20,6 +17,8 @@ github.com/jezek/xgb
 github.com/jezek/xgb/dpms
 github.com/jezek/xgb/randr
 github.com/jezek/xgb/render
+github.com/jezek/xgb/shape
+github.com/jezek/xgb/xfixes
 github.com/jezek/xgb/xproto
 # github.com/josharian/native v1.1.0
 ## explicit; go 1.13

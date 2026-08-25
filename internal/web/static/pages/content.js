@@ -242,26 +242,123 @@ export function choice(label, options, value, onChange, hint) {
     hint ? h("span", { class: "dim", style: "margin-top:0.25rem", text: hint }) : null);
 }
 
-// searchable is a dropdown for a list too long to scroll: the timezones, of
-// which there are hundreds.
+// searchable is a dropdown for a list too long to scroll — the timezones, of
+// which this machine has four hundred and eighty-two.
 //
-// It is an input with a datalist rather than anything clever, so it filters as
-// you type, still accepts a value that is not on the list, and needs no
-// keyboard handling of its own — which matters, because this interface is
-// sometimes driven by a finger on the screen it is configuring.
+// It was an <input list> and a <datalist> first, which is three lines and
+// which nobody can tell is a list: the control looks exactly like a text box
+// until you happen to type something that matches. A setting offered from a
+// list has to look like one, or it is a text box with a secret.
+//
+// So this is the control itself: a field, a button that says it opens, and a
+// panel that filters as you type. Written out rather than pulled in, because
+// the alternative was a component library, and a component library means
+// React and a bundler in a project that has neither and whose whole interface
+// is four pages of forms.
 export function searchable(label, options, value, onChange, hint) {
-  const listName = "list-" + label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const input = h("input", { type: "text", value: value || "", list: listName, autocomplete: "off" });
-  const list = h("datalist", { id: listName });
-  for (const option of options) {
-    list.append(h("option", { value: option }));
-  }
-  input.addEventListener("change", () => onChange(input.value.trim()));
-  input.addEventListener("input", () => onChange(input.value.trim()));
+  const input = h("input", {
+    type: "text",
+    value: value || "",
+    autocomplete: "off",
+    autocapitalize: "off",
+    spellcheck: "false",
+    role: "combobox",
+    "aria-expanded": "false",
+    "aria-autocomplete": "list",
+  });
+  const list = h("div", { class: "options", role: "listbox" });
+  const panel = h("div", { class: "searchable" }, input, list);
 
-  return h("label", {},
+  let open = false;
+  let highlighted = -1;
+  let shown = [];
+
+  const matches = (text) => {
+    const needle = text.trim().toLowerCase();
+    if (!needle) return options.slice(0, 200);
+    // Anything containing every word typed, so "new york" finds
+    // America/New_York and "lon" finds Europe/London.
+    const words = needle.split(/\s+/);
+    return options.filter((option) => {
+      const haystack = option.toLowerCase().replace(/_/g, " ");
+      return words.every((word) => haystack.includes(word));
+    }).slice(0, 200);
+  };
+
+  const choose = (option) => {
+    input.value = option;
+    onChange(option);
+    close();
+  };
+
+  const close = () => {
+    open = false;
+    highlighted = -1;
+    panel.classList.remove("open");
+    input.setAttribute("aria-expanded", "false");
+  };
+
+  const paint = () => {
+    clear(list);
+    shown = matches(input.value);
+    if (!shown.length) {
+      list.append(h("div", { class: "option empty", text: "Nothing matches" }));
+      return;
+    }
+    shown.forEach((option, index) => {
+      const row = h("div", {
+        class: `option${index === highlighted ? " highlighted" : ""}`,
+        role: "option",
+        // mousedown rather than click: clicking moves focus out of the input
+        // first, and the blur handler would close the panel before the click
+        // ever landed.
+        onMousedown: (event) => {
+          event.preventDefault();
+          choose(option);
+        },
+      }, option);
+      list.append(row);
+    });
+  };
+
+  const show = () => {
+    open = true;
+    panel.classList.add("open");
+    input.setAttribute("aria-expanded", "true");
+    paint();
+  };
+
+  input.addEventListener("focus", show);
+  input.addEventListener("input", () => {
+    highlighted = -1;
+    if (!open) show(); else paint();
+    // What is typed is kept even before anything is picked, so a zone this
+    // build does not list can still be set by hand.
+    onChange(input.value.trim());
+  });
+  input.addEventListener("blur", () => setTimeout(close, 0));
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!open) return show();
+      highlighted += event.key === "ArrowDown" ? 1 : -1;
+      if (highlighted < 0) highlighted = shown.length - 1;
+      if (highlighted >= shown.length) highlighted = 0;
+      paint();
+      const row = list.children[highlighted];
+      if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      if (open && highlighted >= 0 && shown[highlighted]) {
+        event.preventDefault();
+        choose(shown[highlighted]);
+      }
+    } else if (event.key === "Escape") {
+      close();
+    }
+  });
+
+  return h("label", { class: "searchable-field" },
     h("span", { text: label }),
-    input,
-    list,
+    panel,
     hint ? h("span", { class: "dim", style: "margin-top:0.25rem", text: hint }) : null);
 }

@@ -53,10 +53,11 @@ type Display struct {
 	randrAvailable bool
 	dpmsAvailable  bool
 
-	// hidden is the empty cursor, made the first time the pointer is hidden
-	// and kept because a cursor is a server resource and remaking one every
-	// few seconds would leak them.
-	hidden xproto.Cursor
+	// XFIXES counts hides and shows — two hides need two shows — so what was
+	// last asked for is tracked rather than asked for again.
+	xfixesChecked   bool
+	xfixesAvailable bool
+	pointerHidden   bool
 }
 
 // Output is one physical connector, as the daemon reports it.

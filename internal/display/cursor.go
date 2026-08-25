@@ -3,6 +3,7 @@ package display
 import (
 	"fmt"
 
+	"github.com/jezek/xgb/xfixes"
 	"github.com/jezek/xgb/xproto"
 )
 
@@ -14,81 +15,72 @@ import (
 // and "-nocursor" on the X server's command line is not a setting that can be
 // changed afterwards — it means the server has no cursor at all, ever.
 //
-// So the server keeps its cursor and this hides it: an empty one is put on the
-// root window, and taken off again when the pointer moves. Nothing here needs
-// an X extension, which matters because the one built for this — XFIXES — is
-// not in the vendored protocol bindings, and vendoring a protocol to hide a
-// mouse pointer is the wrong trade.
-
-// hiddenCursor makes a cursor with nothing in it.
+// So the server keeps its cursor and this hides it, through XFIXES, which is
+// the extension built for exactly this and the only thing that does it.
 //
-// A cursor is two 1-bit pixmaps, the shape and its mask. A mask of all zeroes
-// means every pixel is transparent, so the cursor is there — the pointer still
-// moves, still clicks, still reports where it is — and draws nothing.
-func (self *Display) hiddenCursor() (xproto.Cursor, error) {
-	shape, err := xproto.NewPixmapId(self.connection)
-	if err != nil {
-		return 0, fmt.Errorf("display: cannot make a cursor: %w", err)
-	}
-	// Depth 1: a bitmap, which is what a cursor is made of.
-	if err := xproto.CreatePixmapChecked(self.connection, 1, shape,
-		xproto.Drawable(self.root), 1, 1).Check(); err != nil {
-		return 0, fmt.Errorf("display: cannot make a cursor shape: %w", err)
-	}
-	defer xproto.FreePixmap(self.connection, shape)
+// The first attempt put an empty cursor on the root window instead, on the
+// reasoning that adding a protocol to hide a mouse pointer was not worth it.
+// That reasoning was wrong twice over. It does not work: a cursor is a
+// per-window attribute, the browser sets its own on its own window, and the
+// browser's window covers the screen — so the root window's cursor is the one
+// thing nobody ever sees. And it cost nothing anyway: xfixes is another
+// package of the X bindings this already depends on, not another dependency.
+//
+// XFIXES hides the cursor for the whole screen regardless of which window it
+// is over, which is the behaviour wanted and the behaviour no amount of
+// per-window fiddling can produce.
 
-	// A newly created pixmap has undefined contents, so it is cleared: an
-	// uninitialised bit here is a single stray dot on the screen, which is
-	// worse than the arrow it replaces.
-	context, err := xproto.NewGcontextId(self.connection)
-	if err != nil {
-		return 0, fmt.Errorf("display: cannot make a cursor: %w", err)
+// available reports whether the server has XFIXES, which every X server this
+// runs on does, but Xvfb in a test might not.
+func (self *Display) cursorControlAvailable() bool {
+	if self.xfixesChecked {
+		return self.xfixesAvailable
 	}
-	if err := xproto.CreateGCChecked(self.connection, context, xproto.Drawable(shape),
-		xproto.GcForeground, []uint32{0}).Check(); err != nil {
-		return 0, fmt.Errorf("display: cannot prepare a cursor: %w", err)
-	}
-	defer xproto.FreeGC(self.connection, context)
-	if err := xproto.PolyFillRectangleChecked(self.connection, xproto.Drawable(shape), context,
-		[]xproto.Rectangle{{X: 0, Y: 0, Width: 1, Height: 1}}).Check(); err != nil {
-		return 0, fmt.Errorf("display: cannot clear a cursor: %w", err)
-	}
+	self.xfixesChecked = true
 
-	cursor, err := xproto.NewCursorId(self.connection)
-	if err != nil {
-		return 0, fmt.Errorf("display: cannot make a cursor: %w", err)
+	if err := xfixes.Init(self.connection); err != nil {
+		return false
 	}
-	// The same empty bitmap as both shape and mask: nothing is drawn, and
-	// nothing is drawn through.
-	if err := xproto.CreateCursorChecked(self.connection, cursor, shape, shape,
-		0, 0, 0, 0, 0, 0, 0, 0).Check(); err != nil {
-		return 0, fmt.Errorf("display: cannot make a cursor: %w", err)
+	// The version has to be negotiated before any other request, or the
+	// server answers every one of them with a protocol error.
+	if _, err := xfixes.QueryVersion(self.connection, 4, 0).Reply(); err != nil {
+		return false
 	}
-	return cursor, nil
+	self.xfixesAvailable = true
+	return true
 }
 
-// ShowPointer puts the server's own cursor back on the root window.
+// ShowPointer draws the cursor again.
 func (self *Display) ShowPointer() error {
-	if err := xproto.ChangeWindowAttributesChecked(self.connection, self.root,
-		xproto.CwCursor, []uint32{uint32(xproto.CursorNone)}).Check(); err != nil {
+	if !self.cursorControlAvailable() {
+		return fmt.Errorf("display: this X server has no XFIXES, so the pointer cannot be shown or hidden")
+	}
+	if !self.pointerHidden {
+		return nil
+	}
+	if err := xfixes.ShowCursorChecked(self.connection, self.root).Check(); err != nil {
 		return fmt.Errorf("display: cannot show the pointer: %w", err)
 	}
+	self.pointerHidden = false
 	return nil
 }
 
-// HidePointer draws nothing where the pointer is.
+// HidePointer draws nothing where the pointer is, over every window.
+//
+// Hiding and showing are counted by the server: two hides need two shows. So
+// this keeps track and never asks twice, which is what makes it safe to call
+// from a loop that does not know what it asked for last time.
 func (self *Display) HidePointer() error {
-	if self.hidden == 0 {
-		cursor, err := self.hiddenCursor()
-		if err != nil {
-			return err
-		}
-		self.hidden = cursor
+	if !self.cursorControlAvailable() {
+		return fmt.Errorf("display: this X server has no XFIXES, so the pointer cannot be shown or hidden")
 	}
-	if err := xproto.ChangeWindowAttributesChecked(self.connection, self.root,
-		xproto.CwCursor, []uint32{uint32(self.hidden)}).Check(); err != nil {
+	if self.pointerHidden {
+		return nil
+	}
+	if err := xfixes.HideCursorChecked(self.connection, self.root).Check(); err != nil {
 		return fmt.Errorf("display: cannot hide the pointer: %w", err)
 	}
+	self.pointerHidden = true
 	return nil
 }
 

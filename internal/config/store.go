@@ -101,6 +101,28 @@ func (self *Store) Reload() error {
 	return nil
 }
 
+// Rewrite writes the configuration in force back to its file, unchanged.
+//
+// It exists to drop settings the running version does not have: they are
+// carried in memory only long enough to be reported, and writing the file back
+// leaves them out. Nothing else about the file changes — the values are the
+// ones already in force.
+func (self *Store) Rewrite() error {
+	self.mutex.Lock()
+	current := self.current
+	self.mutex.Unlock()
+
+	if err := current.Save(self.filename); err != nil {
+		return err
+	}
+
+	self.mutex.Lock()
+	// They are gone from the file, so they are no longer anything to report.
+	current.IgnoredSettings = nil
+	self.mutex.Unlock()
+	return nil
+}
+
 // Watch returns a channel that receives the configuration after every accepted
 // change. The channel has room for one value and a send that would block is
 // dropped, because a slow watcher must not stop the daemon from applying a

@@ -49,6 +49,24 @@ func runDaemon(ctx context.Context, command *cli.Command) error {
 	}
 	applyTimezone(configuration.Device.Timezone)
 
+	// Settings this version does not have are dropped from the file now,
+	// rather than the next time somebody happens to save it.
+	//
+	// The daemon reports them at every start — a warning about a setting that
+	// no longer exists, on every restart, for ever — and telling somebody
+	// their file will be tidied "the next time it is written" is not an
+	// answer when nothing is going to write it. Removing a setting is the
+	// usual reason for this, and the device it happened to should not have to
+	// be edited by hand to stop being told about it.
+	if len(configuration.IgnoredSettings) > 0 {
+		if err := store.Rewrite(); err != nil {
+			log.Warningf("cannot tidy %s: %s", filename, err)
+		} else {
+			log.Noticef("removed %d setting(s) this version does not have from %s",
+				len(configuration.IgnoredSettings), filename)
+		}
+	}
+
 	log.Noticef("starting cue %s", version.String())
 	log.Noticef("this device is %q (%s)", configuration.Device.Name, configuration.Device.Identifier)
 	log.Noticef("configuration: %s", filename)

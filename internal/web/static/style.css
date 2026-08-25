@@ -197,6 +197,25 @@ label.inline input { width: auto; }
 }
 .viewer > div { flex: 1; min-width: 0; }
 
+/* --- the searchable dropdown --------------------------------------------- */
+
+/* The panel hangs outside the label it belongs to, so nothing in the way up
+   may clip it. */
+.searchable-field { overflow: visible; }
+.searchable { position: relative; }
+.searchable > input { width: 100%; }
+.searchable .options {
+  display: none; position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 2px);
+  max-height: 16rem; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow);
+}
+.searchable.open .options { display: block; }
+.searchable .option { padding: 0.45rem 0.65rem; cursor: pointer; font-size: 0.9rem; }
+.searchable .option:hover, .searchable .option.highlighted { background: var(--accent); color: var(--accent-text); }
+.searchable .option.empty { color: var(--text-dim); cursor: default; }
+.searchable .option.empty:hover { background: none; color: var(--text-dim); }
+
 /* --- sign in -------------------------------------------------------------- */
 
 .gate { min-height: 100dvh; display: grid; place-items: center; padding: 1.5rem; }

@@ -17,7 +17,6 @@ require (
 )
 
 require (
-	github.com/hashicorp/yamux v0.1.2
 	github.com/insomniacslk/dhcp v0.0.0-20260728151720-c308df0fdcef
 	github.com/vishvananda/netlink v1.3.1
 )
