@@ -8,7 +8,14 @@
   --border: #dde1e7;
   --text: #16191d;
   --text-dim: #626b78;
-  --accent: #0369a1;
+  /* The accent is the logo's, and which end of it depends on the theme.
+     The mark is a warm gradient — amber, orange, crimson, magenta — and the
+     interface already spends amber on warnings and red on errors, so the
+     accent has to be the part of that gradient which stays legible and stays
+     distinguishable from both. Measured rather than chosen by eye: on white,
+     the magenta end gives 6.97:1 as link text and the same behind white
+     button text, where the orange end gives 2.75:1 and fails outright. */
+  --accent: #a72258;
   --accent-text: #ffffff;
   --good: #15803d;
   --warn: #b45309;
@@ -25,8 +32,14 @@
     --border: #262d36;
     --text: #e7ecf3;
     --text-dim: #93a1b3;
-    --accent: #38bdf8;
-    --accent-text: #06202e;
+    /* And on a dark surface the magenta end is the one that fails — 2.56:1 —
+       so this takes the other end. Orange is also the only colour in the mark
+       that stays clear of both the warning amber and the error red here:
+       every crimson and pink tried either dropped below 4.5:1 or came within
+       a hair of the error colour, which would make "this is broken" and "this
+       is a button" the same shade on a screen nobody is standing at. */
+    --accent: #f57915;
+    --accent-text: #1a0a02;
     --good: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
@@ -167,29 +180,63 @@ label.inline input { width: auto; }
 .log-line.error .log-text { color: var(--bad); }
 .log-line.warning .log-text { color: var(--warn, #d19a2f); }
 .screenshot.stale { opacity: 0.55; }
-.viewer { flex: 1; min-height: 60vh; background: #000; border-radius: var(--radius); border: 1px solid var(--border); position: relative; overflow: hidden; display: flex; }
-.viewer > div { flex: 1; }
+/* The viewer fills what is left of the window rather than a fixed fraction of
+   it. 60vh of a phone held upright is a couple of hundred pixels, and a
+   landscape screen scaled into that is a stripe nobody can read.
 
-/* --- sign in -------------------------------------------------------------- */
+   dvh rather than vh: on a phone the address bar slides away as you scroll,
+   vh does not account for it, and the bottom of the picture ends up under
+   browser furniture. */
+.viewer {
+  flex: 1;
+  min-height: 22rem;
+  height: calc(100dvh - 9rem);
+  background: #000; border-radius: var(--radius);
+  border: 1px solid var(--border);
+  position: relative; overflow: hidden; display: flex;
+}
+.viewer > div { flex: 1; min-width: 0; }
 
-.gate { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }
-.gate .card { width: 100%; max-width: 420px; margin: 0; }
-.gate h1 { font-size: 1.4rem; margin: 0 0 0.35rem; }
-.gate p.lead { color: var(--text-dim); margin: 0 0 1.25rem; }
+/* --- small screens --------------------------------------------------------
+   There were no breakpoints at all, which on a phone means a header that
+   wraps into three rows, forms in columns two inches wide, and a VNC view the
+   size of a postage stamp. This interface is used from a phone more than from
+   anywhere else: it is what somebody has in their hand while standing in
+   front of the screen they are setting up. */
 
-/* --- messages ------------------------------------------------------------- */
+@media (max-width: 640px) {
+  /* Advice about clicking and typing, on a device with neither. */
+  .mobile-hide { display: none; }
+  main { padding: 0.75rem; }
+  main.wide { padding: 0.5rem; }
 
-.notice { padding: 0.6rem 0.85rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border); }
-.notice.bad { color: var(--bad); border-color: var(--bad); }
-.notice.good { color: var(--good); border-color: var(--good); }
+  header.bar { padding: 0.6rem 0.75rem; gap: 0.5rem; }
+  .brand strong { font-size: 1rem; }
+  /* The identifier is for telling two devices apart, and on a phone the name
+     already does that. */
+  .brand span { display: none; }
 
-pre.log {
-  background: var(--surface-sunken); border: 1px solid var(--border); border-radius: 8px;
-  padding: 0.75rem; overflow: auto; max-height: 24rem;
-  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; line-height: 1.45;
+  nav.tabs { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  nav.tabs a { padding: 0.45rem 0.8rem; white-space: nowrap; }
+
+  .card { padding: 0.85rem 0.9rem; margin-bottom: 0.75rem; }
+  .grid { display: block; }
+  .row { display: block; }
+  .row > * { margin-bottom: 0.6rem; }
+
+  /* Big enough to hit with a thumb. */
+  button, select, input, textarea { min-height: 2.75rem; font-size: 1rem; }
+  .actions { gap: 0.4rem; }
+  .actions button { flex: 1 1 auto; }
+
+  table { font-size: 0.85rem; }
+
+  .viewer { height: calc(100dvh - 11rem); min-height: 16rem; }
 }
 
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 0.35rem 0.5rem 0.35rem 0; border-bottom: 1px solid var(--border); }
-th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
-td.right, th.right { text-align: right; padding-right: 0; }
+/* A phone held sideways is the right shape for a screen, so the view gets
+   nearly all of it and the furniture gets out of the way. */
+@media (max-width: 900px) and (orientation: landscape) {
+  header.bar { padding: 0.35rem 0.6rem; }
+  .viewer { height: calc(100dvh - 6.5rem); }
+}

@@ -8,6 +8,28 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- The interface takes its accent from the logo. The mark is a warm gradient and
+  the interface already spends amber on warnings and red on errors, so the
+  accent had to be the part of that gradient which stays legible *and* stays
+  distinguishable from both — measured rather than chosen by eye. On white the
+  magenta end gives 6.97:1 where the orange end gives 2.75:1 and fails; on the
+  dark surface it is the other way round, and every crimson and pink tried
+  either dropped below 4.5:1 or came within a hair of the error red. So light
+  takes the magenta end and dark the orange, both from the mark, every role
+  between 6.5:1 and 7.1:1.
+
+- The interface works on a phone. There was not a single breakpoint in the
+  stylesheet, which on a phone meant a header wrapping into three rows, forms
+  in columns two inches wide, and a VNC view the size of a stamp — on the
+  device somebody is most likely to be holding while standing in front of the
+  screen they are setting up. The tabs scroll sideways and keep the page you
+  are on in view, controls are big enough for a thumb, and the screen view
+  fills the window rather than a fixed fraction of it.
+
+- A Keyboard button on the Screen page. A phone raises no keyboard for a
+  canvas, so the thing most often wanted from that page — signing a dashboard
+  back in — could not be done from the device in your hand.
+
 - The monitor's own description of itself, decoded and shown on the Device
   page: maker, model, serial, year, the physical size of the panel, the mode it
   is actually made of, and the density those imply. Almost every hard question

@@ -90,6 +90,15 @@ function render() {
   root.append(h("div", { class: "shell" }, chrome(page), main));
 
   nameTheDocument(page);
+
+  // On a narrow screen the tabs scroll sideways, and the one you are on is
+  // often the one off the end of it — so the page gives no sign of which page
+  // it is. Bring it into view.
+  const active = root.querySelector("nav.tabs a.active");
+  if (active && active.scrollIntoView) {
+    active.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+
   stopCurrentPage = page.render(main) || null;
 }
 
