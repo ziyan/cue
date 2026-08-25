@@ -6,6 +6,14 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Changed
+
+- The Network page no longer lists the interfaces with no hardware behind
+  them. Bridges, container interfaces and tunnels were shown in a collapsed
+  list on the grounds that they might explain a routing problem; on a machine
+  running containers there are more of them than there are real interfaces,
+  and none of them is something anybody can plug a cable into.
+
 ### Fixed
 
 - The Screen page showed nothing. The connection to the VNC server was
