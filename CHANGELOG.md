@@ -8,6 +8,14 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Fixed
 
+- A deployment that cannot reach the machine fails instead of hanging. The
+  send handed the pipe's read end to ssh but kept its own copy, so ssh dying
+  did not close the pipe, `docker save` never got a broken pipe, and it blocked
+  on a full buffer with nothing at the other end — the send did not fail, it
+  stopped, quietly, for as long as anybody would wait. Against a host name that
+  does not resolve it now fails in under a second, naming both the ssh status
+  and the broken pipe, where before it sat for over two minutes.
+
 - A deployment sends the image before it stops anything. The order was: remove
   the running container, stop the display manager, then send eight hundred
   megabytes — so a transfer that failed left the machine with no container, no

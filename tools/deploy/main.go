@@ -310,8 +310,19 @@ func reportScreen(host, name string) {
 // sendImage streams the image over ssh. No registry is involved, because a
 // device on somebody's network cannot be assumed to reach one.
 func sendImage(host, image string) error {
+	// ssh is told to give up on a link that has gone rather than hold the
+	// connection open forever, and to notice one that goes away mid-transfer.
+	// Without these a send into a dead link does not fail, it stalls: the
+	// first version of this sat for minutes with nothing happening and no
+	// error, which is the worst of both — too slow to wait for and too quiet
+	// to notice.
+	load := exec.Command("ssh",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=20",
+		"-o", "ServerAliveInterval=15",
+		"-o", "ServerAliveCountMax=4",
+		host, "docker", "load")
 	save := exec.Command("docker", "save", image)
-	load := exec.Command("ssh", host, "docker", "load")
 
 	pipe, err := save.StdoutPipe()
 	if err != nil {
@@ -325,10 +336,35 @@ func sendImage(host, image string) error {
 	if err := load.Start(); err != nil {
 		return err
 	}
-	if err := save.Run(); err != nil {
-		return fmt.Errorf("docker save: %w", err)
+
+	// This process's own copy of the read end is closed, leaving ssh holding
+	// the only one.
+	//
+	// Without it a send into a dead link hangs for ever rather than failing.
+	// StdoutPipe hands the read end to *this* process, and starting ssh gives
+	// it a second copy; if this one stays open then ssh exiting does not close
+	// the pipe, "docker save" never gets a broken pipe, and it blocks on a
+	// full buffer with nothing at the other end. Reproduced against a host
+	// that does not resolve: the send sat there for minutes, silently, which
+	// is exactly what a deployment did on the night it took a screen down.
+	_ = pipe.Close()
+
+	// Both are waited on, and both errors matter. When the far end dies the
+	// two fail together — ssh with its own status, docker save with a broken
+	// pipe — and reporting only one of them was how a failed send came to
+	// look like a successful one.
+	saveErr := save.Run()
+	loadErr := load.Wait()
+
+	switch {
+	case loadErr != nil && saveErr != nil:
+		return fmt.Errorf("sending the image failed: %w (and docker save: %v)", loadErr, saveErr)
+	case loadErr != nil:
+		return fmt.Errorf("sending the image failed: %w", loadErr)
+	case saveErr != nil:
+		return fmt.Errorf("docker save: %w", saveErr)
 	}
-	return load.Wait()
+	return nil
 }
 
 func step(format string, arguments ...interface{}) {

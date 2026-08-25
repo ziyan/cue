@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTheContainerGetsTheConsoleItIsToldToDrawOn(t *testing.T) {
@@ -161,4 +163,35 @@ func TestTheImageIsSentBeforeTheRunningDeploymentIsTouched(t *testing.T) {
 		t.Error("the display manager is stopped before the image is sent: a transfer that fails " +
 			"leaves the machine with no display at all")
 	}
+}
+
+// A send into a link that has gone must fail, and fail quickly.
+//
+// This is the fault underneath the outage. StdoutPipe hands the read end of
+// the pipe to this process, and starting ssh gives it a second copy; while
+// this process kept its own, ssh exiting did not close the pipe, "docker save"
+// never got a broken pipe, and it blocked on a full buffer with nothing at the
+// other end. The send did not fail — it stopped, silently, for as long as
+// anybody was willing to wait.
+//
+// Measured as well as asserted, because "returns an error eventually" is what
+// it did before: it took over two minutes, against a host name that does not
+// even resolve.
+func TestASendIntoNothingFailsAndFailsQuickly(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("no docker here to save an image with")
+	}
+
+	started := time.Now()
+	err := sendImage("root@a-host-that-does-not-resolve.invalid", "cue:dev")
+	elapsed := time.Since(started)
+
+	if err == nil {
+		t.Fatal("sending an image to a host that does not exist reported success")
+	}
+	// Generous: the point is seconds rather than minutes.
+	if elapsed > 30*time.Second {
+		t.Errorf("the send took %s to fail; it is hanging rather than failing", elapsed.Round(time.Second))
+	}
+	t.Logf("failed in %s: %s", elapsed.Round(time.Millisecond), err)
 }
