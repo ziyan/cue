@@ -8,6 +8,16 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Fixed
 
+- A deployment sends the image before it stops anything. The order was: remove
+  the running container, stop the display manager, then send eight hundred
+  megabytes — so a transfer that failed left the machine with no container, no
+  display manager, and no image to start one from. It happened: a link between
+  two sites went away mid-send and a screen was dark for seventy minutes, with
+  every step that had run having succeeded. Loading an image a machine already
+  has is quick, and a running container keeps its own reference to the image it
+  started from, so sending first disturbs nothing and a failure now leaves the
+  screen showing what it was showing.
+
 - The sign-in box no longer stretches across the whole window. Removing a block
   from the stylesheet by cutting between two landmarks took everything between
   them, because the second landmark had moved to the end of the file — the

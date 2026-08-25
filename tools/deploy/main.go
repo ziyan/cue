@@ -99,8 +99,29 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	}
 	fmt.Printf("    Docker %s\n", strings.TrimSpace(version))
 
-	// Stop the previous deployment before looking at what holds the graphics
-	// device, or its own X server is found and reported as the thing in the
+	// The image goes first, before anything running on the machine is
+	// touched.
+	//
+	// It used to go after, and that cost a screen seventy minutes of being
+	// dark. The order was: remove the running container, stop the display
+	// manager, then send eight hundred megabytes over the network. The
+	// network went away during the send — it was a link between two sites and
+	// it does that — and the machine was left with no container, no display
+	// manager, and no image to make a new one from. Every step that had run
+	// had succeeded.
+	//
+	// Sending first costs nothing: loading an image the machine already has
+	// is quick, and a container that is running keeps its own reference to
+	// the image it started from, so nothing is disturbed by the new one
+	// arriving. If the transfer fails now, the screen is still showing what
+	// it was showing.
+	step("sending %s", image)
+	if err := sendImage(host, image); err != nil {
+		return fmt.Errorf("%w (nothing on %s was changed)", err, host)
+	}
+
+	// Only now. And before looking at what holds the graphics device, or this
+	// deployment's own X server is found and reported as the thing in the
 	// way — which is true, and unhelpful, and stops a redeployment dead.
 	step("stopping any previous deployment")
 	_ = remote(host, "docker", "rm", "-f", name)
@@ -143,11 +164,6 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 				host, strings.Join(remaining, "\n"))
 		}
 		fmt.Println("    nothing is holding it now")
-	}
-
-	step("sending %s", image)
-	if err := sendImage(host, image); err != nil {
-		return err
 	}
 
 	step("preparing the directories")

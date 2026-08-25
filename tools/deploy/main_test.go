@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -117,5 +118,47 @@ func TestTheMachinesDeviceDatabaseIsMounted(t *testing.T) {
 	}
 	if !strings.Contains(joined, "/dev/input") {
 		t.Errorf("the input devices are not passed through:\n%s", joined)
+	}
+}
+
+// The image is sent before anything running on the machine is touched.
+//
+// This cost a screen seventy minutes of being dark. The order was: remove the
+// running container, stop the display manager, then send eight hundred
+// megabytes. The link between the two sites went away during the send, and the
+// machine was left with no container, no display manager, and no image to make
+// a new one from — every step that had run having succeeded.
+//
+// Read out of the source rather than by running a deployment, because what is
+// being asserted is an order, there is no machine here to deploy to, and the
+// alternative is discovering it the same way again.
+func TestTheImageIsSentBeforeTheRunningDeploymentIsTouched(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("cannot read the deploy tool: %s", err)
+	}
+	text := string(source)
+
+	sending := strings.Index(text, `step("sending %s"`)
+	stopping := strings.Index(text, `step("stopping any previous deployment")`)
+	stoppingDisplay := strings.Index(text, `step("stopping anything that holds the graphics device")`)
+
+	for name, at := range map[string]int{
+		"the send":               sending,
+		"stopping the container": stopping,
+		"stopping the display":   stoppingDisplay,
+	} {
+		if at < 0 {
+			t.Fatalf("cannot find %s in the deploy tool; this test needs updating with it", name)
+		}
+	}
+
+	if sending > stopping {
+		t.Error("the running container is removed before the image is sent: a transfer that fails " +
+			"leaves the machine with nothing to start")
+	}
+	if sending > stoppingDisplay {
+		t.Error("the display manager is stopped before the image is sent: a transfer that fails " +
+			"leaves the machine with no display at all")
 	}
 }
