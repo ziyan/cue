@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -280,5 +281,70 @@ browser:
 	}
 	if len(configuration.IgnoredSettings) == 0 {
 		t.Error("the removed section was skipped without being reported anywhere")
+	}
+}
+
+// A setting this version does not have is dropped from the file, and stops
+// being reported once it is gone.
+//
+// The reporting half is what this is really pinning. Rewrite clears the list
+// on the very configuration the caller is holding, so a caller that counts the
+// list after calling it counts nothing and says so — which is how a device
+// that had just had its obsolete "fleet" section removed announced that it had
+// removed none.
+func TestARemovedSettingIsTakenOutOfTheFileAndThenStopsBeingReported(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "cue.yaml")
+	written := "device:\n  name: Reception\nfleet:\n  enabled: true\n"
+	if err := os.WriteFile(filename, []byte(written), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(filename)
+	if err != nil {
+		t.Fatalf("a file with an unknown setting must still load: %s", err)
+	}
+	configuration := store.Current()
+	if len(configuration.IgnoredSettings) != 1 {
+		t.Fatalf("ignored %d setting(s), want 1: %v",
+			len(configuration.IgnoredSettings), configuration.IgnoredSettings)
+	}
+	// The rest of the file is read, not abandoned at the unknown name.
+	if configuration.Device.Name != "Reception" {
+		t.Errorf("the device is named %q, want %q", configuration.Device.Name, "Reception")
+	}
+
+	// Counting has to happen here, before the rewrite empties it.
+	counted := len(configuration.IgnoredSettings)
+
+	if err := store.Rewrite(); err != nil {
+		t.Fatalf("rewriting: %s", err)
+	}
+	if counted != 1 {
+		t.Errorf("counted %d setting(s) before the rewrite, want 1", counted)
+	}
+	if len(configuration.IgnoredSettings) != 0 {
+		t.Errorf("the list still has %d setting(s) after the rewrite; a caller "+
+			"counting it here is the bug this test exists for",
+			len(configuration.IgnoredSettings))
+	}
+
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "fleet") {
+		t.Errorf("the rewritten file still mentions fleet:\n%s", content)
+	}
+
+	// And it loads clean the next time, which is the point of tidying it.
+	again, err := Open(filename)
+	if err != nil {
+		t.Fatalf("reopening the tidied file: %s", err)
+	}
+	if got := len(again.Current().IgnoredSettings); got != 0 {
+		t.Errorf("the tidied file still reports %d ignored setting(s)", got)
+	}
+	if name := again.Current().Device.Name; name != "Reception" {
+		t.Errorf("the tidied file names the device %q, want %q", name, "Reception")
 	}
 }

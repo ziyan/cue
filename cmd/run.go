@@ -58,12 +58,15 @@ func runDaemon(ctx context.Context, command *cli.Command) error {
 	// answer when nothing is going to write it. Removing a setting is the
 	// usual reason for this, and the device it happened to should not have to
 	// be edited by hand to stop being told about it.
-	if len(configuration.IgnoredSettings) > 0 {
+	// Counted before the rewrite, not after: rewriting clears the list on this
+	// same configuration, so counting it afterwards always reports nothing
+	// removed. What was removed has just been logged, a warning apiece.
+	if removed := len(configuration.IgnoredSettings); removed > 0 {
 		if err := store.Rewrite(); err != nil {
 			log.Warningf("cannot tidy %s: %s", filename, err)
 		} else {
 			log.Noticef("removed %d setting(s) this version does not have from %s",
-				len(configuration.IgnoredSettings), filename)
+				removed, filename)
 		}
 	}
 
