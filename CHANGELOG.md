@@ -6,6 +6,18 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Security
+
+- The VNC server no longer listens on every IPv6 address when it was told to
+  listen on an IPv4 one. x11vnc honours `-listen` for IPv4 and then opens an
+  IPv6 listener on the wildcard regardless, so a device configured for the
+  loopback was in fact answering on `[::]:5900` — with no password, while
+  holding a globally routable address. Nothing but an upstream firewall stood
+  between its screen and anyone who cared to look.
+
+  An IPv4 listen address now means IPv4 only. Naming an IPv6 address, or the
+  wildcard, still does exactly what it says.
+
 ### Changed
 
 - The Network page no longer lists the interfaces with no hardware behind

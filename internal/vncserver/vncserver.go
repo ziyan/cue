@@ -114,6 +114,22 @@ func (self *Server) arguments() []string {
 		"-xkb",
 	}
 
+	// x11vnc honours -listen for IPv4 and then opens an IPv6 listener on the
+	// wildcard anyway, so a server told to stay on the loopback ends up on
+	// [::]:5900 — reachable from anywhere the machine has a routable IPv6
+	// address, with whatever password this server has, which is usually none.
+	// A device found doing exactly that was saved only by something upstream
+	// dropping the traffic, which is not a thing to rely on.
+	//
+	// So an IPv4 address to listen on means IPv4 only, and that includes
+	// 0.0.0.0: somebody who writes the IPv4 wildcard is asking for every IPv4
+	// interface, not for every interface there is. An IPv6 address, and a bare
+	// port with no address at all, are left alone -- both of those really are
+	// a request to be reachable on everything.
+	if address := net.ParseIP(host); address != nil && address.To4() != nil {
+		arguments = append(arguments, "-noipv6")
+	}
+
 	if !self.configuration().Display.Cursor.ServerDrawsOne() {
 		// The X server is started with no cursor, so there is nothing to
 		// send; drawing one for the viewer alone is confusing, because it

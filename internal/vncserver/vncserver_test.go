@@ -137,3 +137,38 @@ func TestAnExposedListenerIsRecognisedAsExposed(t *testing.T) {
 		}
 	}
 }
+
+// A server told to listen on an IPv4 address must not turn up on the IPv6
+// wildcard, which is what x11vnc does left to itself.
+//
+// This is not hypothetical. A device configured for the loopback was found
+// listening on [::]:5900 with no password while holding a globally routable
+// address, so the only thing between its screen and the internet was a
+// firewall somewhere upstream that nobody had checked.
+func TestListeningOnIPv4DoesNotAlsoListenOnEveryIPv6Address(t *testing.T) {
+	// 0.0.0.0 counts: it asks for every IPv4 interface, not for every
+	// interface, and carbon is configured exactly that way.
+	for _, listen := range []string{"127.0.0.1:5900", "192.0.2.10:5900", "0.0.0.0:5900"} {
+		server := newTestServer(t, func(configuration *config.Configuration) {
+			configuration.VNC.Listen = listen
+		})
+		if got := arguments(t, server); !strings.Contains(got, "-noipv6") {
+			t.Errorf("listening on %s does not pass -noipv6, so x11vnc will "+
+				"also listen on [::]: %s", listen, got)
+		}
+	}
+}
+
+// Asking for an IPv6 address, or for every interface, is a request this must
+// not quietly override.
+func TestIPv6IsLeftAloneWhenItIsWhatWasAskedFor(t *testing.T) {
+	for _, listen := range []string{"[::1]:5900", "[::]:5900", ":5900"} {
+		server := newTestServer(t, func(configuration *config.Configuration) {
+			configuration.VNC.Listen = listen
+		})
+		if got := arguments(t, server); strings.Contains(got, "-noipv6") {
+			t.Errorf("listening on %s passes -noipv6, which refuses the "+
+				"address that was asked for: %s", listen, got)
+		}
+	}
+}
