@@ -209,3 +209,56 @@ func TestTheSetupPortServesThePortal(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 	}
 }
+
+// A device out of its box is set up by whoever holds the code on its screen.
+// A device that has been set up is not: losing a network is not losing
+// ownership, and this page is reached over a network anybody with that code
+// can join.
+func TestTheSetupPortalAsksForThePasswordOnceThereIsOne(t *testing.T) {
+	fresh, _ := setupServer(t, true)
+	body := do(fresh, "GET", "/portal", nil, nil).Body.String()
+	if strings.Contains(body, "already belongs to somebody") {
+		t.Error("a brand new device asks for a password it does not have")
+	}
+	if code := do(fresh, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "the office"}, nil).Code; code != http.StatusOK {
+		t.Errorf("a brand new device refused to be set up: %d", code)
+	}
+
+	owned, device := setupServer(t, true)
+	session := signedIn(t, owned)
+
+	page := do(owned, "GET", "/portal", nil, nil).Body.String()
+	if !strings.Contains(page, "already belongs to somebody") {
+		t.Error("a device with an owner does not say so on the setup page")
+	}
+
+	if code := do(owned, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "somewhere else"}, nil).Code; code != http.StatusUnauthorized {
+		t.Errorf("a device with an owner was put on another network without its "+
+			"password: %d", code)
+	}
+	if device.joinedSSID != "" {
+		t.Errorf("it joined %q", device.joinedSSID)
+	}
+
+	// With the password, it works as before.
+	if code := do(owned, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "the office", "passphrase": "a test passphrase"}, session).Code; code != http.StatusOK {
+		t.Errorf("the password did not open the portal: %d", code)
+	}
+	if device.joinedSSID != "the office" {
+		t.Errorf("it joined %q", device.joinedSSID)
+	}
+}
+
+// Scanning is gated too: what a device can see is worth something to somebody
+// standing outside a building with a phone.
+func TestScanningFromThePortalIsGatedTheSameWay(t *testing.T) {
+	owned, _ := setupServer(t, true)
+	signedIn(t, owned)
+
+	if code := do(owned, "POST", "/api/v1/portal/scan", nil, nil).Code; code != http.StatusUnauthorized {
+		t.Errorf("anybody with the code could list the networks this device can see: %d", code)
+	}
+}

@@ -191,8 +191,41 @@ func (self *Server) fromOurOwnPage(request *http.Request) bool {
 	return port == ours
 }
 
+// screenAction guards the things somebody standing at the screen can do that
+// change this device.
+//
+// Being in the room used to be enough. That was right for a device out of its
+// box -- there is nothing to protect yet, and the passphrase for the setup
+// network is on the screen, so being able to set it up is already the same as
+// being able to see it. It is wrong the moment a device has an owner. A screen
+// in a lobby, a waiting room, a shop window is somewhere strangers stand, and
+// once somebody has set a password on it, that password is what says who may
+// change it -- not proximity to the mouse.
+//
+// So: a device with no password lets the screen act, because there is nobody
+// to ask. A device with a password asks for it, from the screen exactly as
+// from anywhere else.
+func (self *Server) screenAction(next http.HandlerFunc) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if !fromThisMachine(request) || !self.fromOurOwnPage(request) {
+			// Not the screen at all. The ordinary rules apply.
+			self.requireSession(next).ServeHTTP(response, request)
+			return
+		}
+		if self.isSetUp() && !self.hasSession(request) {
+			writeError(response, http.StatusUnauthorized, "sign in first")
+			return
+		}
+		next(response, request)
+	}
+}
+
 // localOrSession allows this machine's own browser through, and asks everybody
 // else for a session.
+//
+// This is for the things the screen's own browser does by itself and that
+// change nothing: fetching a video, telling the daemon a video has ended.
+// Anything that changes the device goes through screenAction instead.
 func (self *Server) localOrSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if fromThisMachine(request) && (request.Method == http.MethodGet ||

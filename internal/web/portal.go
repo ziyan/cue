@@ -43,6 +43,27 @@ func (self *Server) onboardingOrNotFound(next http.HandlerFunc) http.HandlerFunc
 	}
 }
 
+// portalAction guards the things the setup portal does that change this
+// device.
+//
+// The portal is reached over a network anybody with the code can join, which
+// is the point: a device out of its box has nothing to protect and the code is
+// on its screen. A device that has been set up is different. Losing a network
+// is not losing ownership, and a screen that fell back to offering setup must
+// not become a screen that anybody in range can put on their own network.
+//
+// So the portal asks for the password when there is one, and does not when
+// there is not.
+func (self *Server) portalAction(next http.HandlerFunc) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if self.isSetUp() && !self.hasSession(request) {
+			writeError(response, http.StatusUnauthorized, "sign in first")
+			return
+		}
+		next(response, request)
+	}
+}
+
 // portal renders the page somebody fills in to put this device on a network.
 func (self *Server) portal(response http.ResponseWriter, request *http.Request) {
 	found := self.device.SetupNetworks()
@@ -73,9 +94,10 @@ func (self *Server) portal(response http.ResponseWriter, request *http.Request) 
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
 	if err := portalTemplate.Execute(response, map[string]interface{}{
-		"Device":   self.store.Current().Device.Name,
-		"Networks": networks,
-		"Trouble":  self.device.SetupTrouble(),
+		"Device":    self.store.Current().Device.Name,
+		"Networks":  networks,
+		"Trouble":   self.device.SetupTrouble(),
+		"NeedsWord": self.isSetUp(),
 	}); err != nil {
 		log.Debugf("cannot render the setup portal: %s", err)
 	}
@@ -183,6 +205,7 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
   .lock { color: #9fb0c5; font-size: 0.85rem; }
   form { margin-top: 1.25rem; }
   label { display: block; font-size: 0.85rem; color: #9fb0c5; margin-bottom: 0.4rem; }
+  #gate .go { margin-top: 1rem; }
   input { width: 100%; padding: 0.85rem 1rem; font-size: 1rem; border-radius: 0.7rem;
     border: 1px solid #2a323d; background: #151a21; color: inherit; }
   .go { width: 100%; margin-top: 1rem; padding: 0.95rem 1rem; font-size: 1rem;
@@ -203,7 +226,18 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
   <p class="lead">Choose the network this screen should use.</p>
   {{ if .Trouble }}<p class="trouble">{{ .Trouble }}</p>{{ end }}
 
-  <div id="chooser">
+  {{ if .NeedsWord }}
+  <div id="gate">
+    <p class="lead">This screen already belongs to somebody. Enter its password to
+      change which network it uses.</p>
+    <label for="word">Password</label>
+    <input id="word" type="password" autocomplete="current-password" autocapitalize="none">
+    <p class="trouble" id="wrong" style="display:none">That is not the password.</p>
+    <button class="go" id="unlock" type="button">Continue</button>
+  </div>
+  {{ end }}
+
+  <div id="chooser"{{ if .NeedsWord }} style="display:none"{{ end }}>
     <ul id="networks">
       {{ range .Networks }}
       <li><button class="network" type="button" data-ssid="{{ .SSID }}" data-secured="{{ .Secured }}"
@@ -237,6 +271,41 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
 </main>
 <script>
   var chosen = null, secured = false;
+
+  // A device that has been set up asks for its password before it will join
+  // anything. Losing a network is not losing ownership, and this page is
+  // reached over a network anybody with the code on the screen can join.
+  var unlock = document.getElementById("unlock");
+  if (unlock) {
+    var word = document.getElementById("word");
+    var wrong = document.getElementById("wrong");
+
+    function tryWord() {
+      wrong.style.display = "none";
+      fetch("/api/v1/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: word.value }),
+      }).then(function (answer) {
+        if (!answer.ok) {
+          wrong.style.display = "block";
+          word.value = "";
+          word.focus();
+          return;
+        }
+        document.getElementById("gate").style.display = "none";
+        document.getElementById("chooser").style.display = "block";
+      }).catch(function () {
+        wrong.style.display = "block";
+      });
+    }
+
+    unlock.addEventListener("click", tryWord);
+    word.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") tryWord();
+    });
+    word.focus();
+  }
   var chooser = document.getElementById("chooser");
   var working = document.getElementById("working");
   var secret = document.getElementById("secret");

@@ -236,8 +236,12 @@ func (self *Server) addRoutes() {
 
 	// Setting the device up over the air happens before there is a session,
 	// for the same reason setup and sign-in do.
-	api.Path("/portal/join").Methods(http.MethodPost).HandlerFunc(self.onboardingOrNotFound(self.portalJoin))
-	api.Path("/portal/scan").Methods(http.MethodPost).HandlerFunc(self.onboardingOrNotFound(self.portalScan))
+	// Setting up from a phone is gated the same way. A device out of its box
+	// has no password and anybody holding the code may set it up; a device
+	// that has one asks for it before it will join anything, because losing a
+	// network is not the same as losing ownership.
+	api.Path("/portal/join").Methods(http.MethodPost).HandlerFunc(self.onboardingOrNotFound(self.portalAction(self.portalJoin)))
+	api.Path("/portal/scan").Methods(http.MethodPost).HandlerFunc(self.onboardingOrNotFound(self.portalAction(self.portalScan)))
 
 	guarded := api.NewRoute().Subrouter()
 	guarded.Use(self.requireSession)
@@ -265,20 +269,22 @@ func (self *Server) addRoutes() {
 	// The way back, for somebody standing in front of the screen. Served to
 	// this machine and refused to the network, like everything else the
 	// screen's own browser asks for.
-	api.Path("/wireless/reset").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.resetWireless))
+	api.Path("/wireless/reset").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.resetWireless))
 
 	// The menu somebody at the screen can open, and the few things it does.
 	// All of them are actions; none of them changes a setting.
 	self.router.Path("/menu").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menu))
 	api.Path("/playlist/hold").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
-	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuReload))
-	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuRestart))
+	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuReload))
+	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuRestart))
 	api.Path("/menu/network").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menuNetwork))
-	api.Path("/menu/network/scan").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuScan))
-	api.Path("/menu/network/wireless").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuJoinWireless))
-	api.Path("/menu/network/wired").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuConfigureWired))
-	api.Path("/menu/language").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuLanguage))
+	api.Path("/menu/network/scan").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuScan))
+	api.Path("/menu/network/wireless").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuJoinWireless))
+	api.Path("/menu/network/wired").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuConfigureWired))
+	api.Path("/menu/language").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuLanguage))
+	api.Path("/menu/display").Methods(http.MethodGet).HandlerFunc(self.screenAction(self.menuDisplay))
+	api.Path("/menu/display").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuSetDisplay))
 
 	// Everything else is the interface itself.
 	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)

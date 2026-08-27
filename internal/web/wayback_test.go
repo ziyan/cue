@@ -82,15 +82,18 @@ func TestTheMenuAsksBeforeTheDisruptiveThings(t *testing.T) {
 	}
 }
 
-// The menu changes the network and nothing else.
+// The menu changes the network and the picture, and nothing else.
 //
-// The network earns its exception: the web interface is where settings belong,
-// and reaching the web interface is exactly what this is for. A screen on a
-// wired network with no DHCP server needs a fixed address, and without this
-// that means somebody with a laptop, a cable and a way in. Everything else --
-// the playlist, the timezone, the password -- stays where there is room to
-// think about it.
-func TestTheMenuChangesTheNetworkAndNothingElse(t *testing.T) {
+// Those two earn their exception by being the ones that cannot sensibly be
+// done from a chair. Reaching the web interface is exactly what the network
+// settings are for -- a screen on a wired network with no DHCP server needs a
+// fixed address, and without this that means somebody with a laptop, a cable
+// and a way in. And whether the picture is the right size or on its side is a
+// question you answer by looking at the screen, which is where this is.
+//
+// Everything else -- the playlist, the timezone, the password -- stays in the
+// web interface, where there is room to think about it.
+func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	body := menuPage(t, server)
 
@@ -102,12 +105,15 @@ func TestTheMenuChangesTheNetworkAndNothingElse(t *testing.T) {
 	// Every endpoint it does call is either an action or about the network.
 	for _, call := range endpointsIn(body) {
 		switch {
-		case strings.HasPrefix(call, "/api/v1/menu/network"):
+		case strings.HasPrefix(call, "/api/v1/menu/network"),
+			strings.HasPrefix(call, "/api/v1/menu/display"):
 		case strings.HasPrefix(call, "/api/v1/menu/restart"),
 			call == "/api/v1/menu/reload",
 			// Which language the screen speaks: a preference of the person
 			// standing there, and the only other thing they may write.
 			call == "/api/v1/menu/language",
+			// Proving who they are, on a device that has an owner.
+			call == "/api/v1/session",
 			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
@@ -151,8 +157,8 @@ func TestTheMenuCanSetUpBothKindsOfNetwork(t *testing.T) {
 func TestWhatIsTypedAtTheScreenReachesTheDevice(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	device := server.device.(*fakeDevice)
-	signedIn(t, server)
 
+	session := signedIn(t, server)
 	_, port, _ := net.SplitHostPort(server.Address())
 	ask := func(path string, body interface{}) int {
 		encoded, _ := json.Marshal(body)
@@ -160,6 +166,7 @@ func TestWhatIsTypedAtTheScreenReachesTheDevice(t *testing.T) {
 		request.RemoteAddr = "127.0.0.1:54321"
 		request.Header.Set("Origin", "http://127.0.0.1:"+port)
 		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(session)
 		response := httptest.NewRecorder()
 		server.router.ServeHTTP(response, request)
 		return response.Code
@@ -248,7 +255,7 @@ func menuPage(t *testing.T, server *Server) string {
 func TestResettingIsRefusedToTheNetworkAndAllowedFromTheScreen(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	device := server.device.(*fakeDevice)
-	signedIn(t, server)
+	session := signedIn(t, server)
 
 	if code := do(server, "POST", "/api/v1/wireless/reset", nil, nil).Code; code != http.StatusUnauthorized {
 		t.Errorf("the network was allowed to reset the wireless: %d", code)
@@ -263,6 +270,7 @@ func TestResettingIsRefusedToTheNetworkAndAllowedFromTheScreen(t *testing.T) {
 	ours := httptest.NewRequest(http.MethodPost, "/api/v1/wireless/reset", nil)
 	ours.RemoteAddr = "127.0.0.1:54321"
 	ours.Header.Set("Origin", "http://127.0.0.1:"+port)
+	ours.AddCookie(session)
 	response := httptest.NewRecorder()
 	server.router.ServeHTTP(response, ours)
 
@@ -427,7 +435,7 @@ func TestEveryKeyInTheMarkupHasWordsBehindIt(t *testing.T) {
 // recovered would be a poor thing to live with.
 func TestALanguageChosenAtTheScreenIsRememberedByTheDevice(t *testing.T) {
 	server := newTestServer(t, config.Default())
-	signedIn(t, server)
+	session := signedIn(t, server)
 
 	_, port, _ := net.SplitHostPort(server.Address())
 	ask := func(body string) int {
@@ -435,6 +443,7 @@ func TestALanguageChosenAtTheScreenIsRememberedByTheDevice(t *testing.T) {
 		request.RemoteAddr = "127.0.0.1:54321"
 		request.Header.Set("Origin", "http://127.0.0.1:"+port)
 		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(session)
 		response := httptest.NewRecorder()
 		server.router.ServeHTTP(response, request)
 		return response.Code
@@ -457,9 +466,9 @@ func TestALanguageChosenAtTheScreenIsRememberedByTheDevice(t *testing.T) {
 // sentence.
 func TestOnlyALanguageTagIsAccepted(t *testing.T) {
 	server := newTestServer(t, config.Default())
-	signedIn(t, server)
 
 	_, port, _ := net.SplitHostPort(server.Address())
+	session := signedIn(t, server)
 	for _, attempt := range []string{
 		`{"language":"<script>alert(1)</script>"}`,
 		`{"language":"../../etc/passwd"}`,
@@ -471,6 +480,7 @@ func TestOnlyALanguageTagIsAccepted(t *testing.T) {
 		request.RemoteAddr = "127.0.0.1:54321"
 		request.Header.Set("Origin", "http://127.0.0.1:"+port)
 		request.Header.Set("Content-Type", "application/json")
+		request.AddCookie(session)
 		response := httptest.NewRecorder()
 		server.router.ServeHTTP(response, request)
 
@@ -480,5 +490,107 @@ func TestOnlyALanguageTagIsAccepted(t *testing.T) {
 	}
 	if got := server.store.Current().Device.Language; got != "" {
 		t.Errorf("the device ended up with language %q", got)
+	}
+}
+
+// screenRequest is what the screen's own browser sends: from this machine, on
+// a page this daemon served.
+func screenRequest(t *testing.T, server *Server, method, path, body string, session *http.Cookie) int {
+	t.Helper()
+	_, port, _ := net.SplitHostPort(server.Address())
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.RemoteAddr = "127.0.0.1:54321"
+	request.Header.Set("Origin", "http://127.0.0.1:"+port)
+	request.Header.Set("Content-Type", "application/json")
+	if session != nil {
+		request.AddCookie(session)
+	}
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	return response.Code
+}
+
+// A device out of its box has nobody to ask, so being in the room is enough.
+// The passphrase for its setup network is on its screen anyway: being able to
+// set it up is already the same as being able to see it.
+func TestABrandNewDeviceLetsWhoeverIsThereSetItUp(t *testing.T) {
+	server := newTestServer(t, config.Default())
+
+	for _, path := range []string{
+		"/api/v1/wireless/reset",
+		"/api/v1/menu/network/scan",
+		"/api/v1/menu/restart/browser",
+	} {
+		if code := screenRequest(t, server, http.MethodPost, path, "{}", nil); code == http.StatusUnauthorized {
+			t.Errorf("%s asked a brand new device for a password it does not have", path)
+		}
+	}
+}
+
+// Once somebody has set a password, that password says who may change the
+// device -- not proximity to the mouse. A screen in a lobby, a waiting room or
+// a shop window is somewhere strangers stand.
+func TestADeviceWithAnOwnerAsksAtTheScreenToo(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	device := server.device.(*fakeDevice)
+	session := signedIn(t, server)
+
+	for _, path := range []string{
+		"/api/v1/wireless/reset",
+		"/api/v1/menu/network/scan",
+		"/api/v1/menu/network/wireless",
+		"/api/v1/menu/network/wired",
+		"/api/v1/menu/restart/browser",
+		"/api/v1/menu/language",
+	} {
+		if code := screenRequest(t, server, http.MethodPost, path, `{"language":"ja"}`, nil); code != http.StatusUnauthorized {
+			t.Errorf("%s answered %d at the screen with no password, want 401", path, code)
+		}
+	}
+	if device.forgotten != 0 || device.scans != 0 || device.joinedSSID != "" {
+		t.Error("a device with an owner was changed by somebody who did not know its password")
+	}
+
+	// And with the password, the same requests are allowed.
+	if code := screenRequest(t, server, http.MethodPost, "/api/v1/menu/network/scan", "{}", session); code != http.StatusOK {
+		t.Errorf("the password did not open the menu: %d", code)
+	}
+}
+
+// The two things the screen does by itself must keep working without a
+// password, or a video would never move the playlist on.
+func TestWhatTheScreenDoesByItselfIsNotGated(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	signedIn(t, server)
+
+	for _, path := range []string{
+		"/api/v1/playlist/next",
+		"/api/v1/playlist/hold",
+		"/api/v1/playlist/release",
+	} {
+		if code := screenRequest(t, server, http.MethodPost, path, "{}", nil); code == http.StatusUnauthorized {
+			t.Errorf("%s now needs a password, so a video would never move the screen on", path)
+		}
+	}
+}
+
+// The menu says so on the page, rather than only refusing when a button is
+// pressed.
+func TestTheMenuAsksForThePasswordUpFront(t *testing.T) {
+	fresh := newTestServer(t, config.Default())
+	if body := menuPage(t, fresh); strings.Contains(body, "const locked = true") {
+		t.Error("a brand new device asks for a password it does not have")
+	}
+
+	owned := newTestServer(t, config.Default())
+	signedIn(t, owned)
+	body := menuPage(t, owned)
+	if !strings.Contains(body, "const locked = true") {
+		t.Error("a device with an owner does not ask at the screen")
+	}
+	for _, words := range []string{"password to change it", "密码", "パスワード"} {
+		if !strings.Contains(body, words) {
+			t.Errorf("the menu does not say %q in every language", words)
+		}
 	}
 }

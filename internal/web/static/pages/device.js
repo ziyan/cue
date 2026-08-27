@@ -155,35 +155,48 @@ export function device(main) {
     return h("div", { class: "card" },
       h("h2", { text: "Screen" }),
       h("p", { class: "dim", text: "An entry named * applies to every socket that no other entry names, which is why this works on a machine nobody has looked at." }),
+      // Two questions per screen: how big, and which way up. Those are the
+      // ones anybody actually asks. Everything else this section can express
+      // is below, folded away, because a page of knobs makes the two that
+      // matter harder to find rather than easier.
       outputs.map((output) => h("div", { class: "row" },
         choice("Socket", socketOptions(), output.name, (value) => { output.name = value; },
           "* means every socket on the machine"),
-        choice("Mode", modeOptions(output.name), output.mode, (value) => { output.mode = value; },
-          "preferred is the monitor's own native mode"),
-        choice("Rotation", ["normal", "left", "right", "inverted"], output.rotate || "normal", (value) => { output.rotate = value; }),
-        field("Position", "text", output.position, (value) => { output.position = value; }, "0x0"))),
+        choice("Size", modeOptions(output.name), output.mode, (value) => { output.mode = value; },
+          "preferred is the monitor's own native size, and is nearly always right"),
+        choice("Which way up", ["normal", "left", "right", "inverted"], output.rotate || "normal", (value) => { output.rotate = value; }))),
+
       h("div", { class: "row" },
-        field("Force the drawing surface size", "text", configuration.display.framebuffer, (value) => { configuration.display.framebuffer = value; }, "Empty fits the screens; 1920x1080 for a television that lies"),
-        h("div", {},
-          h("label", {},
-            h("span", { text: "Mouse pointer" }),
-            selector(["auto", "hidden", "always"], configuration.display.cursor || "auto", (value) => {
-              configuration.display.cursor = value;
-            }),
-            h("span", { class: "dim", style: "margin-top:0.25rem", text: "Auto shows it while somebody is moving it and hides it again when they stop. Hidden means the screen has no pointer at all, which makes a touchscreen or a mouse impossible to aim." })),
-          (configuration.display.cursor || "auto") === "auto"
-            ? field("Hide it again after", "number", secondsOf(configuration.display.cursorIdleTimeout), (value) => {
-                const seconds = Math.max(1, parseInt(value, 10) || 3);
-                configuration.display.cursorIdleTimeout = `${seconds}s`;
-              }, "Seconds of not moving")
-            : null),
-        h("div", {},
-          checkbox("Show the Cue mark before the browser has drawn", configuration.display.wallpaper, (value) => { configuration.display.wallpaper = value; }),
-          h("span", { class: "dim", text: "What the screen shows while it is starting, and if the browser goes away. Off leaves whatever the X server does, which on a wall is indistinguishable from a machine that failed to boot." })),
         field("Blank the screen after", "number", secondsOf(configuration.display.blankAfter), (value) => {
           const seconds = Math.max(0, parseInt(value, 10) || 0);
           configuration.display.blankAfter = `${seconds}s`;
         }, "Seconds of no input. 0 never blanks, which is what a wall display wants")),
+
+      h("details", {},
+        h("summary", { text: "Less often needed" }),
+        h("div", {},
+          outputs.map((output) => h("div", { class: "row" },
+            field(`Where ${output.name} sits`, "text", output.position, (value) => { output.position = value; },
+              "0x0. Only means anything with more than one screen"))),
+          h("div", { class: "row" },
+            field("Force the drawing surface size", "text", configuration.display.framebuffer, (value) => { configuration.display.framebuffer = value; }, "Empty fits the screens; 1920x1080 for a television that lies about its size"),
+            h("div", {},
+              h("label", {},
+                h("span", { text: "Mouse pointer" }),
+                selector(["auto", "hidden", "always"], configuration.display.cursor || "auto", (value) => {
+                  configuration.display.cursor = value;
+                }),
+                h("span", { class: "dim", style: "margin-top:0.25rem", text: "Auto shows it while somebody is moving it and hides it again when they stop. Hidden means the screen has no pointer at all, which makes a touchscreen or a mouse impossible to aim." })),
+              (configuration.display.cursor || "auto") === "auto"
+                ? field("Hide it again after", "number", secondsOf(configuration.display.cursorIdleTimeout), (value) => {
+                    const seconds = Math.max(1, parseInt(value, 10) || 3);
+                    configuration.display.cursorIdleTimeout = `${seconds}s`;
+                  }, "Seconds of not moving")
+                : null),
+            h("div", {},
+              checkbox("Show the Cue mark before the browser has drawn", configuration.display.wallpaper, (value) => { configuration.display.wallpaper = value; }),
+              h("span", { class: "dim", text: "What the screen shows while it is starting, and if the browser goes away. Off leaves whatever the X server does, which on a wall is indistinguishable from a machine that failed to boot." }))))),
+
       h("details", {},
         h("summary", { text: "Difficult hardware" }),
         h("div", {},

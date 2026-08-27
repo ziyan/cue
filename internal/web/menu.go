@@ -70,6 +70,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		"Uptime":     time.Since(self.device.StartedAt()).Round(time.Second).String(),
 		"Machine":    runtime.GOARCH,
 		"SettingUp":  setUp,
+		"NeedsWord":  self.isSetUp(),
 		"Language":   configuration.Device.Language,
 		"Mark":       template.URL("data:image/png;base64," + smallMark()),
 	}); err != nil {
@@ -152,7 +153,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     border-radius: calc(var(--step) * 1.4); padding: calc(var(--step) * 2.4);
     box-shadow: 0 2vmin 6vmin rgba(0,0,0,0.6);
     display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
-  #network, #wireless, #wired, #confirm {
+  #network, #wireless, #wired, #confirm, #gate, #screen {
     display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
 
   header { display: flex; align-items: center; gap: calc(var(--step) * 1.4); }
@@ -255,6 +256,14 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     {{ .Identifier }} · {{ .Version }} · <span data-t="up-for"></span> {{ .Uptime }}
   </p>
 
+  <div id="gate" hidden>
+    <p class="facts" data-t="locked-explain"></p>
+    <label for="word" data-t="word-label"></label>
+    <input id="word" type="password" autocomplete="current-password" autocapitalize="none">
+    <p class="facts" id="wrong" hidden style="color:#ffc9d1" data-t="word-wrong"></p>
+    <div class="actions"><button id="unlock"><span class="what" data-t="continue"></span></button></div>
+  </div>
+
   <div class="actions" id="actions">
     <button data-do="next"><span class="what" data-t="next"></span>
       <span class="why" data-t="next-why"></span></button>
@@ -262,6 +271,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       <span class="why" data-t="reload-why"></span></button>
     <button data-do="network"><span class="what" data-t="network"></span>
       <span class="why" data-t="network-why"></span></button>
+    <button data-do="screen"><span class="what" data-t="screen"></span>
+      <span class="why" data-t="screen-why"></span></button>
     <button data-do="restart-browser" class="danger"><span class="what" data-t="restart-browser"></span>
       <span class="why" data-t="restart-browser-why"></span></button>
     <button data-do="restart-display" class="danger"><span class="what" data-t="restart-display"></span>
@@ -312,6 +323,22 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     <div class="actions"><button id="back" class="quiet"><span class="what" data-t="back"></span></button></div>
   </div>
 
+  <div id="screen" hidden>
+    <label data-t="which-screen"></label>
+    <select id="screen-output"></select>
+    <label data-t="how-big"></label>
+    <select id="screen-mode"></select>
+    <label data-t="which-way-up"></label>
+    <select id="screen-rotation">
+      <option value="normal" data-t="up-normal"></option>
+      <option value="right" data-t="up-right"></option>
+      <option value="left" data-t="up-left"></option>
+      <option value="inverted" data-t="up-inverted"></option>
+    </select>
+    <div class="actions"><button id="screen-apply"><span class="what" data-t="apply"></span></button></div>
+    <div class="actions"><button id="screen-back" class="quiet"><span class="what" data-t="back"></span></button></div>
+  </div>
+
   <div id="confirm" hidden>
     <p class="facts" id="question"></p>
     <div class="actions">
@@ -335,7 +362,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "language-name": "English", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
       "next": "Show the next item", "next-why": "Move the screen on now",
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
@@ -368,7 +395,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "language-name": "中文", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
       "next": "显示下一项", "next-why": "立即切换到下一个内容",
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
@@ -401,7 +428,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "language-name": "日本語", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
       "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
@@ -544,6 +571,43 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   let chosenNetwork = null, chosenSecured = false, scanned = false;
 
   fetch("/api/v1/playlist/hold", { method: "POST" }).catch(() => {});
+
+  // A device that has been set up asks for its password before it will do
+  // anything. Being in the room was enough when there was nobody to ask; it is
+  // not once somebody has said this screen is theirs.
+  const gate = document.getElementById("gate");
+  const locked = {{ if .NeedsWord }}true{{ else }}false{{ end }};
+  if (locked) {
+    gate.hidden = false;
+    actions.hidden = true;
+
+    const word = document.getElementById("word");
+    const wrong = document.getElementById("wrong");
+
+    const tryWord = () => {
+      wrong.hidden = true;
+      fetch("/api/v1/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: word.value }),
+      }).then((answer) => {
+        if (!answer.ok) {
+          wrong.hidden = false;
+          word.value = "";
+          word.focus();
+          return;
+        }
+        gate.hidden = true;
+        actions.hidden = false;
+      }).catch(() => { wrong.hidden = false; });
+    };
+
+    document.getElementById("unlock").addEventListener("click", tryWord);
+    word.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") tryWord();
+    });
+    setTimeout(() => word.focus(), 50);
+  }
 
   function close() {
     fetch("/api/v1/playlist/release", { method: "POST" }).catch(() => {});
@@ -704,11 +768,78 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
   function working_(words) {
     network.hidden = true;
+    screen.hidden = true;
     actions.hidden = true;
     confirm.hidden = true;
     working.hidden = false;
     working.textContent = words;
   }
+
+  const screen = document.getElementById("screen");
+  let screens = [];
+
+  function openScreen() {
+    actions.hidden = true;
+    screen.hidden = false;
+    fetch("/api/v1/menu/display")
+      .then((answer) => answer.json())
+      .then((state) => {
+        screens = state.outputs || [];
+        const chooser = document.getElementById("screen-output");
+        chooser.textContent = "";
+        for (const one of screens) {
+          const option = document.createElement("option");
+          option.value = one.name;
+          option.textContent = one.name;
+          chooser.appendChild(option);
+        }
+        describeScreen();
+      })
+      .catch(() => {});
+  }
+
+  // The sizes and the way up belong to whichever screen is chosen, so they are
+  // filled in again whenever that changes.
+  function describeScreen() {
+    const name = document.getElementById("screen-output").value;
+    const one = screens.find((candidate) => candidate.name === name);
+    if (!one) return;
+
+    const modes = document.getElementById("screen-mode");
+    modes.textContent = "";
+    for (const mode of (one.modes || [])) {
+      const option = document.createElement("option");
+      option.value = mode;
+      // The monitor's own preference is worth saying out loud: it is nearly
+      // always the right answer.
+      option.textContent = mode === one.best ? mode + "  ·  " + say("best") : mode;
+      modes.appendChild(option);
+    }
+    modes.value = one.chosen && one.chosen !== "preferred" ? one.chosen : (one.mode || one.best);
+    document.getElementById("screen-rotation").value =
+      one.chosenRotation || one.rotation || "normal";
+  }
+
+  document.getElementById("screen-output").addEventListener("change", describeScreen);
+  document.getElementById("screen-back").addEventListener("click", () => {
+    screen.hidden = true;
+    actions.hidden = false;
+  });
+
+  document.getElementById("screen-apply").addEventListener("click", () => {
+    const name = document.getElementById("screen-output").value;
+    if (!name) return;
+    working_(say("doing-screen"));
+    fetch("/api/v1/menu/display", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        output: name,
+        mode: document.getElementById("screen-mode").value,
+        rotation: document.getElementById("screen-rotation").value,
+      }),
+    }).catch(() => {}).finally(() => setTimeout(close, 2000));
+  });
 
   const doing = {
     "next": { call: "/api/v1/playlist/next", ask: null, said: "doing-next" },
@@ -725,6 +856,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     const button = event.target.closest("button[data-do]");
     if (!button) return;
     if (button.dataset.do === "network") return openNetwork();
+    if (button.dataset.do === "screen") return openScreen();
 
     const what = doing[button.dataset.do];
     if (!what) return;
