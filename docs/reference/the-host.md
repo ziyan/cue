@@ -48,15 +48,24 @@ These are the ones that do not announce themselves. Both programs start
 happily, both appear to work, and the symptom turns up somewhere else entirely.
 
 **A time daemon.** Cue runs `chronyd` inside the container to keep the screen's
-clock right, and a machine that already runs `chrony` or `systemd-timesyncd`
-then has two programs steering one clock. Turn Cue's off:
+clock right. A machine that already runs `chrony` or `systemd-timesyncd` then
+has two programs steering one clock -- both calling the same kernel interface
+to speed it up and slow it down, neither aware of the other.
+
+Pick one. On a machine that is only a screen, the tidier answer is to take the
+host's away and let Cue do it, since Cue's is configured from the same file as
+everything else about the screen:
+
+    apt-get remove --purge chrony
+
+On a machine that is also somebody's laptop, leave the host's alone and turn
+Cue's off:
 
     time:
       enabled: false
 
-That is what the setting is for. A machine that is only a screen should
-generally let Cue do it; a machine that is also somebody's laptop already has
-one.
+That is what the setting is for. What matters is that exactly one of them is
+running.
 
 **wpa_supplicant, and NetworkManager behind it.** A wireless radio can be
 driven by exactly one program. If Cue is configured to manage a wireless
