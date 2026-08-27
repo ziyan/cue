@@ -37,10 +37,7 @@ import (
 func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 	configuration := self.store.Current()
 
-	addresses := make([]string, 0, 3)
-	for _, address := range machineAddresses() {
-		addresses = append(addresses, address)
-	}
+	addresses := append(make([]string, 0, 3), machineAddresses()...)
 	if len(addresses) == 0 {
 		addresses = append(addresses, "no address")
 	}

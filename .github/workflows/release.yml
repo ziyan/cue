@@ -51,25 +51,56 @@ jobs:
       - name: Build the binaries
         run: go run ./tools/release "${{ steps.version.outputs.version }}" dist
 
-      - name: Publish the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
-          body_path: release-notes.md
-          files: |
-            dist/cue-linux-amd64
-            dist/cue-linux-arm64
-            dist/SHA256SUMS
-
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
+      - name: Sign in to the GitHub registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub is optional. A fork, or this repository before the two
+      # secrets are set, still publishes to the GitHub registry rather than
+      # failing the release over a registry it was never going to reach.
+      #
+      # Whether it is configured is decided here, in a step that can read the
+      # secret into the environment, so that the steps below can be gated on an
+      # ordinary output. The Docker Hub repository defaults to the same owner
+      # and name as this one; set the DOCKERHUB_REPOSITORY variable if it lives
+      # somewhere else.
+      - name: Work out where the image goes
+        id: images
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
+        run: |
+          if [ -n "${DOCKERHUB_USERNAME}" ]; then
+            echo "dockerhub=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "dockerhub=no" >> "$GITHUB_OUTPUT"
+            echo "no Docker Hub credentials; publishing to the GitHub registry only"
+          fi
+          {
+            echo 'tags<<TAGS'
+            echo "ghcr.io/${GITHUB_REPOSITORY}:${VERSION}"
+            echo "ghcr.io/${GITHUB_REPOSITORY}:latest"
+            if [ -n "${DOCKERHUB_USERNAME}" ]; then
+              repository="${DOCKERHUB_REPOSITORY:-${GITHUB_REPOSITORY}}"
+              echo "docker.io/${repository}:v${VERSION}"
+              echo "docker.io/${repository}:latest"
+            fi
+            echo 'TAGS'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sign in to Docker Hub
+        if: steps.images.outputs.dockerhub == 'yes'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Publish the image
         uses: docker/build-push-action@v6
@@ -81,6 +112,19 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
             COMMIT=${{ github.sha }}
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository }}:latest
+          tags: ${{ steps.images.outputs.tags }}
+
+      # Last, so that a release that exists is a release that finished. The
+      # first one was published before the image was built, and when the arm64
+      # build failed it left a version tagged, announced and downloadable with
+      # no image behind it.
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            dist/cue-linux-amd64
+            dist/cue-linux-arm64
+            dist/SHA256SUMS

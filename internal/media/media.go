@@ -164,7 +164,7 @@ func (self *Store) Add(name, mediaType string, source io.Reader) (Stored, error)
 		return Stored{}, fmt.Errorf("media: cannot start storing a video: %w", err)
 	}
 	defer func() {
-		temporary.Close()
+		_ = temporary.Close()
 		// Harmless once the rename has happened, and the whole point when it
 		// has not.
 		_ = os.Remove(temporary.Name())

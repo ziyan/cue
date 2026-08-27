@@ -50,6 +50,10 @@ func main() {
 }
 
 func run(dockerfile, suite string) error {
+	if err := checkPlatformArguments(dockerfile); err != nil {
+		return err
+	}
+
 	everywhere, onlyX86, err := readPackageLists(dockerfile)
 	if err != nil {
 		return err
@@ -107,6 +111,60 @@ func run(dockerfile, suite string) error {
 		return fmt.Errorf("%d problem(s); the release build would fail", problems)
 	}
 	fmt.Println("every package is available for every architecture the image is published for")
+	return nil
+}
+
+// platformArguments are the build arguments buildx fills in by itself, one per
+// leg of a multi-architecture build.
+var platformArguments = []string{
+	"TARGETPLATFORM", "TARGETOS", "TARGETARCH", "TARGETVARIANT",
+	"BUILDPLATFORM", "BUILDOS", "BUILDARCH", "BUILDVARIANT",
+}
+
+// defaultedPlatformArgument matches `ARG TARGETARCH=amd64` — a predefined
+// platform argument that has been given a default.
+var defaultedPlatformArgument = regexp.MustCompile(`(?m)^\s*ARG\s+([A-Z]+)\s*=\s*(\S+)`)
+
+// checkPlatformArguments fails if the Dockerfile gives one of buildx's own
+// platform arguments a default value.
+//
+// This is the fault the package checking above was written for and did not
+// catch. The two x86-only drivers really are x86-only, and really were listed
+// separately, and the Dockerfile really did guard them with a test on
+// TARGETARCH — so every check passed. What nobody checked was whether that
+// guard could ever be false. `ARG TARGETARCH=amd64` shadows the value buildx
+// supplies, so the arm64 leg read "amd64", took the x86 branch, and apt
+// stopped the build with "Unable to locate package" — after the binaries and
+// the GitHub release had already been published.
+//
+// The data was right and the mechanism reading it was broken, which is why
+// this check is about the mechanism.
+func checkPlatformArguments(dockerfile string) error {
+	content, err := os.ReadFile(dockerfile)
+	if err != nil {
+		return err
+	}
+
+	predefined := make(map[string]bool, len(platformArguments))
+	for _, name := range platformArguments {
+		predefined[name] = true
+	}
+
+	var faults []string
+	for _, match := range defaultedPlatformArgument.FindAllStringSubmatch(string(content), -1) {
+		name, value := match[1], match[2]
+		if !predefined[name] {
+			continue
+		}
+		faults = append(faults, fmt.Sprintf(
+			"  ARG %s=%s: buildx fills %s in per architecture, but only while it is declared bare;\n"+
+				"    the default shadows it and every leg reads %q instead. Write `ARG %s`.",
+			name, value, name, value, name))
+	}
+	if len(faults) > 0 {
+		return fmt.Errorf("%s defeats buildx's own architecture detection:\n%s",
+			dockerfile, strings.Join(faults, "\n"))
+	}
 	return nil
 }
 

@@ -46,7 +46,7 @@ func ServeDNS(ctx context.Context, self net.IP, address string) error {
 		<-ctx.Done()
 		_ = packets.Close()
 	}()
-	defer packets.Close()
+	defer func() { _ = packets.Close() }()
 
 	buffer := make([]byte, 512)
 	for {

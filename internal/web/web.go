@@ -137,9 +137,9 @@ func New(store *config.Store, device Device) *Server {
 	return self
 }
 
-// WithVideos gives the server the store uploaded videos live in. Without one
-// it refuses uploads and serves no videos, which is what a daemon that could
-// not create the directory should do.
+// WithUploads gives the server the store uploaded pictures and videos live
+// in. Without one it refuses uploads and serves no media, which is what a
+// daemon that could not create the directory should do.
 func (self *Server) WithUploads(store *media.Store) *Server {
 	self.uploads = store
 	return self

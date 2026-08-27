@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -213,7 +214,7 @@ func (self *AccessPoint) writeConfiguration() error {
 	builder.WriteString("\tssid=" + quote(self.credentials.SSID) + "\n")
 	// mode=2 is what makes this an access point rather than a client.
 	builder.WriteString("\tmode=2\n")
-	builder.WriteString(fmt.Sprintf("\tfrequency=%d\n", accessPointChannel))
+	builder.WriteString("\tfrequency=" + strconv.Itoa(accessPointChannel) + "\n")
 	builder.WriteString("\tkey_mgmt=WPA-PSK\n")
 	// RSN with CCMP is WPA2 and nothing older. Some phones now refuse to join
 	// a network offering WPA1 or TKIP at all, and offering them would weaken

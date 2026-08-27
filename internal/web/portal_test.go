@@ -83,7 +83,7 @@ func TestThePortalOffersTheNetworksStrongestFirstAndOnlyOnce(t *testing.T) {
 	office := strings.Index(body, `data-ssid="the office"`)
 	guest := strings.Index(body, `data-ssid="guest"`)
 	far := strings.Index(body, `data-ssid="far away"`)
-	if !(office < guest && guest < far) {
+	if office >= guest || guest >= far {
 		t.Errorf("the networks are not offered strongest first: office at %d, guest at %d, far at %d",
 			office, guest, far)
 	}

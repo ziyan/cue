@@ -650,20 +650,6 @@ func (self *Daemon) hasSomewhereToBe(configuration *config.Configuration) bool {
 	return false
 }
 
-// managedWireless reports whether the configuration tells this daemon to keep
-// a particular interface on a particular wireless network.
-func managedWireless(configuration *config.Configuration, interfaceName string) bool {
-	if !configuration.Network.Manage {
-		return false
-	}
-	for _, one := range configuration.Network.Interfaces {
-		if one.Name == interfaceName && one.Wireless != nil && one.Wireless.SSID != "" {
-			return true
-		}
-	}
-	return false
-}
-
 // sweepUploads deletes uploaded pictures and videos that no playlist item
 // refers to.
 //

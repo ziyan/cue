@@ -8,6 +8,12 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- The image is published to Docker Hub as well as the GitHub registry, as
+  `ziyan/cue:latest` and `ziyan/cue:v<version>`. A device that pulls by name
+  no longer has to be told about a second registry first. Docker Hub is
+  optional: without credentials the release still publishes to the GitHub
+  registry rather than failing over a registry it was never going to reach.
+
 - A picture or a video can be an item of the playlist. Upload one from the
   Content page and it becomes an item like any other: reorderable, nameable,
   skippable. It lives on the device's own disk, so a screen goes on showing it
@@ -56,6 +62,17 @@ All notable changes to this project are recorded here, in the categories of
   and none of them is something anybody can plug a cable into.
 
 ### Fixed
+
+- The image is built for arm64 again. Every leg of a multi-architecture build
+  read its architecture as `amd64`, so the arm64 build asked for the two X
+  drivers that exist only for x86 and apt stopped it. The cause was the
+  Dockerfile giving `TARGETARCH` a default value, which shadows the value
+  buildx supplies per architecture — the check meant to keep x86-only packages
+  off arm64 was written correctly and simply never ran there.
+
+  This is why the first release published binaries and release notes but no
+  image. The release now builds and pushes the image before announcing
+  anything, so a version that exists is a version that finished.
 
 - The Screen page showed nothing. The connection to the VNC server was
   constructed in a block of code that was removed along with the rotation

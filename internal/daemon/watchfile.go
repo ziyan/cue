@@ -31,7 +31,7 @@ func (self *Daemon) watchConfiguration(ctx context.Context) {
 			"a SIGHUP as before: %s", filename, err)
 		return
 	}
-	defer unix.Close(descriptor)
+	defer func() { _ = unix.Close(descriptor) }()
 
 	// IN_MOVED_TO is the one that matters, because that is what an atomic
 	// write looks like. IN_CLOSE_WRITE catches an editor that writes in

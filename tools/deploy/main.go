@@ -212,10 +212,12 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	}
 
 	if err := remote(host, containerArguments(image, name, terminal, optional)...); err != nil {
-		return fmt.Errorf("%w\n\n"+
-			"    The previous deployment has already been stopped, so %s now has\n"+
-			"    nothing running and its screen is blank. Run this again once the\n"+
-			"    reason above is dealt with.", err, host)
+		// Say this before returning: by now the previous deployment has been
+		// stopped, so the failure below has left a blank screen behind it, and
+		// somebody reading only the error would not know that.
+		fmt.Printf("\n    %s now has nothing running and its screen is blank.\n"+
+			"    Run this again once the reason below is dealt with.\n\n", host)
+		return err
 	}
 
 	step("waiting for it to say it is working")

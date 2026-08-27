@@ -127,7 +127,7 @@ func fetchPullRequest(repository, token string, number int) (*pullRequest, error
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 400))

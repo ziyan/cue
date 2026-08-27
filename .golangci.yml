@@ -3,7 +3,11 @@ version: "2"
 run:
   timeout: 5m
 
-issues:
+linters:
+  # In golangci-lint v2 the exclusions live here, under linters. They used to
+  # live under `issues`, where this file kept them for a while — and where they
+  # were quietly ignored, which is why the first CI run reported unchecked
+  # Close calls in test files that this rule was written to allow.
   exclusions:
     paths:
       - vendor
@@ -12,7 +16,6 @@ issues:
         linters:
           - errcheck
 
-linters:
   settings:
     revive:
       rules:

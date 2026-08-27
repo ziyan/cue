@@ -73,8 +73,15 @@ func main() {
 func emit(key, value string) {
 	if path := os.Getenv("GITHUB_OUTPUT"); path != "" {
 		if file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
-			fmt.Fprintf(file, "%s=%s\n", key, value)
-			file.Close()
+			// The workflow reads its next steps out of this file, so a failure
+			// here decides whether a release happens. Say so rather than
+			// leaving a later step to fail for no visible reason.
+			if _, err := fmt.Fprintf(file, "%s=%s\n", key, value); err != nil {
+				fmt.Fprintf(os.Stderr, "cut: cannot write %s to the workflow output: %s\n", key, err)
+			}
+			if err := file.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "cut: cannot finish the workflow output: %s\n", err)
+			}
 		}
 	}
 	fmt.Printf("  %s=%s\n", key, value)

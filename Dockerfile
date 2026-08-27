@@ -35,9 +35,15 @@ RUN CGO_ENABLED=0 go build -mod=vendor \
 # ---------------------------------------------------------------------------
 FROM debian:trixie-slim AS rootfs
 
-# Which architecture this image is being built for. buildx sets it; a plain
-# "docker build" does not, and the default covers that.
-ARG TARGETARCH=amd64
+# Which architecture this image is being built for. buildx fills this in, but
+# only while it is declared bare: giving a predefined platform argument a
+# default value shadows the value buildx would have supplied, so every leg of a
+# multi-architecture build reads back the default instead of its own
+# architecture. That is not hypothetical. It is the bug that broke the first
+# release: the arm64 leg read "amd64", asked for the two x86-only X drivers,
+# and apt failed the build. The RUN below falls back to the architecture of
+# this stage's own root filesystem, which is the truth in any case.
+ARG TARGETARCH
 
 # PACKAGES is what the image is for. Each line says why it is here.
 ENV PACKAGES="\
@@ -90,7 +96,8 @@ ENV EXCLUDED="\
     adwaita-icon-theme"
 
 RUN set -eux; \
-    if [ "${TARGETARCH}" = "amd64" ] || [ "${TARGETARCH}" = "386" ]; then \
+    architecture="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    if [ "${architecture}" = "amd64" ] || [ "${architecture}" = "386" ]; then \
         PACKAGES="${PACKAGES} ${X86_PACKAGES}"; \
     fi; \
     apt-get update -qq; \
