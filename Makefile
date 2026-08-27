@@ -128,7 +128,7 @@ docker-test: docker ## Run the tests inside the image, where the programs they n
 	done
 
 # The packages whose tests depend on something only the image has.
-IMAGE_TESTED_PACKAGES = internal/browser internal/network internal/display internal/web
+IMAGE_TESTED_PACKAGES = internal/browser internal/network internal/display internal/web internal/vncserver
 
 deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...])
 	@$(GO) run -mod=vendor ./tools/deploy -host $(HOST) -image $(DOCKER_TAG) \

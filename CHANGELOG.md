@@ -15,8 +15,15 @@ All notable changes to this project are recorded here, in the categories of
   holding a globally routable address. Nothing but an upstream firewall stood
   between its screen and anyone who cared to look.
 
-  An IPv4 listen address now means IPv4 only. Naming an IPv6 address, or the
-  wildcard, still does exactly what it says.
+  An IPv4 listen address now means IPv4 only. Naming an IPv6 address, or a
+  bare port, still does exactly what it says.
+
+  Closing it takes both `-no6` and `-rfbportv6 -1`. On port 5900 — x11vnc's
+  default, and the port every device uses — each flag on its own is accepted
+  in silence and the socket stays open; on any other port `-no6` alone is
+  enough. Two releases were cut before that was understood, because the test
+  written to prove the fix picked a free port and so tested the one case where
+  the single flag works.
 
 ### Changed
 

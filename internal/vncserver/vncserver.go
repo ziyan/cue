@@ -126,8 +126,17 @@ func (self *Server) arguments() []string {
 	// interface, not for every interface there is. An IPv6 address, and a bare
 	// port with no address at all, are left alone -- both of those really are
 	// a request to be reachable on everything.
+	//
+	// It takes both flags, and finding that out took two deployments. This
+	// x11vnc is built with X11VNC_LISTEN6=1, so IPv6 listening is the
+	// compiled-in default and -no6 is what its help says turns that off. On
+	// port 5900 it does not: -no6 alone, -noipv6 alone, and the two together
+	// are all accepted in silence while [::]:5900 stays open, and only
+	// -rfbportv6 -1 alongside -no6 closes it. On any other port -no6 by
+	// itself is enough, which is what made this so easy to test wrongly --
+	// 5900 is the default port and the one every device actually uses.
 	if address := net.ParseIP(host); address != nil && address.To4() != nil {
-		arguments = append(arguments, "-noipv6")
+		arguments = append(arguments, "-no6", "-rfbportv6", "-1")
 	}
 
 	if !self.configuration().Display.Cursor.ServerDrawsOne() {

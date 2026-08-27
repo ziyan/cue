@@ -152,9 +152,13 @@ func TestListeningOnIPv4DoesNotAlsoListenOnEveryIPv6Address(t *testing.T) {
 		server := newTestServer(t, func(configuration *config.Configuration) {
 			configuration.VNC.Listen = listen
 		})
-		if got := arguments(t, server); !strings.Contains(got, "-noipv6") {
-			t.Errorf("listening on %s does not pass -noipv6, so x11vnc will "+
-				"also listen on [::]: %s", listen, got)
+		got := arguments(t, server)
+		// Both, because on port 5900 neither one alone closes the socket.
+		for _, flag := range []string{"-no6", "-rfbportv6 -1"} {
+			if !strings.Contains(got, flag) {
+				t.Errorf("listening on %s does not pass %s, so x11vnc will "+
+					"also listen on [::]: %s", listen, flag, got)
+			}
 		}
 	}
 }
@@ -166,8 +170,9 @@ func TestIPv6IsLeftAloneWhenItIsWhatWasAskedFor(t *testing.T) {
 		server := newTestServer(t, func(configuration *config.Configuration) {
 			configuration.VNC.Listen = listen
 		})
-		if got := arguments(t, server); strings.Contains(got, "-noipv6") {
-			t.Errorf("listening on %s passes -noipv6, which refuses the "+
+		if got := arguments(t, server); strings.Contains(got, "-no6") ||
+			strings.Contains(got, "-rfbportv6") {
+			t.Errorf("listening on %s passes -no6, which refuses the "+
 				"address that was asked for: %s", listen, got)
 		}
 	}
