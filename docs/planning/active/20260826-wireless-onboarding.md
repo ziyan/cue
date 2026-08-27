@@ -152,8 +152,8 @@ password can join.
   configuration said the device was on somebody else's network. Removing that
   address by hand and letting the manager run produced the real one:
 
-      inet 192.168.255.230/24 ... wlp4s0
-      SSID: joe
+      inet <an address from that network's own DHCP server> ... wlp4s0
+      SSID: <the network that was chosen on the phone>
 
   GiveAddress had no counterpart. It does now, the join discounts the setup
   address when deciding whether it worked, and so does the trigger that decides
@@ -283,7 +283,7 @@ password can join.
   to run a temporary network is not available without shipping more packages.
   Its `wpa_supplicant` can do it instead.
 
-  Evidence: the package list in `deploy/Dockerfile` is
+  Evidence: the package list in `Dockerfile` is
   `wpasupplicant iw wireless-regdb` with no access-point or DHCP-server
   package, and the binary in the image reports AP support:
 

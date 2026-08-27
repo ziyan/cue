@@ -70,7 +70,7 @@ jobs:
         run: make check-packages
 
       - name: Build
-        run: docker build -f deploy/Dockerfile -t cue:ci .
+        run: docker build -f Dockerfile -t cue:ci .
 
       - name: Check it runs
         run: docker run --rm cue:ci version

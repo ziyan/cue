@@ -5,10 +5,11 @@ gets onto the screen, see `AGENTS.md`.
 
 ## Layout
 
+    Dockerfile              the image
     main.go                 command line entry point
     cmd/                    subcommand implementations
     internal/               all real code
-    deploy/                 Dockerfile, compose files
+    deploy/                 compose files, deployment bits
     tools/                  build-time programs, run by make and by CI
     docs/                   decisions, reference, plans
     vendor/                 vendored dependencies, committed

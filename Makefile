@@ -97,7 +97,7 @@ dev: dev-config ## Run the daemon locally against a virtual screen
 	@./$(BINARY) run --config dev/cue.yaml
 
 docker: ## Build the container image
-	@docker build -t $(DOCKER_TAG) -f deploy/Dockerfile \
+	@docker build -t $(DOCKER_TAG) -f Dockerfile \
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) .
 
 docker-smoke: docker ## Run the whole daemon in the image against a virtual screen and prove it works

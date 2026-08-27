@@ -18,6 +18,8 @@ tries very hard to keep doing so unattended.
 
 ## Where things are
 
+    Dockerfile              the image: builds the daemon, then assembles a
+                            root filesystem onto distroless
     main.go                 command line entry point, and the /bin/sh disguise
     cmd/                    one file per subcommand: run, config, display,
                             health, version
@@ -44,7 +46,7 @@ tries very hard to keep doing so unattended.
                             why that is not as bad as it sounds
       util/                 small independently testable pieces: cdp, xauth,
                             drm, atomicfile, security, reaper, deferutil
-    deploy/                 Dockerfile and compose files
+    deploy/                 compose files and deployment bits
     tools/                  build-time programs: checksecrets, smoke, release,
                             changelog
     docs/                   see docs/decisions/ for why things are as they are

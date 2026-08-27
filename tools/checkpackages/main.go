@@ -9,7 +9,7 @@
 //
 // Building for another architecture to find that out needs emulation and takes
 // twenty minutes. Asking Debian's own package index takes ten seconds, so that
-// is what this does: it reads the package lists out of deploy/Dockerfile and
+// is what this does: it reads the package lists out of Dockerfile and
 // checks each one against the index for each architecture.
 //
 //	go run ./tools/checkpackages
@@ -39,7 +39,7 @@ var architectures = []string{"amd64", "arm64"}
 const x86Only = "X86_PACKAGES"
 
 func main() {
-	dockerfile := flag.String("dockerfile", "deploy/Dockerfile", "the Dockerfile to read the package lists from")
+	dockerfile := flag.String("dockerfile", "Dockerfile", "the Dockerfile to read the package lists from")
 	suite := flag.String("suite", "trixie", "the Debian release the image is built on")
 	flag.Parse()
 

@@ -13,7 +13,7 @@ services:
     image: cue:dev
     build:
       context: ..
-      dockerfile: deploy/Dockerfile
+      dockerfile: Dockerfile
     container_name: cue-dev
     shm_size: 1gb
     ports:
