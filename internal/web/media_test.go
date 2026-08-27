@@ -54,7 +54,7 @@ func TestAVideoCanBeUploadedAndPlayedBack(t *testing.T) {
 		t.Errorf("the answer does not name the file: %s", response.Body)
 	}
 
-	videos, err := server.videos.List()
+	videos, err := server.uploads.List()
 	if err != nil || len(videos) != 1 {
 		t.Fatalf("the store holds %v (%v)", videos, err)
 	}
@@ -86,7 +86,7 @@ func TestSomethingThatIsNotAVideoIsRefused(t *testing.T) {
 	if response.Code != http.StatusUnsupportedMediaType {
 		t.Errorf("uploading a text file answered %d, want 415", response.Code)
 	}
-	if videos, _ := server.videos.List(); len(videos) != 0 {
+	if videos, _ := server.uploads.List(); len(videos) != 0 {
 		t.Errorf("a text file was stored anyway: %v", videos)
 	}
 }
@@ -94,7 +94,7 @@ func TestSomethingThatIsNotAVideoIsRefused(t *testing.T) {
 // One upload must not be able to fill the disk of a machine nobody logs into.
 func TestAVideoLargerThanTheLimitIsRefused(t *testing.T) {
 	configuration := config.Default()
-	configuration.Playlist.MaximumVideoSize = 64
+	configuration.Playlist.MaximumUploadSize = 64
 	server := newTestServer(t, configuration)
 	session := signedIn(t, server)
 
@@ -102,7 +102,7 @@ func TestAVideoLargerThanTheLimitIsRefused(t *testing.T) {
 	if response.Code == http.StatusOK {
 		t.Error("a video larger than the limit was accepted")
 	}
-	if videos, _ := server.videos.List(); len(videos) != 0 {
+	if videos, _ := server.uploads.List(); len(videos) != 0 {
 		t.Errorf("an oversized video was stored anyway: %v", videos)
 	}
 }
@@ -121,7 +121,7 @@ func TestUploadingNeedsASession(t *testing.T) {
 	if code := upload(t, server, "promo.mp4", "video/mp4", []byte("a test video"), nil).Code; code != http.StatusUnauthorized {
 		t.Errorf("uploading without a session answered %d, want 401", code)
 	}
-	if videos, _ := server.videos.List(); len(videos) != 0 {
+	if videos, _ := server.uploads.List(); len(videos) != 0 {
 		t.Errorf("a video was stored by somebody with no session: %v", videos)
 	}
 }
@@ -137,7 +137,7 @@ func TestAVideoIsServedToThisMachineButNotToTheNetwork(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("uploading answered %d", response.Code)
 	}
-	videos, _ := server.videos.List()
+	videos, _ := server.uploads.List()
 
 	// httptest requests come from 192.0.2.1 by default, which is the
 	// documentation range and stands in for somebody else on the network.

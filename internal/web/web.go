@@ -102,7 +102,7 @@ type Server struct {
 	device  Device
 	metrics *hardware.Collector
 
-	videos *media.Store
+	uploads *media.Store
 
 	router   *mux.Router
 	listener net.Listener
@@ -126,8 +126,8 @@ func New(store *config.Store, device Device) *Server {
 // WithVideos gives the server the store uploaded videos live in. Without one
 // it refuses uploads and serves no videos, which is what a daemon that could
 // not create the directory should do.
-func (self *Server) WithVideos(store *media.Store) *Server {
-	self.videos = store
+func (self *Server) WithUploads(store *media.Store) *Server {
+	self.uploads = store
 	return self
 }
 

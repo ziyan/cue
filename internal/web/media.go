@@ -27,12 +27,12 @@ import (
 // buffers the whole thing either into memory or into a temporary file of its
 // own choosing. These are hundreds of megabytes and the device is small.
 func (self *Server) uploadMedia(response http.ResponseWriter, request *http.Request) {
-	if self.videos == nil {
+	if self.uploads == nil {
 		writeError(response, http.StatusServiceUnavailable, "this device cannot store uploads")
 		return
 	}
 
-	limit := self.store.Current().Playlist.MaximumVideoSize
+	limit := self.store.Current().Playlist.MaximumUploadSize
 	if limit <= 0 {
 		limit = 4 << 30
 	}
@@ -76,7 +76,7 @@ func (self *Server) uploadMedia(response http.ResponseWriter, request *http.Requ
 		// The limit is applied to the bytes as well as to the declared length,
 		// because a declared length is something a client says rather than
 		// something it has proved.
-		stored, err := self.videos.Add(name, mediaType, http.MaxBytesReader(response, part, limit))
+		stored, err := self.uploads.Add(name, mediaType, http.MaxBytesReader(response, part, limit))
 		_ = part.Close()
 		if err != nil {
 			writeError(response, http.StatusBadRequest, err.Error())
@@ -95,19 +95,19 @@ func (self *Server) uploadMedia(response http.ResponseWriter, request *http.Requ
 // and a server that ignores them gives some players a video they cannot play
 // at all.
 func (self *Server) serveMedia(response http.ResponseWriter, request *http.Request) {
-	if self.videos == nil {
+	if self.uploads == nil {
 		http.NotFound(response, request)
 		return
 	}
 
 	file := mux.Vars(request)["file"]
-	path, err := self.videos.Path(file)
+	path, err := self.uploads.Path(file)
 	if err != nil {
 		http.NotFound(response, request)
 		return
 	}
 
-	if details, err := self.videos.Details(file); err == nil && details.Type != "" {
+	if details, err := self.uploads.Details(file); err == nil && details.Type != "" {
 		response.Header().Set("Content-Type", details.Type)
 	}
 	// The name is a digest of the contents, so the contents can never change
@@ -120,11 +120,11 @@ func (self *Server) serveMedia(response http.ResponseWriter, request *http.Reque
 // listMedia is what the interface shows when choosing among what is already
 // uploaded.
 func (self *Server) listMedia(response http.ResponseWriter, request *http.Request) {
-	if self.videos == nil {
+	if self.uploads == nil {
 		writeJSON(response, http.StatusOK, map[string]interface{}{"media": []interface{}{}})
 		return
 	}
-	videos, err := self.videos.List()
+	videos, err := self.uploads.List()
 	if err != nil {
 		writeError(response, http.StatusInternalServerError, err.Error())
 		return

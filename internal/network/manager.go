@@ -269,7 +269,7 @@ func supplicantReady(interfaceName string) error {
 }
 
 func (self *Manager) supplicantConfiguration(interfaceName string) string {
-	return filepath.Join(self.store.Current().Paths.State, "wpa_supplicant-"+interfaceName+".conf")
+	return filepath.Join(Directory(self.store.Current()), "wpa_supplicant-"+interfaceName+".conf")
 }
 
 // writeSupplicantConfiguration writes the file wpa_supplicant reads at start

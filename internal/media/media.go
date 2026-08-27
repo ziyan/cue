@@ -32,7 +32,7 @@ import (
 	"github.com/op/go-logging"
 )
 
-var log = logging.MustGetLogger("video")
+var log = logging.MustGetLogger("media")
 
 // Kind is what sort of thing a stored file is, which decides how the screen
 // shows it and what says when it has finished.
@@ -65,7 +65,7 @@ type Stored struct {
 	Kind Kind `json:"kind"`
 }
 
-// Store is the directory the videos live in.
+// Store is the directory the uploads live in.
 type Store struct {
 	directory string
 }
@@ -73,9 +73,72 @@ type Store struct {
 // Open prepares the store. The directory is created if it is not there.
 func Open(directory string) (*Store, error) {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return nil, fmt.Errorf("video: cannot create %s: %w", directory, err)
+		return nil, fmt.Errorf("media: cannot create %s: %w", directory, err)
 	}
-	return &Store{directory: directory}, nil
+	store := &Store{directory: directory}
+	if err := store.adoptOldNames(); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// Adopt takes over a directory an older version used, if it is still there and
+// this one has not been used yet.
+//
+// This store used to be called "videos", before it held pictures too. Somebody
+// upgrading has files under the old name and playlist items naming them, and
+// leaving those behind would be a screen that suddenly shows nothing where a
+// video used to be -- while the bytes sit on the disk for ever, because
+// nothing knows about them any more.
+func Adopt(previous, current string) {
+	if previous == current {
+		return
+	}
+	if _, err := os.Stat(previous); err != nil {
+		return
+	}
+	// Only into an empty place. If both hold something, this version has
+	// already stored files under the new name and moving the old directory
+	// over them would either fail or lose them.
+	if entries, err := os.ReadDir(current); err == nil && len(entries) > 0 {
+		log.Warningf("%s and %s both hold files; leaving the older one alone", previous, current)
+		return
+	}
+	_ = os.Remove(current)
+	if err := os.Rename(previous, current); err != nil {
+		log.Warningf("cannot move %s to %s: %s", previous, current, err)
+		return
+	}
+	log.Noticef("moved what was in %s to %s", previous, current)
+}
+
+// adoptOldNames renames the files an older version wrote.
+//
+// The bytes of an upload used to be kept as "<digest>.video", which stopped
+// being true when the same store began holding pictures. The digest is what
+// everything else refers to, so only the suffix changes and nothing that names
+// a file has to be touched.
+func (self *Store) adoptOldNames() error {
+	entries, err := os.ReadDir(self.directory)
+	if err != nil {
+		return fmt.Errorf("media: cannot read %s: %w", self.directory, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".video") {
+			continue
+		}
+		file := strings.TrimSuffix(name, ".video")
+		if !safeFile.MatchString(file) {
+			continue
+		}
+		if err := os.Rename(filepath.Join(self.directory, name), self.contents(file)); err != nil {
+			log.Warningf("cannot rename %s: %s", name, err)
+			continue
+		}
+		log.Noticef("renamed %s to what this version calls it", name)
+	}
+	return nil
 }
 
 // safeFile is what a stored file's name may look like: hexadecimal, nothing
@@ -98,7 +161,7 @@ const maximumName = 120
 func (self *Store) Add(name, mediaType string, source io.Reader) (Stored, error) {
 	temporary, err := os.CreateTemp(self.directory, "incoming-*")
 	if err != nil {
-		return Stored{}, fmt.Errorf("video: cannot start storing a video: %w", err)
+		return Stored{}, fmt.Errorf("media: cannot start storing a video: %w", err)
 	}
 	defer func() {
 		temporary.Close()
@@ -110,13 +173,13 @@ func (self *Store) Add(name, mediaType string, source io.Reader) (Stored, error)
 	digest := sha256.New()
 	size, err := io.Copy(io.MultiWriter(temporary, digest), source)
 	if err != nil {
-		return Stored{}, fmt.Errorf("video: cannot store a video: %w", err)
+		return Stored{}, fmt.Errorf("media: cannot store a video: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return Stored{}, fmt.Errorf("video: cannot finish storing a video: %w", err)
+		return Stored{}, fmt.Errorf("media: cannot finish storing a video: %w", err)
 	}
 	if size == 0 {
-		return Stored{}, fmt.Errorf("video: there was nothing in that file")
+		return Stored{}, fmt.Errorf("media: there was nothing in that file")
 	}
 
 	stored := Stored{
@@ -128,7 +191,7 @@ func (self *Store) Add(name, mediaType string, source io.Reader) (Stored, error)
 	}
 
 	if err := os.Rename(temporary.Name(), self.contents(stored.File)); err != nil {
-		return Stored{}, fmt.Errorf("video: cannot store a video: %w", err)
+		return Stored{}, fmt.Errorf("media: cannot store a video: %w", err)
 	}
 	if err := self.writeDetails(stored); err != nil {
 		return Stored{}, err
@@ -140,11 +203,11 @@ func (self *Store) Add(name, mediaType string, source io.Reader) (Stored, error)
 // Path is where a stored video's bytes are, for serving it back.
 func (self *Store) Path(file string) (string, error) {
 	if !safeFile.MatchString(file) {
-		return "", fmt.Errorf("video: %q is not the name of a stored video", file)
+		return "", fmt.Errorf("media: %q is not the name of a stored video", file)
 	}
 	path := self.contents(file)
 	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("video: no video is stored as %s", file)
+		return "", fmt.Errorf("media: no video is stored as %s", file)
 	}
 	return path, nil
 }
@@ -152,7 +215,7 @@ func (self *Store) Path(file string) (string, error) {
 // Details is what is known about one stored video.
 func (self *Store) Details(file string) (Stored, error) {
 	if !safeFile.MatchString(file) {
-		return Stored{}, fmt.Errorf("video: %q is not the name of a stored video", file)
+		return Stored{}, fmt.Errorf("media: %q is not the name of a stored video", file)
 	}
 	return self.readDetails(file)
 }
@@ -161,13 +224,13 @@ func (self *Store) Details(file string) (Stored, error) {
 // not there is not an error: the point is that it is gone.
 func (self *Store) Remove(file string) error {
 	if !safeFile.MatchString(file) {
-		return fmt.Errorf("video: %q is not the name of a stored video", file)
+		return fmt.Errorf("media: %q is not the name of a stored video", file)
 	}
 	if err := os.Remove(self.contents(file)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("video: cannot remove %s: %w", file, err)
+		return fmt.Errorf("media: cannot remove %s: %w", file, err)
 	}
 	if err := os.Remove(self.details(file)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("video: cannot remove what is known about %s: %w", file, err)
+		return fmt.Errorf("media: cannot remove what is known about %s: %w", file, err)
 	}
 	return nil
 }
@@ -176,12 +239,12 @@ func (self *Store) Remove(file string) error {
 func (self *Store) List() ([]Stored, error) {
 	entries, err := os.ReadDir(self.directory)
 	if err != nil {
-		return nil, fmt.Errorf("video: cannot read %s: %w", self.directory, err)
+		return nil, fmt.Errorf("media: cannot read %s: %w", self.directory, err)
 	}
 
-	var videos []Stored
+	var stored []Stored
 	for _, entry := range entries {
-		file := strings.TrimSuffix(entry.Name(), ".video")
+		file := strings.TrimSuffix(entry.Name(), ".media")
 		if entry.IsDir() || file == entry.Name() || !safeFile.MatchString(file) {
 			continue
 		}
@@ -189,9 +252,9 @@ func (self *Store) List() ([]Stored, error) {
 		if err != nil {
 			continue
 		}
-		videos = append(videos, details)
+		stored = append(stored, details)
 	}
-	return videos, nil
+	return stored, nil
 }
 
 // settleTime is how long a newly written file is left alone even when nothing
@@ -216,7 +279,7 @@ func (self *Store) Sweep(wanted []string) ([]string, error) {
 
 	entries, err := os.ReadDir(self.directory)
 	if err != nil {
-		return nil, fmt.Errorf("video: cannot read %s: %w", self.directory, err)
+		return nil, fmt.Errorf("media: cannot read %s: %w", self.directory, err)
 	}
 
 	var removed []string
@@ -225,7 +288,7 @@ func (self *Store) Sweep(wanted []string) ([]string, error) {
 			continue
 		}
 		name := entry.Name()
-		file := strings.TrimSuffix(strings.TrimSuffix(name, ".video"), ".json")
+		file := strings.TrimSuffix(strings.TrimSuffix(name, ".media"), ".json")
 
 		// An abandoned upload, from a request that died halfway.
 		if strings.HasPrefix(name, "incoming-") {
@@ -248,7 +311,7 @@ func (self *Store) Sweep(wanted []string) ([]string, error) {
 			log.Warningf("cannot remove the unused video %s: %s", name, err)
 			continue
 		}
-		if strings.HasSuffix(name, ".video") {
+		if strings.HasSuffix(name, ".media") {
 			removed = append(removed, file)
 		}
 	}
@@ -266,7 +329,7 @@ func recentlyWritten(entry os.DirEntry) bool {
 }
 
 func (self *Store) contents(file string) string {
-	return filepath.Join(self.directory, file+".video")
+	return filepath.Join(self.directory, file+".media")
 }
 
 func (self *Store) details(file string) string {
@@ -282,7 +345,7 @@ func (self *Store) writeDetails(stored Stored) error {
 		return err
 	}
 	if err := os.WriteFile(self.details(stored.File), encoded, 0o644); err != nil {
-		return fmt.Errorf("video: cannot record what %s is: %w", stored.File, err)
+		return fmt.Errorf("media: cannot record what %s is: %w", stored.File, err)
 	}
 	return nil
 }

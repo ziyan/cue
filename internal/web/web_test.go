@@ -92,11 +92,11 @@ func newTestServer(t *testing.T, configuration *config.Configuration) *Server {
 	configuration.Normalize()
 
 	store := config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration)
-	videos, err := media.Open(filepath.Join(t.TempDir(), "videos"))
+	videos, err := media.Open(filepath.Join(t.TempDir(), "media"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(store, newFakeDevice(t, store)).WithVideos(videos)
+	return New(store, newFakeDevice(t, store)).WithUploads(videos)
 }
 
 func TestHealthIsAnsweredWithoutASession(t *testing.T) {

@@ -133,6 +133,23 @@ func (self *Configuration) Normalize() {
 		}
 	}
 
+	// The upload limit, and the setting it used to be called.
+	//
+	// The default is filled in here rather than among the other defaults
+	// because those are applied before the file is read: a default sitting in
+	// the field would mean the older setting never looked unset, and somebody
+	// upgrading would silently get four gigabytes instead of the number they
+	// chose.
+	if self.Playlist.MaximumUploadSize == 0 {
+		self.Playlist.MaximumUploadSize = self.Playlist.MaximumVideoSize
+	}
+	self.Playlist.MaximumVideoSize = 0
+	if self.Playlist.MaximumUploadSize <= 0 {
+		// Four gigabytes: larger than any promotional loop, and small enough
+		// that one upload cannot fill a modest disk by itself.
+		self.Playlist.MaximumUploadSize = 4 << 30
+	}
+
 	// A file written before this setting existed has it empty, and an empty
 	// value must not read as "never offer to be set up".
 	if self.Network.Onboarding == "" {

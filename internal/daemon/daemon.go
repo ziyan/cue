@@ -49,7 +49,7 @@ type Daemon struct {
 	timesync   *timesync.Client
 	network    *network.Manager
 	onboarding *onboarding.Onboarding
-	videos     *media.Store
+	uploads    *media.Store
 	watchdog   *watchdog.Watchdog
 
 	web *web.Server
@@ -245,12 +245,20 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
-	if videos, err := media.Open(filepath.Join(configuration.Paths.State, "videos")); err != nil {
-		log.Warningf("videos cannot be stored on this device: %s", err)
+	// The wireless configurations used to sit loose in the state directory.
+	// wpa_supplicant saves the networks it has joined into them, so leaving
+	// them behind is a device that forgets every network it knew.
+	network.AdoptOldFiles(configuration)
+
+	// "videos" is what this directory was called before it held pictures too.
+	media.Adopt(filepath.Join(configuration.Paths.State, "videos"),
+		filepath.Join(configuration.Paths.State, "media"))
+	if uploads, err := media.Open(filepath.Join(configuration.Paths.State, "media")); err != nil {
+		log.Warningf("uploads cannot be stored on this device: %s", err)
 	} else {
-		self.videos = videos
-		self.web = self.web.WithVideos(videos)
-		self.sweepVideos()
+		self.uploads = uploads
+		self.web = self.web.WithUploads(uploads)
+		self.sweepUploads()
 	}
 	// The setup page has to be reachable on port 80 of the setup network,
 	// because that is the only place a phone looks.
@@ -647,15 +655,16 @@ func managedWireless(configuration *config.Configuration, interfaceName string) 
 	return false
 }
 
-// sweepVideos deletes uploaded videos that no playlist item refers to.
+// sweepUploads deletes uploaded pictures and videos that no playlist item
+// refers to.
 //
 // It runs at startup and after every accepted change to the configuration,
 // because deleting an item is exactly when its video stops being wanted. A
 // device nobody logs into would otherwise accumulate every video ever put on
 // it until its disk filled, and the first anybody would know of it is a screen
 // that stopped working.
-func (self *Daemon) sweepVideos() {
-	if self.videos == nil {
+func (self *Daemon) sweepUploads() {
+	if self.uploads == nil {
 		return
 	}
 
@@ -666,12 +675,12 @@ func (self *Daemon) sweepVideos() {
 		}
 	}
 
-	removed, err := self.videos.Sweep(wanted)
+	removed, err := self.uploads.Sweep(wanted)
 	if err != nil {
-		log.Warningf("cannot tidy up unused videos: %s", err)
+		log.Warningf("cannot tidy up unused uploads: %s", err)
 		return
 	}
 	if len(removed) > 0 {
-		log.Noticef("removed %d video(s) nothing refers to any more", len(removed))
+		log.Noticef("removed %d upload(s) nothing refers to any more", len(removed))
 	}
 }

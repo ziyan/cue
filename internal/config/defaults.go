@@ -49,11 +49,8 @@ func Default() *Configuration {
 			DeviceScaleFactor:   1,
 		},
 		Playlist: Playlist{
-			// Four gigabytes: larger than any promotional loop, and small
-			// enough that one upload cannot fill a modest disk by itself.
-			MaximumVideoSize: 4 << 30,
-			Interval:         Duration(30 * time.Second),
-			Items:            nil,
+			Interval: Duration(30 * time.Second),
+			Items:    nil,
 		},
 		Watchdog: Watchdog{
 			Enabled:                      true,

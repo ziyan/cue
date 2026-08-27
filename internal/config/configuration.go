@@ -341,11 +341,16 @@ type Playlist struct {
 
 	Items []Item `yaml:"items" json:"items"`
 
-	// MaximumVideoSize is the largest video that may be uploaded. It is here
-	// rather than fixed in the code because the sensible answer depends on the
-	// disk of the machine, and the machine is one nobody logs into to find out
-	// that it is full.
-	MaximumVideoSize int64 `yaml:"maximumVideoSize" json:"maximumVideoSize"`
+	// MaximumUploadSize is the largest picture or video that may be uploaded.
+	// It is here rather than fixed in the code because the sensible answer
+	// depends on the disk of the machine, and the machine is one nobody logs
+	// into to find out that it is full.
+	MaximumUploadSize int64 `yaml:"maximumUploadSize" json:"maximumUploadSize"`
+
+	// MaximumVideoSize is what MaximumUploadSize used to be called, still read
+	// so that a file written by an older version keeps its setting. Normalize
+	// moves it across and clears it, and it is never written back.
+	MaximumVideoSize int64 `yaml:"maximumVideoSize,omitempty" json:"-"`
 }
 
 // Item is one page in the rotation.

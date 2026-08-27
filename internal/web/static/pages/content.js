@@ -43,10 +43,10 @@ export function content(main) {
         field("Seconds on each page", "number", secondsOf(configuration.playlist.interval), (value) => {
           configuration.playlist.interval = `${Math.max(0, parseInt(value, 10) || 0)}s`;
         }, "0 shows the first page and never moves on"),
-        field("Largest video, in MB", "number",
-          Math.round((configuration.playlist.maximumVideoSize || 0) / (1024 * 1024)), (value) => {
+        field("Largest upload, in MB", "number",
+          Math.round((configuration.playlist.maximumUploadSize || 0) / (1024 * 1024)), (value) => {
             const megabytes = Math.max(1, parseInt(value, 10) || 0);
-            configuration.playlist.maximumVideoSize = megabytes * 1024 * 1024;
+            configuration.playlist.maximumUploadSize = megabytes * 1024 * 1024;
           }, "Uploads larger than this are refused, so one file cannot fill the disk")),
     ));
 

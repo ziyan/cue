@@ -299,3 +299,83 @@ func TestAPictureIsStoredWithItsKind(t *testing.T) {
 		t.Errorf("the stored picture reads back as %q", back.Kind)
 	}
 }
+
+// A store written by an older version has to be picked up, not left behind.
+// The playlist items name files by digest, so a device that ignored the old
+// directory would show nothing where a video used to be while the bytes sat on
+// the disk for ever.
+func TestAStoreFromAnOlderVersionIsAdopted(t *testing.T) {
+	state := t.TempDir()
+	previous := filepath.Join(state, "videos")
+	current := filepath.Join(state, "media")
+
+	if err := os.MkdirAll(previous, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const digest = "0123456789abcdef0123456789abcdef"
+	if err := os.WriteFile(filepath.Join(previous, digest+".video"), []byte("a test video"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, digest+".json"),
+		[]byte(`{"name":"promo.mp4","size":12,"type":"video/mp4"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	Adopt(previous, current)
+	store, err := Open(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The file is found under the name the playlist already knows it by.
+	path, err := store.Path(digest)
+	if err != nil {
+		t.Fatalf("the video from the older version was lost: %s", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "a test video" {
+		t.Errorf("the bytes did not survive: %q (%v)", content, err)
+	}
+	// And what is known about it came across too.
+	details, err := store.Details(digest)
+	if err != nil || details.Name != "promo.mp4" {
+		t.Errorf("what was known about it was lost: %+v (%v)", details, err)
+	}
+	// It is renamed to what this version calls it, so nothing keeps looking
+	// for the old suffix.
+	if _, err := os.Stat(filepath.Join(current, digest+".video")); !os.IsNotExist(err) {
+		t.Error("the old file name is still there")
+	}
+	if _, err := os.Stat(previous); !os.IsNotExist(err) {
+		t.Error("the old directory is still there")
+	}
+}
+
+// If this version has already stored something, the old directory must be left
+// alone rather than moved over the top of it.
+func TestAdoptingDoesNotOverwriteWhatIsAlreadyThere(t *testing.T) {
+	state := t.TempDir()
+	previous := filepath.Join(state, "videos")
+	current := filepath.Join(state, "media")
+
+	if err := os.MkdirAll(previous, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(previous, "old.media"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := store.Add("new.mp4", "video/mp4", strings.NewReader("a newer test video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	Adopt(previous, current)
+
+	if _, err := store.Path(kept.File); err != nil {
+		t.Errorf("adopting an old directory destroyed what was already stored: %s", err)
+	}
+}

@@ -389,3 +389,33 @@ func TestAnItemWrittenUnderTheOldNameKeepsItsFile(t *testing.T) {
 		t.Error("the old field survived, so it would be written back out again")
 	}
 }
+
+// The upload limit was called something else. A file written by an older
+// version must keep the number somebody chose, not silently fall back to a
+// default that might be smaller than the videos they already use.
+func TestTheUploadLimitFromAnOlderVersionIsKept(t *testing.T) {
+	configuration, err := Parse([]byte("playlist:\n  maximumVideoSize: 12345678\n"))
+	if err != nil {
+		t.Fatalf("a file written by an older version must still load: %s", err)
+	}
+	if configuration.Playlist.MaximumUploadSize != 12345678 {
+		t.Errorf("the limit came across as %d, want 12345678",
+			configuration.Playlist.MaximumUploadSize)
+	}
+	if configuration.Playlist.MaximumVideoSize != 0 {
+		t.Error("the old field survived, so it would be written back out again")
+	}
+}
+
+// A file that sets both keeps the one this version writes.
+func TestTheCurrentUploadLimitWinsOverTheOldOne(t *testing.T) {
+	configuration, err := Parse([]byte(
+		"playlist:\n  maximumVideoSize: 111\n  maximumUploadSize: 222\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configuration.Playlist.MaximumUploadSize != 222 {
+		t.Errorf("the limit is %d, want the current setting 222",
+			configuration.Playlist.MaximumUploadSize)
+	}
+}

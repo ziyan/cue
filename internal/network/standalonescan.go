@@ -37,7 +37,7 @@ func ScanStandalone(ctx context.Context, store *config.Store, interfaceName stri
 		return nil, fmt.Errorf("network: cannot create %s: %w", controlDirectory, err)
 	}
 
-	filename := filepath.Join(store.Current().Paths.State, "wpa_supplicant-scan-"+interfaceName+".conf")
+	filename := filepath.Join(Directory(store.Current()), "wpa_supplicant-scan-"+interfaceName+".conf")
 	content := "# Written by cue to look for networks before setting this device up.\n" +
 		"ctrl_interface=" + controlDirectory + "\n" +
 		"update_config=0\n"

@@ -193,7 +193,7 @@ func (self *AccessPoint) advertising() error {
 }
 
 func (self *AccessPoint) configurationFilename() string {
-	return filepath.Join(self.store.Current().Paths.State,
+	return filepath.Join(Directory(self.store.Current()),
 		"wpa_supplicant-ap-"+self.interfaceName+".conf")
 }
 
