@@ -438,7 +438,7 @@ The interface signatures to add:
     func (self *AccessPoint) Start(ctx context.Context) error
 
     // Stop takes it down and leaves the radio as it was found.
-    func (self *AccessPoint) Stop()
+    func (self *AccessPoint) Stop(ctx context.Context)
 
     // SupportsAccessPoint reports whether this interface's radio can be an
     // access point at all, so that onboarding is never attempted on hardware
@@ -673,7 +673,7 @@ In `internal/network/accesspoint.go`:
     func (self *AccessPoint) Name() string
     func (self *AccessPoint) Passphrase() string
     func (self *AccessPoint) Start(ctx context.Context) error
-    func (self *AccessPoint) Stop()
+    func (self *AccessPoint) Stop(ctx context.Context)
     func SupportsAccessPoint(interfaceName string) (bool, error)
 
 In `internal/network/onboarding/dhcp.go` and `.../dns.go`:
