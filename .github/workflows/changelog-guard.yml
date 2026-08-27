@@ -1,0 +1,35 @@
+name: Changelog guard
+
+# A pull request says what it changes for whoever runs this, in its own
+# description, where it is reviewed alongside the change. Finding out at
+# release time that nobody wrote one means writing it from a diff, months
+# later, by somebody who did not make the change.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: The description says what changed
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Read the changelog block
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$BODY" > pr-body.md
+          go run ./tools/cut --check pr-body.md

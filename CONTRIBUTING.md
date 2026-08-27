@@ -125,9 +125,65 @@ now with no memory of the conversation that produced it.
 
 ## Changelog
 
-User-visible changes get an entry in `CHANGELOG.md` under Unreleased, in the
-Keep a Changelog categories. Internal refactoring an operator cannot observe
-does not need one. A release with no entry fails the release workflow.
+A change that somebody running a screen can observe gets an entry. There are
+two places to write one and both count, because there are two ways work
+arrives here.
+
+**In a pull request description**, under a `## Changelog` heading, using the
+Keep a Changelog headings. That is where it is reviewed alongside the change it
+describes, and a workflow refuses a pull request that has neither an entry nor
+a `skip-changelog` label. The template says the rest.
+
+**In `CHANGELOG.md` under Unreleased**, for a change committed straight to
+main. This is how the file has been written since the beginning, and it stays
+open: an entry written here can say more than a line in a description, and
+sometimes a change deserves that.
+
+Both are collected when a release is cut, and the hand-written ones come first.
+Internal work an operator cannot observe -- a refactor, a test, a comment --
+needs no entry either way.
+
+## Releases
+
+Releases cut themselves. Every push to `main` that leaves something under
+Unreleased becomes one; a push that leaves nothing there does nothing, which is
+most of them. There is no separate step to remember, which is the point: a
+release process somebody has to remember is one that happens once and then
+stops.
+
+The entries come from the pull requests merged since the last tag and from
+whatever is under Unreleased in the file. What the version becomes is read off
+them, by the plain reading of semantic versioning:
+
+- **Removed** is a major bump. Something that was there is not any more, and
+  anybody relying on it is broken by upgrading. Before 1.0.0 this is softened
+  to a minor, so that a removal is not the thing that declares the project
+  stable.
+- **Added** is a minor bump: something new, and everything old still works.
+- Everything else — Fixed, Changed, Security, Deprecated — is a patch.
+
+To see what would happen without changing anything:
+
+    go run ./tools/cut
+
+That prints the version it would choose and why. `--write` dates the section
+and leaves an empty Unreleased above it; the workflow does that and then
+commits and tags.
+
+A major release outside those rules is the "Major release" workflow, run by
+hand, which asks whoever runs it to type MAJOR. Deciding that a change breaks
+everybody using the thing is a judgement, not a rule.
+
+The tag is what does the work. Pushing `vX.Y.Z` — by the workflow or by hand —
+builds the binaries for both architectures, publishes the GitHub release with
+the changelog section as its notes, and pushes the image to `ghcr.io`. That
+path is exercised by every automatic release, so the manual one is never
+untested.
+
+Publishing needs a `RELEASE_TOKEN` secret with permission to push to `main` and
+to create tags. The token that Actions provides by default cannot be used: a
+push made with it does not start another workflow, and starting the publishing
+workflow is the whole purpose of the tag.
 
 ## Decisions
 

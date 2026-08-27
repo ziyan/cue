@@ -48,7 +48,7 @@ tries very hard to keep doing so unattended.
                             drm, atomicfile, security, reaper, deferutil
     deploy/                 compose files and deployment bits
     tools/                  build-time programs: checksecrets, smoke, release,
-                            changelog
+                            changelog, cut
     docs/                   see docs/decisions/ for why things are as they are
 
 ## How a page gets onto the screen

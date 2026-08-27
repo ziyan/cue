@@ -1,0 +1,74 @@
+name: Auto release
+
+# Every push to main that leaves something under "Unreleased" in the changelog
+# becomes a release. Pushes that do not — a refactor, a test, a comment — do
+# nothing, which is most of them.
+#
+# The tag this pushes is what triggers release.yml, which does the building and
+# the publishing. Keeping the two apart means a release can also be cut by
+# pushing a tag by hand, and that path is exercised by every release this makes.
+
+on:
+  push:
+    branches: [main]
+
+# One at a time. Two merges in quick succession would otherwise both read the
+# same last version and try to create the same tag.
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  cut:
+    name: Cut a release if there is one
+    runs-on: ubuntu-latest
+    # Skip the commit this workflow itself pushes, or it would release for
+    # ever.
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # RELEASE_TOKEN rather than the default token: a push made with the
+          # default token does not start another workflow, and the whole point
+          # of the tag this creates is to start release.yml.
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Work out the version and date the changelog
+        id: cut
+        run: go run ./tools/cut --write
+
+      - name: Check the notes read back
+        if: steps.cut.outputs.released == 'true'
+        # The publishing workflow reads the section by version. Finding out
+        # here that it cannot costs seconds; finding out there costs a tag that
+        # has to be deleted.
+        run: go run ./tools/changelog "${{ steps.cut.outputs.version }}"
+
+      - name: Commit and tag
+        if: steps.cut.outputs.released == 'true'
+        run: |
+          git config user.name "cue-release"
+          git config user.email "cue-release@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore(release): ${{ steps.cut.outputs.tag }}"
+          git tag -a "${{ steps.cut.outputs.tag }}" -m "${{ steps.cut.outputs.tag }}"
+          git push origin HEAD:main
+          git push origin "${{ steps.cut.outputs.tag }}"
+
+      - name: Say what happened
+        run: |
+          if [ "${{ steps.cut.outputs.released }}" = "true" ]; then
+            echo "Released ${{ steps.cut.outputs.tag }}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nothing under Unreleased, so nothing was released." >> "$GITHUB_STEP_SUMMARY"
+          fi
