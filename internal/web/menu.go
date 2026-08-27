@@ -45,7 +45,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		addresses = append(addresses, "no address")
 	}
 
-	network := "not connected"
+	network := ""
 	if state := self.device.Network(); state != nil {
 		if status := state.State(); len(status.Interfaces) > 0 {
 			for _, one := range status.Interfaces {
@@ -120,55 +120,99 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Device }}</title>
 <style>
-  :root { color-scheme: dark; --accent: #f57915; }
+  :root {
+    color-scheme: dark; --accent: #f57915;
+    /* One spacing scale. Every gap and margin below is a multiple of it, so
+       that nothing ends up 7 pixels from one thing and 14 from another --
+       which is what the first version did, and it read as carelessness. */
+    --step: 1.2vmin;
+  }
   * { box-sizing: border-box; }
+  /* Any display rule of ours beats the browser's own "hidden means none", and
+     .actions sets display:grid -- so hiding the actions to show the network
+     section did nothing at all, and both were on screen at once. */
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: rgba(6,8,10,0.72);
-    font: 2vmin system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #e7ecf3; }
-  body { display: grid; place-items: center; padding: 4vmin; }
-  .panel { width: min(64vmin, 92vw); background: #0f1216; border: 1px solid #2a323d;
-    border-radius: 1.6vmin; padding: 3vmin; box-shadow: 0 2vmin 6vmin rgba(0,0,0,0.6); }
-  header { display: flex; align-items: center; gap: 1.6vmin; margin-bottom: 2vmin; }
-  header img { width: 6vmin; height: 6vmin; }
-  h1 { font-size: 2.8vmin; margin: 0; }
-  .facts { color: #9fb0c5; font-size: 1.7vmin; line-height: 1.7; margin: 0 0 2.4vmin; }
+    font: 2vmin system-ui, -apple-system, "Segoe UI", Roboto,
+      "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; color: #e7ecf3; }
+  body { display: grid; place-items: center; padding: calc(var(--step) * 2); }
+
+  /* The panel is allowed to be shorter than its contents and scroll. It used
+     not to be, and the wired form ran 113 pixels past the bottom of a 673
+     pixel screen, taking Apply and Back with it. */
+  /* Spaced by gap, not by margins between siblings.
+     Margins were tried and were wrong twice over. "This block, then a margin
+     before the next" breaks the moment something hidden sits between the two
+     -- and something hidden always does here, because the confirmation and
+     the progress line live between the actions and the close button. A flex
+     column with a gap simply skips what is not displayed. */
+  .panel { width: min(64vmin, 92vw); max-height: calc(100vh - var(--step) * 4);
+    overflow-y: auto; background: #0f1216; border: 1px solid #2a323d;
+    border-radius: calc(var(--step) * 1.4); padding: calc(var(--step) * 2.4);
+    box-shadow: 0 2vmin 6vmin rgba(0,0,0,0.6);
+    display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
+  #network, #wireless, #wired, #confirm {
+    display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
+
+  header { display: flex; align-items: center; gap: calc(var(--step) * 1.4); }
+  header img { width: 6vmin; height: 6vmin; flex: none; }
+  h1 { font-size: 2.8vmin; margin: 0; flex: 1; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The languages, small and out of the way until wanted. */
+  .languages { display: flex; gap: calc(var(--step) * 0.5); flex: none; }
+  .languages button { padding: calc(var(--step) * 0.5) var(--step);
+    font-size: 1.6vmin; color: #9fb0c5; background: #131920; }
+  .languages button.on { color: #e7ecf3; border-color: var(--accent); }
+
+  .facts { color: #9fb0c5; font-size: 1.7vmin; line-height: 1.7; margin: 0; }
   .facts b { color: #e7ecf3; font-weight: 600; }
-  .actions { display: grid; gap: 1vmin; }
-  /* box-sizing after all:unset, not before. "all: unset" resets box-sizing
-     too, so these buttons were content-box while everything else was
-     border-box -- and a row with width:100% and padding came out wider than
-     the list holding it, clipping the signal bars off the right of every
-     network. Three rounds of looking at screenshots did not find that; one
-     measurement did. */
+
+  .actions { display: grid; gap: var(--step); }
+
   button { all: unset; box-sizing: border-box; cursor: pointer;
-    padding: 1.4vmin 1.8vmin; border-radius: 1vmin;
-    background: #171d24; border: 1px solid #2a323d; text-align: left; }
+    padding: calc(var(--step) * 1.2) calc(var(--step) * 1.5);
+    border-radius: var(--step); background: #171d24; border: 1px solid #2a323d;
+    text-align: left; }
   button:hover { background: #1f2731; }
+  button:focus-visible { border-color: var(--accent); }
   button .what { display: block; }
-  button .why { display: block; color: #9fb0c5; font-size: 1.5vmin; margin-top: 0.4vmin; }
+  button .why { display: block; color: #9fb0c5; font-size: 1.5vmin;
+    margin-top: calc(var(--step) * 0.3); }
   button.danger .what { color: #ffc9d1; }
-  .close { margin-top: 2vmin; text-align: center; color: #9fb0c5; }
-  #confirm { display: none; }
-  .tabs { display: flex; gap: 1vmin; margin-bottom: 1.6vmin; }
+  /* Going back is not one of the things on offer; it should not look like one. */
+  button.quiet { background: none; text-align: center; color: #9fb0c5; }
+  button.quiet:hover { background: #131920; }
+
+  .tabs { display: flex; gap: var(--step); }
   .tabs button { flex: 1; text-align: center; }
   .tabs button.on { border-color: var(--accent); }
-  .list { max-height: 34vmin; overflow-y: auto; margin-bottom: 1.6vmin;
-    border: 1px solid #2a323d; border-radius: 1vmin; }
+
+  .list { max-height: 30vmin; overflow-y: auto; overflow-x: hidden;
+    border: 1px solid #2a323d; border-radius: var(--step); }
   .list button { width: 100%; border: 0; border-radius: 0; background: #131920;
-    display: flex; align-items: center; gap: 1vmin; padding-right: 2.4vmin; }
+    display: flex; align-items: center; gap: var(--step); }
   .list button + button { border-top: 1px solid #2a323d; }
   .list button.on { background: #1f2a35; box-shadow: inset 0.3vmin 0 0 var(--accent); }
-  .list .ssid { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .list .lock { color: #9fb0c5; font-size: 1.5vmin; }
-  /* Drawn rather than written. Block characters were tried first and render
-     at widths the font decides, so the strongest network had its last bar
-     clipped and looked like the weakest. */
-  .list .bars { display: inline-flex; align-items: flex-end; gap: 0.4vmin;
-    height: 2.4vmin; flex: none; }
+  .list .ssid { flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .list .lock { color: #9fb0c5; font-size: 1.5vmin; flex: none; }
+  /* Drawn rather than written: block characters render at widths the font
+     decides, and the strongest network had its last bar clipped. */
+  .list .bars { display: inline-flex; align-items: flex-end;
+    gap: calc(var(--step) * 0.3); height: 2.4vmin; flex: none; }
   .list .bars i { width: 0.9vmin; background: #3d4756; border-radius: 0.2vmin; }
   .list .bars i.on { background: #7dd3fc; }
-  input, select { width: 100%; padding: 1.2vmin; margin-bottom: 1.2vmin; font: inherit;
-    color: inherit; background: #131920; border: 1px solid #2a323d; border-radius: 1vmin; }
-  #working { display: none; color: #9fb0c5; margin-top: 2vmin; }
+
+  label { display: block; color: #9fb0c5; font-size: 1.6vmin;
+    margin: 0 0 calc(var(--step) * 0.5); }
+  label { margin-bottom: calc(var(--step) * 0.4); }
+  input, select { width: 100%; padding: var(--step); font: inherit;
+    color: inherit; background: #131920; border: 1px solid #2a323d;
+    border-radius: var(--step); }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  #working { color: #9fb0c5; margin: 0; }
 </style>
 </head>
 <body>
@@ -176,169 +220,362 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   <header>
     {{ if .Mark }}<img src="{{ .Mark }}" alt="">{{ end }}
     <h1>{{ .Device }}</h1>
+    <div class="languages">
+      <button data-language="en">EN</button>
+      <button data-language="zh">中文</button>
+      <button data-language="ja">日本語</button>
+    </div>
   </header>
 
   <p class="facts">
     <b>{{ .Addresses }}</b><br>
-    Wireless: <b>{{ .Network }}</b><br>
-    {{ .Identifier }} · {{ .Version }} · {{ .Machine }} · up {{ .Uptime }}
+    <span data-t="wireless-is"></span> <b id="joined">{{ .Network }}</b><br>
+    {{ .Identifier }} · {{ .Version }} · <span data-t="up-for"></span> {{ .Uptime }}
   </p>
 
   <div class="actions" id="actions">
-    <button data-do="next"><span class="what">Show the next item</span>
-      <span class="why">Move the screen on now</span></button>
-    <button data-do="reload"><span class="what">Reload what is on screen</span>
-      <span class="why">For a dashboard that has stopped updating</span></button>
-    <button data-do="restart-browser" class="danger"><span class="what">Restart the browser</span>
-      <span class="why">The screen goes black for a few seconds</span></button>
-    <button data-do="restart-display" class="danger"><span class="what">Restart the screen</span>
-      <span class="why">Rebuilds the display itself; takes longer</span></button>
-    <button data-do="network"><span class="what">Set up the network</span>
-      <span class="why">Join a wireless network, or give this screen a fixed address</span></button>
+    <button data-do="next"><span class="what" data-t="next"></span>
+      <span class="why" data-t="next-why"></span></button>
+    <button data-do="reload"><span class="what" data-t="reload"></span>
+      <span class="why" data-t="reload-why"></span></button>
+    <button data-do="network"><span class="what" data-t="network"></span>
+      <span class="why" data-t="network-why"></span></button>
+    <button data-do="restart-browser" class="danger"><span class="what" data-t="restart-browser"></span>
+      <span class="why" data-t="restart-browser-why"></span></button>
+    <button data-do="restart-display" class="danger"><span class="what" data-t="restart-display"></span>
+      <span class="why" data-t="restart-display-why"></span></button>
     {{ if not .SettingUp }}
-    <button data-do="wireless" class="danger"><span class="what">Set up wireless again</span>
-      <span class="why">Forgets this network and shows the setup code</span></button>
+    <button data-do="wireless" class="danger"><span class="what" data-t="wireless-again"></span>
+      <span class="why" data-t="wireless-again-why"></span></button>
     {{ end }}
   </div>
 
-  <div id="network" style="display:none">
+  <div id="network" hidden>
     <div class="tabs">
-      <button id="tab-wireless" class="on"><span class="what">Wireless</span></button>
-      <button id="tab-wired"><span class="what">Wired</span></button>
+      <button id="tab-wireless" class="on"><span class="what" data-t="tab-wireless"></span></button>
+      <button id="tab-wired"><span class="what" data-t="tab-wired"></span></button>
     </div>
 
     <div id="wireless">
-      <div class="list" id="networks"><p class="facts">Looking for networks…</p></div>
-      <div id="secret" style="display:none">
-        <p class="facts">Password for <b id="chosen"></b></p>
+      <div class="list" id="networks"></div>
+      <div id="secret" hidden>
+        <label><span data-t="password-for"></span> <b id="chosen"></b></label>
         <input id="passphrase" type="password" autocomplete="off" autocapitalize="none" spellcheck="false">
       </div>
       <div class="actions">
-        <button id="join"><span class="what">Join</span></button>
-        <button id="rescan"><span class="what">Look again</span></button>
+        <button id="join"><span class="what" data-t="join"></span></button>
+        <button id="rescan"><span class="what" data-t="look-again"></span></button>
       </div>
     </div>
 
-    <div id="wired" style="display:none">
-      <p class="facts">Which interface</p>
+    <div id="wired" hidden>
+      <label data-t="which-interface"></label>
       <select id="wired-interface"></select>
-      <p class="facts">How it gets an address</p>
+      <label data-t="how-address"></label>
       <select id="wired-method">
-        <option value="dhcp">Ask the network (DHCP)</option>
-        <option value="static">Use the address below</option>
+        <option value="dhcp" data-t="by-dhcp"></option>
+        <option value="static" data-t="by-address"></option>
       </select>
-      <div id="fixed" style="display:none">
-        <p class="facts">Address and prefix, for example 192.0.2.10/24</p>
-        <input id="wired-address" autocomplete="off" spellcheck="false">
-        <p class="facts">Gateway</p>
-        <input id="wired-gateway" autocomplete="off" spellcheck="false">
-        <p class="facts">Name servers, separated by spaces</p>
+      <div id="fixed" hidden>
+        <label data-t="address-label"></label>
+        <input id="wired-address" autocomplete="off" spellcheck="false" placeholder="192.0.2.10/24">
+        <label data-t="gateway-label"></label>
+        <input id="wired-gateway" autocomplete="off" spellcheck="false" placeholder="192.0.2.1">
+        <label data-t="dns-label"></label>
         <input id="wired-dns" autocomplete="off" spellcheck="false">
       </div>
-      <div class="actions"><button id="apply"><span class="what">Apply</span></button></div>
+      <div class="actions"><button id="apply"><span class="what" data-t="apply"></span></button></div>
     </div>
 
-    <div class="actions"><button id="back"><span class="what">Back</span></button></div>
+    <div class="actions"><button id="back" class="quiet"><span class="what" data-t="back"></span></button></div>
   </div>
 
-  <div id="confirm">
+  <div id="confirm" hidden>
     <p class="facts" id="question"></p>
     <div class="actions">
-      <button id="yes" class="danger"><span class="what">Yes, do it</span></button>
-      <button id="no"><span class="what">No, go back</span></button>
+      <button id="yes" class="danger"><span class="what" data-t="yes"></span></button>
+      <button id="no" class="quiet"><span class="what" data-t="no"></span></button>
     </div>
   </div>
 
-  <p id="working"></p>
-  <p class="close"><button id="dismiss"><span class="what">Close</span></button></p>
+  <p id="working" hidden></p>
+  <div class="actions"><button id="dismiss" class="quiet"><span class="what" data-t="close"></span></button></div>
 </div>
 <script>
+  // The three languages this menu speaks.
+  //
+  // They are here rather than fetched because this page has to work on a
+  // device with no network -- which is most of the reason it exists. Somebody
+  // in a room in Osaka should not have to read English to put their screen
+  // back on the wireless.
+  //
+  // Switching is immediate and remembered in this browser, so the next person
+  // to open the menu on this screen gets the language the last one chose.
+  const SAID = {
+    en: {
+      "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      "next": "Show the next item", "next-why": "Move the screen on now",
+      "reload": "Reload what is on screen",
+      "reload-why": "For a dashboard that has stopped updating",
+      "network": "Set up the network",
+      "network-why": "Join a wireless network, or give this screen a fixed address",
+      "restart-browser": "Restart the browser",
+      "restart-browser-why": "The screen goes black for a few seconds",
+      "restart-display": "Restart the screen",
+      "restart-display-why": "Rebuilds the display itself; takes longer",
+      "wireless-again": "Set up wireless again",
+      "wireless-again-why": "Forgets this network and shows the setup code",
+      "tab-wireless": "Wireless", "tab-wired": "Wired",
+      "join": "Join", "look-again": "Look again", "back": "Back",
+      "apply": "Apply", "close": "Close", "yes": "Yes, do it", "no": "No, go back",
+      "password-for": "Password for", "locked": "locked",
+      "looking": "Looking for networks…", "nothing-in-range": "Nothing in range.",
+      "scan-failed": "The search did not work.",
+      "which-interface": "Which connection", "how-address": "How it gets an address",
+      "by-dhcp": "Ask the network (DHCP)", "by-address": "Use the address below",
+      "address-label": "Address and prefix", "gateway-label": "Gateway",
+      "dns-label": "Name servers, separated by spaces",
+      "ask-restart-browser": "Restart the browser? The screen goes black for a few seconds.",
+      "ask-restart-display": "Restart the screen? It rebuilds the display and takes longer.",
+      "ask-wireless": "Forget this wireless network and show the setup code?",
+      "doing-next": "Moving on.", "doing-reload": "Reloading.",
+      "doing-restart-browser": "Restarting the browser.",
+      "doing-restart-display": "Restarting the screen.",
+      "doing-wireless": "Setting up. The code will be on this screen in a moment.",
+      "doing-join": "Joining {0}. This screen may lose its connection for a moment.",
+      "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
+    },
+    zh: {
+      "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      "next": "显示下一项", "next-why": "立即切换到下一个内容",
+      "reload": "重新加载当前页面",
+      "reload-why": "适用于已停止更新的看板",
+      "network": "设置网络",
+      "network-why": "连接无线网络，或为此屏幕设置固定地址",
+      "restart-browser": "重启浏览器",
+      "restart-browser-why": "屏幕会黑屏几秒钟",
+      "restart-display": "重启显示",
+      "restart-display-why": "重建显示系统，耗时较长",
+      "wireless-again": "重新设置无线网络",
+      "wireless-again-why": "忘记当前网络并显示设置二维码",
+      "tab-wireless": "无线", "tab-wired": "有线",
+      "join": "连接", "look-again": "重新搜索", "back": "返回",
+      "apply": "应用", "close": "关闭", "yes": "确定", "no": "取消",
+      "password-for": "密码：", "locked": "加密",
+      "looking": "正在搜索网络…", "nothing-in-range": "附近没有可用网络。",
+      "scan-failed": "搜索失败。",
+      "which-interface": "选择网络接口", "how-address": "地址获取方式",
+      "by-dhcp": "自动获取（DHCP）", "by-address": "使用下面填写的地址",
+      "address-label": "地址和前缀长度", "gateway-label": "网关",
+      "dns-label": "DNS 服务器，用空格分隔",
+      "ask-restart-browser": "重启浏览器？屏幕会黑屏几秒钟。",
+      "ask-restart-display": "重启显示？将重建显示系统，耗时较长。",
+      "ask-wireless": "忘记当前无线网络并显示设置二维码？",
+      "doing-next": "正在切换。", "doing-reload": "正在重新加载。",
+      "doing-restart-browser": "正在重启浏览器。",
+      "doing-restart-display": "正在重启显示。",
+      "doing-wireless": "正在设置。稍后此屏幕上会显示设置二维码。",
+      "doing-join": "正在连接 {0}。此屏幕可能会短暂断开连接。",
+      "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
+    },
+    ja: {
+      "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
+      "reload": "表示中のページを再読み込み",
+      "reload-why": "更新が止まったダッシュボード向け",
+      "network": "ネットワークを設定",
+      "network-why": "無線ネットワークに接続、またはこの画面に固定アドレスを設定します",
+      "restart-browser": "ブラウザを再起動",
+      "restart-browser-why": "画面が数秒間暗くなります",
+      "restart-display": "ディスプレイを再起動",
+      "restart-display-why": "表示システムを作り直します。少し時間がかかります",
+      "wireless-again": "無線を設定し直す",
+      "wireless-again-why": "現在のネットワークを削除し、設定用コードを表示します",
+      "tab-wireless": "無線", "tab-wired": "有線",
+      "join": "接続", "look-again": "再検索", "back": "戻る",
+      "apply": "適用", "close": "閉じる", "yes": "実行する", "no": "やめる",
+      "password-for": "パスワード：", "locked": "保護",
+      "looking": "ネットワークを検索しています…", "nothing-in-range": "圏内にネットワークがありません。",
+      "scan-failed": "検索に失敗しました。",
+      "which-interface": "接続を選択", "how-address": "アドレスの取得方法",
+      "by-dhcp": "自動で取得する（DHCP）", "by-address": "下のアドレスを使う",
+      "address-label": "アドレスとプレフィックス", "gateway-label": "ゲートウェイ",
+      "dns-label": "DNSサーバー（スペース区切り）",
+      "ask-restart-browser": "ブラウザを再起動しますか？画面が数秒間暗くなります。",
+      "ask-restart-display": "ディスプレイを再起動しますか？表示システムを作り直すため、少し時間がかかります。",
+      "ask-wireless": "現在の無線ネットワークを削除して、設定用コードを表示しますか？",
+      "doing-next": "次に進みます。", "doing-reload": "再読み込みしています。",
+      "doing-restart-browser": "ブラウザを再起動しています。",
+      "doing-restart-display": "ディスプレイを再起動しています。",
+      "doing-wireless": "設定中です。まもなくこの画面に設定用コードが表示されます。",
+      "doing-join": "{0} に接続しています。この画面は一時的に接続が切れることがあります。",
+      "doing-wired": "{0} を設定しています。この画面は一時的に接続が切れることがあります。",
+    },
+  };
+
+  let language = "en";
+  try {
+    const remembered = localStorage.getItem("cue.language");
+    if (remembered && SAID[remembered]) language = remembered;
+  } catch (error) {
+    // A browser with storage switched off. English, then.
+  }
+
+  function say(key, ...values) {
+    const words = (SAID[language] || SAID.en)[key] || SAID.en[key] || key;
+    return values.reduce((text, value, index) =>
+      text.replace("{" + index + "}", value), words);
+  }
+
+  function speak(chosen) {
+    if (chosen) {
+      language = chosen;
+      try { localStorage.setItem("cue.language", chosen); } catch (error) {}
+    }
+    document.documentElement.lang = language;
+    document.querySelectorAll("[data-t]").forEach((node) => {
+      node.textContent = say(node.dataset.t);
+    });
+    document.querySelectorAll(".languages button").forEach((button) => {
+      button.className = button.dataset.language === language ? "on" : "";
+    });
+    // The parts drawn by script rather than markup.
+    if (chosenNetwork) document.getElementById("chosen").textContent = chosenNetwork;
+    // Captured once, and "captured" is its own flag: an empty network name is
+    // a real answer -- it means nothing is joined -- so testing the name
+    // itself for emptiness read the words "not connected" back as though they
+    // were the name of a network, and the second language never took.
+    const joined = document.getElementById("joined");
+    if (!joined.dataset.captured) {
+      joined.dataset.captured = "yes";
+      joined.dataset.ssid = joined.textContent.trim();
+    }
+    joined.textContent = joined.dataset.ssid || say("not-connected");
+    if (!scanned) showScanning();
+  }
+
+  document.querySelectorAll(".languages button").forEach((button) => {
+    button.addEventListener("click", () => speak(button.dataset.language));
+  });
+
   const actions = document.getElementById("actions");
   const confirm = document.getElementById("confirm");
   const question = document.getElementById("question");
   const working = document.getElementById("working");
+  const network = document.getElementById("network");
+  const panelWireless = document.getElementById("wireless");
+  const panelWired = document.getElementById("wired");
+  let chosenNetwork = null, chosenSecured = false, scanned = false;
 
-  // Held while this is open, so the screen does not rotate out from under
-  // somebody reading it.
   fetch("/api/v1/playlist/hold", { method: "POST" }).catch(() => {});
 
   function close() {
     fetch("/api/v1/playlist/release", { method: "POST" }).catch(() => {});
-    // The overlay belongs to the page underneath, which put it there.
     parent.postMessage("cue:close-menu", "*");
   }
 
-  const network = document.getElementById("network");
-  const panelWireless = document.getElementById("wireless");
-  const panelWired = document.getElementById("wired");
-  let chosenNetwork = null, chosenSecured = false;
-
   function openNetwork() {
-    actions.style.display = "none";
-    network.style.display = "block";
+    actions.hidden = true;
+    network.hidden = false;
     loadInterfaces();
     scan();
   }
 
   document.getElementById("back").addEventListener("click", () => {
-    network.style.display = "none";
-    actions.style.display = "grid";
+    network.hidden = true;
+    actions.hidden = false;
   });
 
   document.getElementById("tab-wireless").addEventListener("click", () => tab(true));
   document.getElementById("tab-wired").addEventListener("click", () => tab(false));
 
   function tab(wireless) {
-    panelWireless.style.display = wireless ? "block" : "none";
-    panelWired.style.display = wireless ? "none" : "block";
+    panelWireless.hidden = !wireless;
+    panelWired.hidden = wireless;
     document.getElementById("tab-wireless").className = wireless ? "on" : "";
     document.getElementById("tab-wired").className = wireless ? "" : "on";
   }
 
-  function scan() {
+  function showScanning() {
     const list = document.getElementById("networks");
-    list.innerHTML = "<p class=\"facts\">Looking for networks…</p>";
+    list.textContent = "";
+    const note = document.createElement("p");
+    note.className = "facts";
+    note.style.margin = "1.2vmin";
+    note.textContent = say("looking");
+    list.appendChild(note);
+  }
+
+  function scan() {
+    scanned = false;
+    showScanning();
+    const list = document.getElementById("networks");
     fetch("/api/v1/menu/network/scan", { method: "POST" })
       .then((answer) => answer.json())
       .then((found) => {
+        scanned = true;
         list.textContent = "";
         const networks = found.networks || [];
-        if (!networks.length) {
-          list.innerHTML = "<p class=\"facts\">Nothing in range.</p>";
-          return;
-        }
+        if (!networks.length) return note(list, say("nothing-in-range"));
         for (const one of networks) {
-          const button = document.createElement("button");
-          button.disabled = !one.joinable;
-          var bars = "";
-          for (var level = 1; level <= 4; level++) {
-            bars += "<i class=\"" + (level <= one.bars ? "on" : "") +
-              "\" style=\"height:" + (level * 0.55 + 0.6) + "vmin\"></i>";
-          }
-          button.innerHTML = "<span class=\"ssid\"></span>" +
-            (one.secured ? "<span class=\"lock\">locked</span>" : "") +
-            "<span class=\"bars\">" + bars + "</span>";
-          button.querySelector(".ssid").textContent = one.ssid;
-          button.addEventListener("click", () => {
-            list.querySelectorAll("button").forEach((other) => { other.className = ""; });
-            button.className = "on";
-            chosenNetwork = one.ssid;
-            chosenSecured = one.secured;
-            document.getElementById("chosen").textContent = one.ssid;
-            document.getElementById("secret").style.display = one.secured ? "block" : "none";
-            if (one.secured) document.getElementById("passphrase").focus();
-          });
-          list.appendChild(button);
+          list.appendChild(networkRow(one, list));
         }
       })
-      .catch(() => { list.innerHTML = "<p class=\"facts\">The scan did not work.</p>"; });
+      .catch(() => { scanned = true; list.textContent = ""; note(list, say("scan-failed")); });
+  }
+
+  function note(list, words) {
+    const line = document.createElement("p");
+    line.className = "facts";
+    line.style.margin = "1.2vmin";
+    line.textContent = words;
+    list.appendChild(line);
+  }
+
+  function networkRow(one, list) {
+    const button = document.createElement("button");
+    button.disabled = !one.joinable;
+
+    const name = document.createElement("span");
+    name.className = "ssid";
+    name.textContent = one.ssid;
+    button.appendChild(name);
+
+    if (one.secured) {
+      const lock = document.createElement("span");
+      lock.className = "lock";
+      lock.dataset.t = "locked";
+      lock.textContent = say("locked");
+      button.appendChild(lock);
+    }
+
+    const bars = document.createElement("span");
+    bars.className = "bars";
+    for (let level = 1; level <= 4; level++) {
+      const bar = document.createElement("i");
+      if (level <= one.bars) bar.className = "on";
+      bar.style.height = (level * 0.55 + 0.6) + "vmin";
+      bars.appendChild(bar);
+    }
+    button.appendChild(bars);
+
+    button.addEventListener("click", () => {
+      list.querySelectorAll("button").forEach((other) => { other.className = ""; });
+      button.className = "on";
+      chosenNetwork = one.ssid;
+      chosenSecured = one.secured;
+      document.getElementById("chosen").textContent = one.ssid;
+      document.getElementById("secret").hidden = !one.secured;
+      if (one.secured) document.getElementById("passphrase").focus();
+    });
+    return button;
   }
 
   document.getElementById("rescan").addEventListener("click", scan);
 
   document.getElementById("join").addEventListener("click", () => {
     if (!chosenNetwork) return;
-    say("Joining " + chosenNetwork + ". This screen may lose its connection for a moment.");
+    working_(say("doing-join", chosenNetwork));
     fetch("/api/v1/menu/network/wireless", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -360,7 +597,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
           const option = document.createElement("option");
           option.value = one.name;
           option.textContent = one.name + (one.addresses && one.addresses.length
-            ? "  ·  " + one.addresses.join(", ") : "  ·  no address");
+            ? "  ·  " + one.addresses.join(", ") : "");
           chooser.appendChild(option);
         }
       })
@@ -368,15 +605,14 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   }
 
   document.getElementById("wired-method").addEventListener("change", (event) => {
-    document.getElementById("fixed").style.display =
-      event.target.value === "static" ? "block" : "none";
+    document.getElementById("fixed").hidden = event.target.value !== "static";
   });
 
   document.getElementById("apply").addEventListener("click", () => {
     const name = document.getElementById("wired-interface").value;
     if (!name) return;
     const dns = document.getElementById("wired-dns").value.trim();
-    say("Setting up " + name + ". This screen may lose its connection for a moment.");
+    working_(say("doing-wired", name));
     fetch("/api/v1/menu/network/wired", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -390,25 +626,23 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     }).catch(() => {}).finally(() => setTimeout(close, 2500));
   });
 
-  function say(what) {
-    network.style.display = "none";
-    actions.style.display = "none";
-    working.style.display = "block";
-    working.textContent = what;
+  function working_(words) {
+    network.hidden = true;
+    actions.hidden = true;
+    confirm.hidden = true;
+    working.hidden = false;
+    working.textContent = words;
   }
 
   const doing = {
-    "next": { call: "/api/v1/playlist/next", ask: null, said: "Moving on." },
-    "reload": { call: "/api/v1/menu/reload", ask: null, said: "Reloading." },
+    "next": { call: "/api/v1/playlist/next", ask: null, said: "doing-next" },
+    "reload": { call: "/api/v1/menu/reload", ask: null, said: "doing-reload" },
     "restart-browser": { call: "/api/v1/menu/restart/browser",
-      ask: "Restart the browser? The screen goes black for a few seconds.",
-      said: "Restarting the browser." },
+      ask: "ask-restart-browser", said: "doing-restart-browser" },
     "restart-display": { call: "/api/v1/menu/restart/display",
-      ask: "Restart the screen? It rebuilds the display and takes longer.",
-      said: "Restarting the screen." },
+      ask: "ask-restart-display", said: "doing-restart-display" },
     "wireless": { call: "/api/v1/wireless/reset",
-      ask: "Forget this wireless network and show the setup code?",
-      said: "Setting up. The code will be on this screen in a moment." },
+      ask: "ask-wireless", said: "doing-wireless" },
   };
 
   actions.addEventListener("click", (event) => {
@@ -418,24 +652,20 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
     const what = doing[button.dataset.do];
     if (!what) return;
-
     if (!what.ask) return run(what);
 
-    question.textContent = what.ask;
-    actions.style.display = "none";
-    confirm.style.display = "block";
+    question.textContent = say(what.ask);
+    actions.hidden = true;
+    confirm.hidden = false;
     document.getElementById("yes").onclick = () => run(what);
     document.getElementById("no").onclick = () => {
-      confirm.style.display = "none";
-      actions.style.display = "grid";
+      confirm.hidden = true;
+      actions.hidden = false;
     };
   });
 
   function run(what) {
-    actions.style.display = "none";
-    confirm.style.display = "none";
-    working.style.display = "block";
-    working.textContent = what.said;
+    working_(say(what.said));
     fetch(what.call, { method: "POST" })
       .catch(() => {})
       .finally(() => setTimeout(close, 1200));
@@ -443,6 +673,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
   document.getElementById("dismiss").addEventListener("click", close);
   window.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
+
+  speak();
 </script>
 </body>
 </html>

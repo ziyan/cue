@@ -52,6 +52,7 @@ ENV PACKAGES="\
     wpasupplicant iw wireless-regdb \
     libgl1-mesa-dri mesa-va-drivers libglx-mesa0 libvulkan1 \
     fonts-liberation2 fonts-dejavu-core fonts-noto-color-emoji fontconfig \
+    fonts-noto-cjk \
     ca-certificates libnss3-tools tzdata"
 
 # Two X drivers exist only for x86, and asking for them on any other

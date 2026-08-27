@@ -328,3 +328,82 @@ func TestTheWayBackOnlyInstallsItselfOnce(t *testing.T) {
 		t.Error("the script does not guard against being added twice")
 	}
 }
+
+// Somebody in a room in Osaka should not have to read English to put their
+// screen back on the wireless, so the menu speaks three languages and switches
+// between them on the spot.
+func TestTheMenuSpeaksThreeLanguages(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	for _, language := range []string{`data-language="en"`, `data-language="zh"`, `data-language="ja"`} {
+		if !strings.Contains(body, language) {
+			t.Errorf("the menu does not offer %s", language)
+		}
+	}
+	// A few words from each, so that an empty dictionary would fail here.
+	for _, words := range []string{"Set up the network", "设置网络", "ネットワークを設定"} {
+		if !strings.Contains(body, words) {
+			t.Errorf("the menu does not say %q", words)
+		}
+	}
+}
+
+// Every phrase must exist in every language, or switching leaves somebody
+// looking at a mixture -- or at the key itself, which is worse.
+func TestEveryPhraseExistsInEveryLanguage(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	said := body[strings.Index(body, "const SAID = {"):]
+	said = said[:strings.Index(said, "\n  };")]
+
+	keys := map[string]map[string]bool{}
+	language := ""
+	for _, line := range strings.Split(said, "\n") {
+		trimmed := strings.TrimSpace(line)
+		for _, name := range []string{"en:", "zh:", "ja:"} {
+			if strings.HasPrefix(trimmed, name) {
+				language = strings.TrimSuffix(name, ":")
+				keys[language] = map[string]bool{}
+			}
+		}
+		if language == "" {
+			continue
+		}
+		for _, piece := range strings.Split(trimmed, `"`) {
+			// A key is what appears immediately before a colon.
+			if index := strings.Index(trimmed, `"`+piece+`":`); index >= 0 && piece != "" {
+				keys[language][piece] = true
+			}
+		}
+	}
+
+	if len(keys) != 3 {
+		t.Fatalf("found %d languages, want 3", len(keys))
+	}
+	for _, language := range []string{"zh", "ja"} {
+		for phrase := range keys["en"] {
+			if !keys[language][phrase] {
+				t.Errorf("%q is missing from %s", phrase, language)
+			}
+		}
+	}
+}
+
+// The template's keys and the dictionary have to agree. A key in the markup
+// with nothing behind it shows the key itself on the screen.
+func TestEveryKeyInTheMarkupHasWordsBehindIt(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	said := body[strings.Index(body, `en: {`):]
+	said = said[:strings.Index(said, "\n    },")]
+
+	for _, piece := range strings.Split(body, `data-t="`)[1:] {
+		key := piece[:strings.Index(piece, `"`)]
+		if !strings.Contains(said, `"`+key+`":`) {
+			t.Errorf("the markup asks for %q and the dictionary has no such phrase", key)
+		}
+	}
+}
