@@ -1,7 +1,9 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/op/go-logging"
@@ -24,6 +26,12 @@ type Store struct {
 
 	watchersMutex sync.Mutex
 	watchers      []chan *Configuration
+
+	// What the file looked like when this store last read or wrote it, so
+	// that the daemon's own writes can be told from somebody editing.
+	digestMutex sync.Mutex
+	digest      [32]byte
+	digestKnown bool
 }
 
 // Open reads the configuration file and returns a store over it.
@@ -32,7 +40,9 @@ func Open(filename string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{filename: filename, current: configuration}, nil
+	store := &Store{filename: filename, current: configuration}
+	store.remember()
+	return store, nil
 }
 
 // OpenWith returns a store over a configuration that is already in hand,
@@ -78,6 +88,7 @@ func (self *Store) Update(change func(configuration *Configuration) error) error
 	self.current = updated
 	self.mutex.Unlock()
 
+	self.remember()
 	self.notify(updated)
 	return nil
 }
@@ -96,9 +107,36 @@ func (self *Store) Reload() error {
 	self.current = reloaded
 	self.mutex.Unlock()
 
+	self.remember()
 	log.Noticef("reloaded %s", self.filename)
 	self.notify(reloaded)
 	return nil
+}
+
+// TidyIfStale rewrites the file when what is in it is not what this version
+// would write, and reports whether it did.
+//
+// Two things make a file stale. It may hold settings this version does not
+// have, which are read, reported once and then dropped. And it may hold
+// settings that match the default, which older versions wrote out in full --
+// leaving a hundred-line file for a device that was told two things, and
+// freezing those defaults for ever, because a value written down is a value
+// chosen as far as anything can tell.
+//
+// Nothing about the configuration changes; only what the file says about it.
+func (self *Store) TidyIfStale() (bool, error) {
+	wanted, err := self.Current().Marshal()
+	if err != nil {
+		return false, err
+	}
+	existing, err := os.ReadFile(self.filename)
+	if err == nil && bytes.Equal(existing, wanted) {
+		return false, nil
+	}
+	if err := self.Rewrite(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Rewrite writes the configuration in force back to its file, unchanged.
@@ -120,6 +158,8 @@ func (self *Store) Rewrite() error {
 	// They are gone from the file, so they are no longer anything to report.
 	current.IgnoredSettings = nil
 	self.mutex.Unlock()
+
+	self.remember()
 	return nil
 }
 

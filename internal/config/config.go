@@ -186,13 +186,29 @@ func (self *Configuration) Normalize() {
 // explaining what the file is. A machine write cannot preserve comments a
 // person wrote, so the header is re-emitted every time and every list entry
 // has a place to put a note that does survive.
+//
+// Only what differs from the default is written. See prune.go for why.
 func (self *Configuration) Marshal() ([]byte, error) {
+	chosen, err := self.withoutDefaults()
+	if err != nil {
+		return nil, err
+	}
+
 	var buffer bytes.Buffer
 	buffer.WriteString(fileHeader)
 
+	if chosen == nil {
+		// A device that has been told nothing. An empty mapping is a valid
+		// configuration and reads back correctly; saying so out loud is
+		// kinder than a file that looks like it failed to write.
+		buffer.WriteString("# Nothing here differs from the defaults. cue.yaml.example,\n" +
+			"# beside this file, shows every setting and what it starts as.\n{}\n")
+		return buffer.Bytes(), nil
+	}
+
 	encoder := yaml.NewEncoder(&buffer)
 	encoder.SetIndent(2)
-	if err := encoder.Encode(self); err != nil {
+	if err := encoder.Encode(chosen); err != nil {
 		return nil, fmt.Errorf("config: encode: %w", err)
 	}
 	if err := encoder.Close(); err != nil {
@@ -279,10 +295,13 @@ const fileHeader = `# cue.yaml — the configuration for one display.
 # it and does not keep comments, so put anything you want to remember in the
 # "title" of a playlist item or the "location" of the device.
 #
-# After editing by hand, send the daemon SIGHUP (or restart the container) to
-# apply the change:
+# An edit is noticed and applied within a second or so; there is nothing to
+# send and nothing to restart. A file that does not parse is refused and the
+# screen carries on with what it had.
 #
-#     docker kill --signal HUP cue
+# Only what somebody chose is written here. A setting that matches the default
+# is left out, which is why this file is short. cue.yaml.example, beside it,
+# lists every setting and what it is when nobody says otherwise.
 #
 # Documentation: docs/reference/configuration.md
 #

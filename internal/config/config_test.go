@@ -419,3 +419,55 @@ func TestTheCurrentUploadLimitWinsOverTheOldOne(t *testing.T) {
 			configuration.Playlist.MaximumUploadSize)
 	}
 }
+
+// The example beside the real file has to describe the version running, and
+// has to do nothing at all if somebody copies it into place by mistake.
+func TestTheExampleIsEntirelyCommentedOut(t *testing.T) {
+	content, err := Example()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for number, line := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		t.Errorf("line %d is not commented out: %q", number+1, line)
+	}
+
+	// It is only useful if it actually lists things.
+	for _, wanted := range []string{"device:", "playlist:", "network:", "browser:", "watchdog:"} {
+		if !strings.Contains(string(content), wanted) {
+			t.Errorf("the example does not mention %q", wanted)
+		}
+	}
+}
+
+// Read as a configuration, the example must be empty rather than a second
+// opinion about what the settings are.
+func TestTheExampleParsesAsNothing(t *testing.T) {
+	content, err := Example()
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := Parse(content)
+	if err != nil {
+		t.Fatalf("the example does not parse: %s", err)
+	}
+	if configuration.Device.Name != Default().Device.Name {
+		t.Error("the example carries settings of its own")
+	}
+}
+
+// Showing a device identifier would invite somebody to copy it, and two
+// devices calling themselves the same thing is a confusing thing to chase.
+func TestTheExampleCarriesNoIdentifier(t *testing.T) {
+	content, err := Example()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `identifier: ""`) {
+		t.Error("the example shows an identifier, which somebody will copy")
+	}
+}

@@ -61,13 +61,22 @@ func runDaemon(ctx context.Context, command *cli.Command) error {
 	// Counted before the rewrite, not after: rewriting clears the list on this
 	// same configuration, so counting it afterwards always reports nothing
 	// removed. What was removed has just been logged, a warning apiece.
-	if removed := len(configuration.IgnoredSettings); removed > 0 {
-		if err := store.Rewrite(); err != nil {
-			log.Warningf("cannot tidy %s: %s", filename, err)
-		} else {
-			log.Noticef("removed %d setting(s) this version does not have from %s",
-				removed, filename)
-		}
+	removed := len(configuration.IgnoredSettings)
+	tidied, err := store.TidyIfStale()
+	switch {
+	case err != nil:
+		log.Warningf("cannot tidy %s: %s", filename, err)
+	case tidied && removed > 0:
+		log.Noticef("tidied %s, removing %d setting(s) this version does not have",
+			filename, removed)
+	case tidied:
+		log.Noticef("tidied %s: it held settings that are only the defaults", filename)
+	}
+
+	// Written beside the real file at every start, so it always describes the
+	// version actually running.
+	if err := config.WriteExample(filename); err != nil {
+		log.Warningf("cannot write the example configuration: %s", err)
 	}
 
 	log.Noticef("starting cue %s", version.String())

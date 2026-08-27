@@ -293,9 +293,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 
 	self.startProcesses(ctx, configuration)
 
-	// SIGHUP re-reads the configuration file. This is how somebody who has
-	// edited it over SSH applies the change without restarting the container
-	// and blanking the screen.
+	// SIGHUP re-reads the configuration file. The file is also watched, so an
+	// edit is picked up without this; the signal is kept for anybody who has
+	// it in their fingers, and for the case where watching could not be set
+	// up.
 	hangups := make(chan os.Signal, 1)
 	signal.Notify(hangups, syscall.SIGHUP)
 	defer signal.Stop(hangups)
@@ -320,6 +321,11 @@ func (self *Daemon) Run(ctx context.Context) error {
 	go func() {
 		defer deferutil.Recover()
 		self.considerOnboarding(ctx)
+	}()
+
+	go func() {
+		defer deferutil.Recover()
+		self.watchConfiguration(ctx)
 	}()
 
 	self.watchdog.Start(ctx)
