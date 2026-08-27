@@ -279,3 +279,17 @@ td.right, th.right { text-align: right; padding-right: 0; }
   header.bar { padding: 0.35rem 0.6rem; }
   .viewer { height: calc(100dvh - 6.5rem); }
 }
+
+/* Sending a video to the device. The bar matters more than it looks: a sixty
+   megabyte upload over wireless is long enough that a person watching a button
+   do nothing decides it has hung, and presses it again. */
+.uploading { flex: 1 1 100%; margin-top: 0.75rem; }
+.uploading p { margin: 0.25rem 0 0; font-size: 0.9rem; }
+.progress {
+  height: 0.5rem; border-radius: 999px; overflow: hidden;
+  background: var(--border); margin-bottom: 0.4rem;
+}
+.progress .bar {
+  height: 100%; width: 0; background: var(--accent);
+  transition: width 0.2s ease;
+}

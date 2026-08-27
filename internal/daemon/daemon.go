@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/deferutil"
 	"github.com/ziyan/cue/internal/util/reaper"
+	"github.com/ziyan/cue/internal/video"
 	"github.com/ziyan/cue/internal/vncserver"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/web"
@@ -47,6 +49,7 @@ type Daemon struct {
 	timesync   *timesync.Client
 	network    *network.Manager
 	onboarding *onboarding.Onboarding
+	videos     *video.Store
 	watchdog   *watchdog.Watchdog
 
 	web *web.Server
@@ -242,6 +245,13 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
+	if videos, err := video.Open(filepath.Join(configuration.Paths.State, "videos")); err != nil {
+		log.Warningf("videos cannot be stored on this device: %s", err)
+	} else {
+		self.videos = videos
+		self.web = self.web.WithVideos(videos)
+		self.sweepVideos()
+	}
 	// The setup page has to be reachable on port 80 of the setup network,
 	// because that is the only place a phone looks.
 	self.onboarding.ServePortalWith(self.web.ServeSetupPort)
@@ -635,4 +645,33 @@ func managedWireless(configuration *config.Configuration, interfaceName string) 
 		}
 	}
 	return false
+}
+
+// sweepVideos deletes uploaded videos that no playlist item refers to.
+//
+// It runs at startup and after every accepted change to the configuration,
+// because deleting an item is exactly when its video stops being wanted. A
+// device nobody logs into would otherwise accumulate every video ever put on
+// it until its disk filled, and the first anybody would know of it is a screen
+// that stopped working.
+func (self *Daemon) sweepVideos() {
+	if self.videos == nil {
+		return
+	}
+
+	var wanted []string
+	for _, item := range self.store.Current().Playlist.Items {
+		if item.Video != nil && item.Video.File != "" {
+			wanted = append(wanted, item.Video.File)
+		}
+	}
+
+	removed, err := self.videos.Sweep(wanted)
+	if err != nil {
+		log.Warningf("cannot tidy up unused videos: %s", err)
+		return
+	}
+	if len(removed) > 0 {
+		log.Noticef("removed %d video(s) nothing refers to any more", len(removed))
+	}
 }

@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ziyan/cue/internal/config"
 )
@@ -67,5 +68,77 @@ func TestTheScreenIsGivenToSetupEvenWhenThereIsAPlaylist(t *testing.T) {
 	planned := browser.plannedItems()
 	if len(planned) != 1 || planned[0].Identifier != holdingIdentifier {
 		t.Fatalf("while being set up the screen shows %+v, want only the holding page", planned)
+	}
+}
+
+// A video item is shown by pointing the browser at the daemon's own player
+// page, which is what knows how to fill a screen with one video.
+func TestAVideoItemIsShownThroughThePlayerPage(t *testing.T) {
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Web.Listen = "0.0.0.0:9090"
+		configuration.Playlist.Items = []config.Item{
+			{Identifier: "promo", Video: &config.ItemVideo{File: "0123456789abcdef0123456789abcdef"}},
+			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
+		}
+	})
+
+	planned := browser.plannedItems()
+	if len(planned) != 2 {
+		t.Fatalf("the screen shows %d item(s), want 2", len(planned))
+	}
+	if want := "http://127.0.0.1:9090/play/promo"; planned[0].URL != want {
+		t.Errorf("the video item points at %q, want %q", planned[0].URL, want)
+	}
+	if planned[1].URL != "http://dashboard.example.com/" {
+		t.Errorf("the page item was rewritten to %q", planned[1].URL)
+	}
+}
+
+// A video stays on screen until it ends, and the page playing it says when.
+// Rotating it away on the ordinary interval would cut a long video off part
+// way and leave a short one frozen on its last frame.
+func TestAVideoIsNotRotatedAwayOnTheClock(t *testing.T) {
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Playlist.Interval = config.Duration(30 * time.Second)
+		configuration.Playlist.Items = []config.Item{
+			{Identifier: "promo", Video: &config.ItemVideo{File: "0123456789abcdef0123456789abcdef"}},
+			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
+		}
+	})
+
+	browser.mutex.Lock()
+	browser.current = "promo"
+	browser.currentSince = time.Now()
+	browser.mutex.Unlock()
+	if got := browser.currentDuration(); got != 0 {
+		t.Errorf("a video item is given %s on screen; it should stay until it ends", got)
+	}
+
+	browser.mutex.Lock()
+	browser.current = "dashboard"
+	browser.currentSince = time.Now()
+	browser.mutex.Unlock()
+	if got := browser.currentDuration(); got <= 0 {
+		t.Errorf("a page item is given %s on screen, so the playlist would never rotate", got)
+	}
+}
+
+// An operator who sets a time on a video item means it: it wins over waiting
+// for the end, which is how somebody clips a long video short.
+func TestAVideoWithATimeSetKeepsThatTime(t *testing.T) {
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Playlist.Items = []config.Item{
+			{Identifier: "promo", Duration: config.Duration(10 * time.Second),
+				Video: &config.ItemVideo{File: "0123456789abcdef0123456789abcdef"}},
+			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
+		}
+	})
+
+	browser.mutex.Lock()
+	browser.current = "promo"
+	browser.currentSince = time.Now()
+	browser.mutex.Unlock()
+	if got := browser.currentDuration(); got <= 0 || got > 10*time.Second {
+		t.Errorf("a video given ten seconds is given %s", got)
 	}
 }

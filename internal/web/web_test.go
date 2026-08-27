@@ -16,6 +16,7 @@ import (
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
+	"github.com/ziyan/cue/internal/video"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/xserver"
 )
@@ -91,7 +92,11 @@ func newTestServer(t *testing.T, configuration *config.Configuration) *Server {
 	configuration.Normalize()
 
 	store := config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration)
-	return New(store, newFakeDevice(t, store))
+	videos, err := video.Open(filepath.Join(t.TempDir(), "videos"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(store, newFakeDevice(t, store)).WithVideos(videos)
 }
 
 func TestHealthIsAnsweredWithoutASession(t *testing.T) {

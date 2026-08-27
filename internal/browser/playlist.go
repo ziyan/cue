@@ -212,10 +212,20 @@ func (self *Browser) currentDuration() time.Duration {
 
 	duration := self.configuration.Playlist.Interval.Duration()
 	for _, item := range items {
-		if item.Identifier == current && item.Duration > 0 {
-			duration = item.Duration.Duration()
-			break
+		if item.Identifier != current {
+			continue
 		}
+		if item.Video != nil && item.Duration <= 0 {
+			// A video stays until it ends, and the page playing it says when
+			// that is. Rotating it away on the ordinary interval would cut a
+			// long video off part way and leave a short one frozen on its last
+			// frame for the rest of the interval.
+			return 0
+		}
+		if item.Duration > 0 {
+			duration = item.Duration.Duration()
+		}
+		break
 	}
 	if duration <= 0 {
 		return 0
@@ -497,6 +507,14 @@ func (self *Browser) Refresh(ctx context.Context) {
 func (self *Browser) plannedItems() []config.Item {
 	items := self.enabledItems()
 	if len(items) > 0 && !self.settingUp() {
+		// A video item is shown by pointing the browser at the daemon's own
+		// player page, which is what knows how to fill the screen with one
+		// video and say when it has ended.
+		for index := range items {
+			if items[index].Video != nil {
+				items[index].URL = self.playerURL(items[index].Identifier)
+			}
+		}
 		return items
 	}
 
@@ -512,4 +530,24 @@ func (self *Browser) plannedItems() []config.Item {
 	// device in that state has no network, so whatever the playlist points at
 	// would not load anyway.
 	return []config.Item{{Identifier: holdingIdentifier, URL: self.holdingPageURL()}}
+}
+
+// ShowNext moves to the item after the one on screen.
+//
+// It exists for a video: a video item stays on screen for exactly as long as
+// its video, and only the page playing it knows when that is. Nothing else in
+// the daemon knows how long a video runs, and finding out would mean reading
+// the file's headers -- which would still be a guess about a file somebody may
+// replace tomorrow.
+func (self *Browser) ShowNext(ctx context.Context) error {
+	return self.showNext(ctx)
+}
+
+// playerURL is the daemon's own page for playing one video item.
+func (self *Browser) playerURL(identifier string) string {
+	port := "8080"
+	if _, listenPort, err := splitPort(self.configuration.Web.Listen); err == nil && listenPort != "" {
+		port = listenPort
+	}
+	return "http://127.0.0.1:" + port + "/play/" + identifier
 }

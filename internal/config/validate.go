@@ -43,6 +43,12 @@ func (self Problems) Error() string {
 // Validate reports every problem with the configuration. A configuration that
 // validates is one the daemon is willing to run; it is not a promise that the
 // hardware exists, because a monitor that is unplugged is not a mistake.
+// storedVideo is what a stored video is named: a digest of its own contents,
+// hexadecimal and nothing else. Checking it here as well as in the store means
+// a hand-edited configuration file is refused with a sentence rather than
+// producing a screen that shows nothing.
+var storedVideo = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
 func (self *Configuration) Validate() error {
 	if !self.Network.Onboarding.Valid() {
 		return fmt.Errorf("config: network.onboarding is %q; it must be auto, always or off",
@@ -149,7 +155,19 @@ func (self *Configuration) Validate() error {
 			}
 			seenItems[item.Identifier] = true
 		}
-		if item.URL == "" {
+		if item.Video != nil {
+			// A video item has no address: the daemon points the browser at
+			// its own player page. What it must have is the file, which is
+			// what the video was stored under.
+			if item.Video.File == "" {
+				add(path+".video.file", "must not be empty")
+			} else if !storedVideo.MatchString(item.Video.File) {
+				add(path+".video.file", "%q is not a video stored on this device", item.Video.File)
+			}
+			if item.URL != "" {
+				add(path+".url", "a video item has no address; remove it or remove the video")
+			}
+		} else if item.URL == "" {
 			add(path+".url", "must not be empty")
 		} else if parsed, err := url.Parse(item.URL); err != nil {
 			add(path+".url", "%q is not a valid address: %s", item.URL, err)
@@ -159,6 +177,7 @@ func (self *Configuration) Validate() error {
 		if item.Duration < 0 {
 			add(path+".duration", "must not be negative")
 		}
+
 		if item.Login != nil {
 			validateLogin(item.Login, path+".login", add)
 		}

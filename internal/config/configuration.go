@@ -305,6 +305,27 @@ type Browser struct {
 	ExtraArguments []string `yaml:"extraArguments,omitempty" json:"extraArguments"`
 }
 
+// ItemVideo is a video stored on this device.
+type ItemVideo struct {
+	// File is what the video is stored under, which is a digest of its own
+	// contents. It is not a name anybody chose and not one anybody reads.
+	File string `yaml:"file" json:"file"`
+
+	// Name is what the file was called when it was uploaded, so the interface
+	// has something to show that is not hexadecimal.
+	Name string `yaml:"name,omitempty" json:"name"`
+
+	// Sound plays this video with its sound. Off by default, and per item on
+	// purpose: a screen on a wall that starts making noise because somebody
+	// added a video is a bad surprise, and the obvious case -- one promotional
+	// video with music among several silent dashboards -- cannot be expressed
+	// by a single setting for the whole device.
+	//
+	// The device's own audio settings still apply. A device with sound
+	// switched off stays silent whatever an item asks for.
+	Sound bool `yaml:"sound,omitempty" json:"sound"`
+}
+
 // Playlist is what the screen shows.
 type Playlist struct {
 	// Interval is how long each item is shown when it does not say otherwise.
@@ -312,6 +333,12 @@ type Playlist struct {
 	Interval Duration `yaml:"interval" json:"interval"`
 
 	Items []Item `yaml:"items" json:"items"`
+
+	// MaximumVideoSize is the largest video that may be uploaded. It is here
+	// rather than fixed in the code because the sensible answer depends on the
+	// disk of the machine, and the machine is one nobody logs into to find out
+	// that it is full.
+	MaximumVideoSize int64 `yaml:"maximumVideoSize" json:"maximumVideoSize"`
 }
 
 // Item is one page in the rotation.
@@ -337,6 +364,11 @@ type Item struct {
 	// Disabled keeps the item in the configuration but out of the rotation,
 	// which is what an operator wants while a site is down for maintenance.
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled"`
+
+	// Video, when set, makes this item a video the operator uploaded rather
+	// than a page on the web. URL is ignored for such an item: the daemon
+	// points the browser at its own player page instead.
+	Video *ItemVideo `yaml:"video,omitempty" json:"video"`
 
 	// Login, when set, keeps this item logged in. See Login.
 	Login *Login `yaml:"login,omitempty" json:"login"`

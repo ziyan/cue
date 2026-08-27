@@ -26,6 +26,7 @@ import (
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
+	"github.com/ziyan/cue/internal/video"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/xserver"
 )
@@ -101,6 +102,8 @@ type Server struct {
 	device  Device
 	metrics *hardware.Collector
 
+	videos *video.Store
+
 	router   *mux.Router
 	listener net.Listener
 	server   *http.Server
@@ -117,6 +120,14 @@ func New(store *config.Store, device Device) *Server {
 		router:  mux.NewRouter(),
 	}
 	self.addRoutes()
+	return self
+}
+
+// WithVideos gives the server the store uploaded videos live in. Without one
+// it refuses uploads and serves no videos, which is what a daemon that could
+// not create the directory should do.
+func (self *Server) WithVideos(store *video.Store) *Server {
+	self.videos = store
 	return self
 }
 
@@ -189,6 +200,12 @@ func (self *Server) addRoutes() {
 	// added and removed as setup starts and stops: a router cannot be changed
 	// safely while it is serving, and a guard cannot get out of step with the
 	// state it guards.
+	// The player page and the videos themselves. The browser on this device
+	// has no session and never will, so these let it through and ask everybody
+	// else for one.
+	self.router.Path("/play/{item}").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.play))
+	self.router.Path("/videos/{file}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(self.localOrSession(self.serveVideo))
+
 	self.router.Path("/portal").Methods(http.MethodGet).HandlerFunc(self.onboardingOrNotFound(self.portal))
 	for _, probe := range captiveProbePaths {
 		self.router.Path(probe).Methods(http.MethodGet).HandlerFunc(self.onboardingOrNotFound(self.captiveProbe))
@@ -223,6 +240,13 @@ func (self *Server) addRoutes() {
 	guarded.Path("/network").Methods(http.MethodGet).HandlerFunc(self.networkState)
 	guarded.Path("/network/scan/{interface}").Methods(http.MethodPost).HandlerFunc(self.scanWireless)
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)
+	guarded.Path("/videos").Methods(http.MethodGet).HandlerFunc(self.listVideos)
+	guarded.Path("/videos").Methods(http.MethodPost).HandlerFunc(self.uploadVideo)
+
+	// Moving to the next item is how the player says its video has ended, so
+	// it has to be reachable by the browser on this device, which has no
+	// session.
+	api.Path("/playlist/next").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.showNext))
 
 	// Everything else is the interface itself.
 	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)

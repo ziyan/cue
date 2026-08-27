@@ -56,6 +56,10 @@ func (self *Daemon) arrangeDisplay(ctx context.Context) {
 			log.Noticef("the screens attached to this machine have changed: %s", fingerprint)
 		}
 		self.applyLayout(ctx)
+
+		// Deleting an item is exactly when its video stops being wanted, and this
+		// is where a deleted item is noticed.
+		self.sweepVideos()
 	}
 }
 

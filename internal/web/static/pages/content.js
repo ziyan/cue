@@ -42,7 +42,12 @@ export function content(main) {
       h("div", { class: "row" },
         field("Seconds on each page", "number", secondsOf(configuration.playlist.interval), (value) => {
           configuration.playlist.interval = `${Math.max(0, parseInt(value, 10) || 0)}s`;
-        }, "0 shows the first page and never moves on")),
+        }, "0 shows the first page and never moves on"),
+        field("Largest video, in MB", "number",
+          Math.round((configuration.playlist.maximumVideoSize || 0) / (1024 * 1024)), (value) => {
+            const megabytes = Math.max(1, parseInt(value, 10) || 0);
+            configuration.playlist.maximumVideoSize = megabytes * 1024 * 1024;
+          }, "Uploads larger than this are refused, so one file cannot fill the disk")),
     ));
 
     const items = configuration.playlist.items || [];
@@ -56,11 +61,80 @@ export function content(main) {
             configuration.playlist.items = items;
             draw();
           },
-        }, "Add a page"))));
+        }, "Add a page"),
+        h("button", { onClick: () => chooseVideo(items) }, "Add a video"),
+        uploading)));
 
     body.append(h("div", { class: "actions" },
       h("button", { class: "primary", onClick: save }, "Save"),
       h("button", { onClick: load }, "Discard changes")));
+  }
+
+  // uploading is the progress bar, kept between draws so that redrawing the
+  // page while a video is on its way does not lose it.
+  const uploading = h("div", { class: "uploading" });
+
+  // chooseVideo asks for a file and sends it to the device.
+  //
+  // XMLHttpRequest rather than fetch, because fetch cannot report how far an
+  // upload has got. A sixty megabyte video over wireless takes long enough
+  // that somebody watching a button do nothing concludes it has hung, and the
+  // next thing they do is press it again.
+  function chooseVideo(items) {
+    const chooser = h("input", { type: "file", accept: "video/*" });
+    chooser.addEventListener("change", () => {
+      const file = chooser.files && chooser.files[0];
+      if (!file) return;
+      uploadVideo(file, items);
+    });
+    chooser.click();
+  }
+
+  function uploadVideo(file, items) {
+    clear(uploading);
+    const bar = h("div", { class: "bar" });
+    const label = h("span", { class: "dim", text: `Sending ${file.name}…` });
+    uploading.append(h("div", { class: "progress" }, bar), label);
+
+    const body = new FormData();
+    body.append("file", file);
+
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/v1/videos");
+    request.upload.addEventListener("progress", (event) => {
+      if (!event.lengthComputable) return;
+      const done = Math.round((event.loaded / event.total) * 100);
+      bar.style.width = `${done}%`;
+      label.textContent = `Sending ${file.name}… ${done}%`;
+    });
+    request.addEventListener("load", () => {
+      if (request.status !== 200) {
+        let reason = request.statusText;
+        try {
+          reason = JSON.parse(request.responseText).error || reason;
+        } catch (error) {
+          // The body was not JSON, so the status is all there is to say.
+        }
+        clear(uploading);
+        uploading.append(h("p", { class: "bad", text: `Could not send that video: ${reason}` }));
+        return;
+      }
+      const stored = JSON.parse(request.responseText);
+      items.push({
+        title: "",
+        disabled: false,
+        video: { file: stored.file, name: stored.name, sound: false },
+      });
+      configuration.playlist.items = items;
+      clear(uploading);
+      uploading.append(h("p", { class: "dim", text: `${stored.name} is on this device. Save to start showing it.` }));
+      draw();
+    });
+    request.addEventListener("error", () => {
+      clear(uploading);
+      uploading.append(h("p", { class: "bad", text: "The upload did not reach the device." }));
+    });
+    request.send(body);
   }
 
   function itemCard(item, index, items) {
@@ -71,10 +145,14 @@ export function content(main) {
       draw();
     };
 
+    const video = item.video || null;
+
     return h("div", { class: "item" },
       h("header", {},
         h("span", { class: "handle", text: `${index + 1}.` }),
-        h("span", { class: "title truncate", text: item.title || item.url || "New page" }),
+        h("span", { class: "title truncate",
+          text: item.title || (video ? video.name : item.url) || "New page" }),
+        video ? h("span", { class: "pill", text: "Video" }) : null,
         item.identifier
           ? h("button", { onClick: () => api.show(item.identifier).catch(() => {}) }, "Show now")
           : null,
@@ -88,21 +166,32 @@ export function content(main) {
           },
         }, "Remove")),
 
-      h("div", { class: "row" },
-        field("Address", "url", item.url, (value) => { item.url = value; }),
-        field("Name (optional)", "text", item.title, (value) => { item.title = value; })),
+      video
+        ? h("div", {},
+            h("div", { class: "row" },
+              field("Name (optional)", "text", item.title, (value) => { item.title = value; },
+                `The file is ${video.name}`)),
+            h("div", { class: "row" },
+              h("div", {},
+                checkbox("Play this video with its sound", video.sound, (value) => { video.sound = value; }),
+                checkbox("Skip this video for now", item.disabled, (value) => { item.disabled = value; }))),
+            h("p", { class: "dim", text: "It plays full screen and the screen moves on the moment it ends, so it needs no time on screen setting. Sound also needs this device's own sound to be switched on, on the Device page." }))
+        : h("div", {},
+            h("div", { class: "row" },
+              field("Address", "url", item.url, (value) => { item.url = value; }),
+              field("Name (optional)", "text", item.title, (value) => { item.title = value; })),
 
-      h("div", { class: "row" },
-        field("Seconds on screen", "number", secondsOf(item.duration), (value) => {
-          const seconds = Math.max(0, parseInt(value, 10) || 0);
-          item.duration = seconds ? `${seconds}s` : "0s";
-        }, "Empty uses the rotation setting above"),
-        h("div", {},
-          checkbox("Reload each time it comes round", item.reload, (value) => { item.reload = value; }),
-          checkbox("Skip this page for now", item.disabled, (value) => { item.disabled = value; }))),
+            h("div", { class: "row" },
+              field("Seconds on screen", "number", secondsOf(item.duration), (value) => {
+                const seconds = Math.max(0, parseInt(value, 10) || 0);
+                item.duration = seconds ? `${seconds}s` : "0s";
+              }, "Empty uses the rotation setting above"),
+              h("div", {},
+                checkbox("Reload each time it comes round", item.reload, (value) => { item.reload = value; }),
+                checkbox("Skip this page for now", item.disabled, (value) => { item.disabled = value; }))),
 
-      loginSection(item),
-      dismissSection(item));
+            loginSection(item),
+            dismissSection(item)));
   }
 
   function loginSection(item) {
