@@ -102,7 +102,14 @@ password can join.
       (QR encoding, MIT, no dependencies of its own) and
       `github.com/insomniacslk/dhcp/dhcpv4/server4` (DHCP server, from a module
       already required). Both vendor and run. Vendored on `main`.
-- [ ] Milestone 1: QR code and on-screen instruction on `/welcome`.
+- [x] (2026-08-26 21:30Z) Milestone 1: QR code and on-screen instruction on
+      `/welcome`, carrying the setup network's credentials when there is one
+      and the device's web address otherwise. `internal/util/qr`,
+      `internal/network/credentials.go`, and the page itself. Verified by
+      decoding a screenshot of the rendered screen with an independent
+      scanner. Remaining for later milestones: nothing runs a setup network
+      yet, so `Daemon.SetupNetwork` answers "none" and the page falls back to
+      the address, exactly as before.
 - [ ] Milestone 2: bring the temporary network up and down (`internal/network/accesspoint.go`).
 - [ ] Milestone 3: DHCP server and DNS responder for the temporary network.
 - [ ] Milestone 4: the setup portal, the captive-portal probes, and joining a network.
@@ -110,6 +117,28 @@ password can join.
 - [ ] Milestone 6: documentation, changelog, decision record.
 
 ## Surprises & Discoveries
+
+- Observation: The welcome page listed the addresses of Docker and libvirt
+  bridges alongside the real one, and the QR code carries the first address in
+  that list. On a machine where a bridge sorted first, the screen would have
+  told somebody to scan a code leading nowhere. Found by looking at the
+  rendered page rather than by a test, which would not have noticed.
+
+  Evidence: the page as it first rendered offered `http://192.168.255.59:8080/`,
+  `http://192.168.122.1:8080/` and `http://172.18.0.1:8080/`, the last two
+  being libvirt and Docker. `machineAddresses` now prefers interfaces with
+  hardware behind them, using `network.Interfaces()`, and shows at most three.
+
+- Observation: The generated code really is scannable, verified with a scanner
+  that has nothing to do with the encoder that made it. This matters because
+  every test written here uses the same library on both sides and would agree
+  with itself about a code no phone could read.
+
+  Evidence: rendering the onboarding screen to a PNG through the image's own
+  Chromium and decoding that PNG with `zbarimg`:
+
+      $ zbarimg --quiet --raw setup.pgm
+      WIFI:S:cue-4k2p9x;T:WPA;P:hd7Rk2m9Qw4x;;
 
 - Observation: The image has no `hostapd` and no `dnsmasq`, so the obvious way
   to run a temporary network is not available without shipping more packages.
@@ -216,7 +245,20 @@ password can join.
 
 ## Outcomes & Retrospective
 
-Not started. To be written at each milestone.
+**Milestone 1, 2026-08-26.** The screen now shows a QR code, and the machinery
+for deciding what it says is in place and tested. A scanner reading a
+screenshot of the onboarding screen returns the exact join string, so the
+promise "point a phone at this and it joins" is proven rather than assumed.
+
+What is not there yet is the network the code names: nothing brings the radio
+up as an access point, so `Daemon.SetupNetwork` reports no setup network and
+the page shows the device's web address as it always did. The onboarding screen
+can only be seen by a test that supplies credentials. That is the honest state
+of it, and Milestone 2 is what makes the code on the screen mean something.
+
+A lesson worth keeping: the bridge-address defect above was invisible to every
+test and obvious in a screenshot. Rendering the page and looking at it needs to
+be part of each remaining milestone, not a final step.
 
 ## Context and Orientation
 
@@ -272,11 +314,22 @@ the test that matters most.
 ### Milestone 1 — the screen says what to do
 
 **Scope.** Before any wireless work, make the screen useful: put a QR code and
-an instruction on the welcome page. At the end of this milestone the QR code
-encodes the device's web address, which is only useful on a device that already
-has a network — but the drawing, the encoding, the layout and the tests all
-exist and are proven, so the later milestones only have to change what the code
-contains.
+an instruction on the welcome page, and settle what the code contains.
+
+The code carries **the credentials of the temporary wireless network**, in the
+format every phone camera understands:
+
+    WIFI:S:cue-4k2p9x;T:WPA;P:hd7Rk2m9Qw4x;;
+
+Scanning that offers to join the network, with nothing typed. This is the whole
+point of the passphrase-on-screen decision above: the passphrase exists only
+inside this code, on this screen, so being able to set the device up means
+being able to see it.
+
+On a device that already has a network there is no temporary network and no
+passphrase, and the code carries the device's web address instead, so that
+scanning it opens the interface. The page therefore asks what the code should
+say rather than deciding for itself.
 
 **Work.** Add `internal/util/qr/qr.go` wrapping `github.com/skip2/go-qrcode`,
 exposing one function:
@@ -291,12 +344,28 @@ extra request, no image encoding, and it scales to any screen. Add
 `renderQR(matrix [][]bool) template.HTML` in `internal/web/welcome.go` and a
 block in `welcomeTemplate`.
 
+Add `internal/network/credentials.go` with the naming and the code string,
+which Milestone 2 then uses to configure the radio:
+
+    // Credentials are the name and passphrase of the temporary network.
+    type Credentials struct { SSID, Passphrase string }
+
+    // NewCredentials invents a name and passphrase for one setup session.
+    func NewCredentials() (Credentials, error)
+
+    // JoinCode is what a phone camera reads to join this network without
+    // anybody typing anything.
+    func (self Credentials) JoinCode() string
+
 **Acceptance.** Run, from the repository root:
 
     go test ./internal/util/qr/ ./internal/web/ -run 'QR|Welcome' -v
 
-Expect a new test `TestTheQRCodeOnTheWelcomePageDecodesToTheAddress` to pass,
-and to have failed before the change. Then start the daemon and fetch the page:
+Expect the new tests to pass, and to have failed before the change. The
+important one is `TestTheQRCodeOnTheWelcomePageIsTheCodeForWhatItSays`, which
+reads the drawn SVG back into a matrix and compares it with the matrix the
+encoder produces, so a page showing the code for the wrong thing fails. Then
+start the daemon and fetch the page:
 
     curl -s http://127.0.0.1:8080/welcome | grep -c '<svg'
 
@@ -334,13 +403,19 @@ channel availability depends on the regulatory domain, which a device fresh out
 of a box may not know. `proto=RSN` with `CCMP` is WPA2, refusing the older WPA1
 and TKIP that some phones now reject outright.
 
-The network name is `cue-setup-` followed by four characters derived from the
-device identifier, so that two devices being set up in one room do not collide
-and so that the name on the screen matches the one the phone shows. The
-passphrase is twelve random characters from an unambiguous alphabet, generated
-once and kept in memory only — it does not go into `cue.yaml`, because it is
-worthless after onboarding ends and writing it down only creates a secret to
-leak.
+The network name is `cue-` followed by six random characters, generated when
+onboarding starts: `cue-4k2p9x`. Random rather than derived from the device
+identifier, so that a device sitting in a shop window does not broadcast a
+stable name that identifies it to everyone in range for as long as it is
+unconfigured, and so that two devices set up in one room cannot collide. The
+cost is that a reboot part-way through setup produces a different name, and the
+phone's saved entry for the old one is useless — which is acceptable because
+the passphrase changes with it anyway, so the person has to rescan regardless.
+
+The passphrase is twelve random characters from an unambiguous alphabet
+(no `l`, `1`, `O` or `0`), generated at the same time and kept in memory only.
+It does not go into `cue.yaml`: it is worthless once onboarding ends, and
+writing it to disk only creates a secret to leak.
 
 The interface signatures to add:
 

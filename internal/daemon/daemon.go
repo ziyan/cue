@@ -116,6 +116,19 @@ func (self *Daemon) TimeSync() *timesync.Client {
 	return self.timesync
 }
 
+// SetupNetwork is the temporary wireless network for setting this device up
+// from a phone.
+//
+// Nothing runs one yet: bringing the radio up as an access point is the next
+// milestone of docs/planning/active/20260826-wireless-onboarding.md, and the
+// state machine that decides when to do it is the one after. Until then this
+// answers "no network", which is the truth -- the welcome page falls back to
+// showing the device's web address, exactly as it did before. It is wired up
+// now so that the page has one place to ask and does not have to change again.
+func (self *Daemon) SetupNetwork() (network.Credentials, bool) {
+	return network.Credentials{}, false
+}
+
 // VNCAddress is where the VNC server listens, for the web interface's bridge.
 func (self *Daemon) VNCAddress() string {
 	return self.vncserver.Address()

@@ -31,6 +31,9 @@ type fakeDevice struct {
 	xserver   *xserver.Server
 	timesync  *timesync.Client
 	startedAt time.Time
+
+	setupNetwork network.Credentials
+	onboarding   bool
 }
 
 func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
@@ -49,13 +52,16 @@ func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
 	}
 }
 
-func (self *fakeDevice) Statuses() []supervise.Status          { return self.statuses }
-func (self *fakeDevice) Browser() *browser.Browser             { return self.browser }
-func (self *fakeDevice) Watchdog() *watchdog.Watchdog          { return self.watchdog }
-func (self *fakeDevice) VNCAddress() string                    { return "127.0.0.1:5900" }
-func (self *fakeDevice) StartedAt() time.Time                  { return self.startedAt }
-func (self *fakeDevice) XServer() *xserver.Server              { return self.xserver }
-func (self *fakeDevice) TimeSync() *timesync.Client            { return self.timesync }
+func (self *fakeDevice) Statuses() []supervise.Status { return self.statuses }
+func (self *fakeDevice) Browser() *browser.Browser    { return self.browser }
+func (self *fakeDevice) Watchdog() *watchdog.Watchdog { return self.watchdog }
+func (self *fakeDevice) VNCAddress() string           { return "127.0.0.1:5900" }
+func (self *fakeDevice) StartedAt() time.Time         { return self.startedAt }
+func (self *fakeDevice) XServer() *xserver.Server     { return self.xserver }
+func (self *fakeDevice) TimeSync() *timesync.Client   { return self.timesync }
+func (self *fakeDevice) SetupNetwork() (network.Credentials, bool) {
+	return self.setupNetwork, self.onboarding
+}
 func (self *fakeDevice) Network() *network.Manager             { return nil }
 func (self *fakeDevice) Restart(context.Context, string) error { return nil }
 

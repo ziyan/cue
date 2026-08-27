@@ -61,6 +61,14 @@ type Device interface {
 	// TimeSync is the time client, for the clock report.
 	TimeSync() *timesync.Client
 
+	// SetupNetwork is the temporary wireless network this device is running
+	// so that somebody can set it up from a phone, and whether it is running
+	// at all. When it is, the welcome page puts its credentials in the QR
+	// code on the screen instead of a web address: that passphrase exists
+	// nowhere else, which is what makes being able to set this device up the
+	// same as being able to see its screen.
+	SetupNetwork() (network.Credentials, bool)
+
 	// Network is the machine's own network, for the Network page.
 	Network() *network.Manager
 
