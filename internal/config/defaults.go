@@ -74,6 +74,10 @@ func Default() *Configuration {
 		Network: Network{
 			Manage:            false,
 			ReconcileInterval: Duration(30 * time.Second),
+			// On by default, but "auto" only acts on a device that has no
+			// network at all and has not been told about one -- which is a
+			// device nobody has set up yet.
+			Onboarding: OnboardingAuto,
 		},
 		Audio: Audio{
 			Enabled: true,

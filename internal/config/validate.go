@@ -44,6 +44,11 @@ func (self Problems) Error() string {
 // validates is one the daemon is willing to run; it is not a promise that the
 // hardware exists, because a monitor that is unplugged is not a mistake.
 func (self *Configuration) Validate() error {
+	if !self.Network.Onboarding.Valid() {
+		return fmt.Errorf("config: network.onboarding is %q; it must be auto, always or off",
+			self.Network.Onboarding)
+	}
+
 	var problems Problems
 	add := func(path, format string, arguments ...interface{}) {
 		problems = append(problems, Problem{Path: path, Message: fmt.Sprintf(format, arguments...)})

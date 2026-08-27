@@ -41,7 +41,13 @@ var rules = []rule{
 		name: "a private network address",
 		// 127.0.0.1 and 0.0.0.0 are deliberately not matched: binding to them
 		// is a normal thing for this daemon to do.
-		pattern:     regexp.MustCompile(`(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}`),
+		pattern: regexp.MustCompile(`(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}`),
+		// 192.168.216.x is the one private range that belongs in this
+		// repository: it is the network a device runs for its own setup, so
+		// the address is a constant of this program rather than a fact about
+		// somebody's house. Everything else in these ranges is somebody's
+		// real network and must not be written down here.
+		allowed:     regexp.MustCompile(`192\.168\.216\.[0-9]{1,3}`),
 		explanation: "use example.com, a placeholder, or 127.0.0.1 instead of somebody's real network",
 	},
 	{

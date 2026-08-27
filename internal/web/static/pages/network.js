@@ -6,7 +6,7 @@
 
 import { h, clear, bytes } from "../dom.js";
 import { api } from "../api.js";
-import { field, checkbox } from "./content.js";
+import { field, checkbox, choice } from "./content.js";
 
 export function network(main) {
   const body = h("div");
@@ -56,6 +56,20 @@ export function network(main) {
         configuration.network.manage = value;
         draw();
       })));
+
+    body.append(h("div", { class: "card" },
+      h("h2", { text: "Setting up from a phone" }),
+      h("p", { class: "dim", text: "A device with no network can run a temporary wireless network of its own and show a code on its screen. Scanning that code with a phone joins it and opens a page for choosing the real network, so a screen in a room with no ethernet can still be set up. The password for that temporary network appears only on the screen, so whoever sets the device up has to be able to see it." }),
+      choice("When to offer it", [
+        { value: "auto", label: "Only when this device has no network" },
+        { value: "always", label: "Whenever the hardware allows" },
+        { value: "off", label: "Never" },
+      ], configuration.network.onboarding || "auto", (value) => {
+        configuration.network.onboarding = value;
+        draw();
+      }, configuration.network.onboarding === "always"
+        ? "Anybody who can see this screen can reconfigure it. Meant for trying the feature out."
+        : null)));
 
     // Only the interfaces with hardware behind them. A machine running
     // containers has a Docker bridge, a veth for every running container and

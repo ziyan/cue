@@ -3,11 +3,14 @@ package network
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vishvananda/netlink"
 
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/supervise"
@@ -241,4 +244,74 @@ func AccessPointCapableInterface() string {
 		}
 	}
 	return ""
+}
+
+// GiveAddress puts a fixed address on an interface, which is what the device
+// needs on its own setup network: nothing is going to give it one.
+//
+// Any address already on the interface is removed first. What is there will be
+// left over from whatever the interface was doing before it became an access
+// point, and two addresses on one interface is a way to have traffic leave
+// from the wrong one.
+func GiveAddress(interfaceName string, address net.IP, mask net.IPMask) error {
+	link, err := netlink.LinkByName(interfaceName)
+	if err != nil {
+		return fmt.Errorf("network: cannot find %s: %w", interfaceName, err)
+	}
+
+	existing, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return fmt.Errorf("network: cannot read the addresses of %s: %w", interfaceName, err)
+	}
+	for index := range existing {
+		if err := netlink.AddrDel(link, &existing[index]); err != nil {
+			log.Debugf("cannot remove %s from %s: %s", existing[index].IP, interfaceName, err)
+		}
+	}
+
+	wanted := &netlink.Addr{IPNet: &net.IPNet{IP: address, Mask: mask}}
+	if err := netlink.AddrAdd(link, wanted); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("network: cannot give %s to %s: %w", address, interfaceName, err)
+	}
+	if err := netlink.LinkSetUp(link); err != nil {
+		return fmt.Errorf("network: cannot bring %s up: %w", interfaceName, err)
+	}
+	return nil
+}
+
+// HasUsableAddress reports whether an interface has an address that reaches
+// anything -- not loopback, not the link-local address the kernel invents when
+// nothing answered.
+func HasUsableAddress(interfaceName string) bool {
+	link, err := netlink.LinkByName(interfaceName)
+	if err != nil {
+		return false
+	}
+	return hasUsableAddress(link)
+}
+
+// Forget removes every network wpa_supplicant has been told to join on this
+// interface.
+//
+// This is called after a join that did not work. Left in place, the network
+// that failed is retried for ever, which keeps the radio busy and stops the
+// setup network coming back -- so somebody who mistyped a passphrase would be
+// left with a device that can neither join their network nor offer its own.
+func Forget(interfaceName string) error {
+	control, err := openControl(interfaceName)
+	if err != nil {
+		return err
+	}
+	defer control.Close()
+
+	existing, err := control.ask("LIST_NETWORKS")
+	if err != nil {
+		return err
+	}
+	for _, identifier := range networkIdentifiers(existing) {
+		if err := control.mustSucceed("REMOVE_NETWORK " + identifier); err != nil {
+			return err
+		}
+	}
+	return nil
 }

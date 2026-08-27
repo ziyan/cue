@@ -506,7 +506,43 @@ type Network struct {
 	// back after a cable is replugged or a wireless network returns.
 	ReconcileInterval Duration `yaml:"reconcileInterval" json:"reconcileInterval"`
 
+	// Onboarding is whether a device with no network may run a temporary
+	// wireless network of its own so that somebody can set it up from a phone
+	// by scanning a code off its screen.
+	//
+	// "auto" does it only when the device has no network and none has been
+	// configured, which is the state a device is in straight out of a box.
+	// "always" does it whenever the hardware allows, which is for trying the
+	// thing out on a device that already has a network. "off" never does it.
+	Onboarding OnboardingMode `yaml:"onboarding" json:"onboarding"`
+
 	Interfaces []Interface `yaml:"interfaces,omitempty" json:"interfaces"`
+}
+
+// OnboardingMode is when to offer setting this device up over the air.
+type OnboardingMode string
+
+const (
+	// OnboardingAuto offers it only on a device that has no network and has
+	// not been told about one.
+	OnboardingAuto OnboardingMode = "auto"
+
+	// OnboardingAlways offers it whenever the hardware allows. This is for
+	// trying it out, and for a device somebody wants to keep settable from a
+	// phone; it means anybody who can see the screen can reconfigure it.
+	OnboardingAlways OnboardingMode = "always"
+
+	// OnboardingOff never offers it.
+	OnboardingOff OnboardingMode = "off"
+)
+
+// Valid reports whether this is one of the three modes.
+func (self OnboardingMode) Valid() bool {
+	switch self {
+	case OnboardingAuto, OnboardingAlways, OnboardingOff:
+		return true
+	}
+	return false
 }
 
 // Interface is how one network interface should be set up.

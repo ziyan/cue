@@ -90,9 +90,9 @@ func (self *Server) welcome(response http.ResponseWriter, request *http.Request)
 // stronger reason. A machine running containers has a Docker bridge, a veth
 // per container and whatever a VPN left behind, and each of those has an
 // address that reaches nothing from the laptop in the room. On a developer
-// machine this page listed 172.18.0.1 and 192.168.122.1 alongside the real
-// one, and since the QR code carries the first address in this list, a machine
-// whose bridge happened to sort first would have put an unreachable address
+// machine this page listed a Docker bridge and a libvirt bridge alongside the
+// real one, and since the QR code carries the first address in this list, a
+// machine whose bridge happened to sort first would have put an unreachable
 // into the code -- a screen telling somebody to scan something that goes
 // nowhere.
 //

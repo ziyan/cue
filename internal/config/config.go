@@ -115,6 +115,12 @@ func (self *Configuration) Normalize() {
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
 	self.Log.Level = strings.ToUpper(strings.TrimSpace(self.Log.Level))
 
+	// A file written before this setting existed has it empty, and an empty
+	// value must not read as "never offer to be set up".
+	if self.Network.Onboarding == "" {
+		self.Network.Onboarding = OnboardingAuto
+	}
+
 	if self.Display.ModeName == "" {
 		self.Display.ModeName = "cue"
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/network"
+	"github.com/ziyan/cue/internal/onboarding"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/deferutil"
@@ -39,12 +40,13 @@ var log = logging.MustGetLogger("daemon")
 type Daemon struct {
 	store *config.Store
 
-	xserver   *xserver.Server
-	browser   *browser.Browser
-	vncserver *vncserver.Server
-	timesync  *timesync.Client
-	network   *network.Manager
-	watchdog  *watchdog.Watchdog
+	xserver    *xserver.Server
+	browser    *browser.Browser
+	vncserver  *vncserver.Server
+	timesync   *timesync.Client
+	network    *network.Manager
+	onboarding *onboarding.Onboarding
+	watchdog   *watchdog.Watchdog
 
 	web *web.Server
 
@@ -82,6 +84,7 @@ func New(store *config.Store) (*Daemon, error) {
 	self.vncserver = vncserver.New(store, server.DisplayName(), server.AuthorityFilename())
 	self.timesync = timesync.New(store)
 	self.network = network.New(store)
+	self.onboarding = onboarding.New(store)
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,
@@ -117,16 +120,56 @@ func (self *Daemon) TimeSync() *timesync.Client {
 }
 
 // SetupNetwork is the temporary wireless network for setting this device up
-// from a phone.
-//
-// Nothing runs one yet: bringing the radio up as an access point is the next
-// milestone of docs/planning/active/20260826-wireless-onboarding.md, and the
-// state machine that decides when to do it is the one after. Until then this
-// answers "no network", which is the truth -- the welcome page falls back to
-// showing the device's web address, exactly as it did before. It is wired up
-// now so that the page has one place to ask and does not have to change again.
+// from a phone, and whether it is running.
 func (self *Daemon) SetupNetwork() (network.Credentials, bool) {
-	return network.Credentials{}, false
+	if self.onboarding == nil {
+		return network.Credentials{}, false
+	}
+	return self.onboarding.Credentials(), self.onboarding.Running()
+}
+
+// SetupNetworks is what the radio saw before it became an access point, which
+// is the list the setup portal offers.
+func (self *Daemon) SetupNetworks() []network.WirelessNetwork {
+	if self.onboarding == nil {
+		return nil
+	}
+	return self.onboarding.Networks()
+}
+
+// SetupTrouble is what to tell somebody about the last attempt to join.
+func (self *Daemon) SetupTrouble() string {
+	if self.onboarding == nil {
+		return ""
+	}
+	return self.onboarding.Trouble()
+}
+
+// JoinFromSetup leaves the setup network and joins the one somebody chose on
+// the portal.
+//
+// It returns as soon as the attempt has started. The phone that asked is about
+// to lose the network it asked over -- the radio cannot be an access point here
+// and a station elsewhere at once -- so an answer that waited for the result
+// would never arrive.
+func (self *Daemon) JoinFromSetup(ssid, passphrase string) error {
+	if self.onboarding == nil || !self.onboarding.Running() {
+		return fmt.Errorf("daemon: this device is not being set up")
+	}
+	go func() {
+		if err := self.onboarding.Join(context.Background(), ssid, passphrase); err != nil {
+			log.Warningf("could not join %q: %s", ssid, err)
+		}
+	}()
+	return nil
+}
+
+// RescanFromSetup looks again for networks in range.
+func (self *Daemon) RescanFromSetup() error {
+	if self.onboarding == nil {
+		return fmt.Errorf("daemon: this device is not being set up")
+	}
+	return self.onboarding.Rescan(context.Background())
 }
 
 // VNCAddress is where the VNC server listens, for the web interface's bridge.
@@ -247,6 +290,11 @@ func (self *Daemon) Run(ctx context.Context) error {
 	go func() {
 		defer deferutil.Recover()
 		self.network.Run(ctx)
+	}()
+
+	go func() {
+		defer deferutil.Recover()
+		self.considerOnboarding(ctx)
 	}()
 
 	self.watchdog.Start(ctx)
@@ -436,4 +484,111 @@ func (self *Daemon) restartDisplay(ctx context.Context) error {
 		self.browserProcess.Start(ctx)
 	}
 	return nil
+}
+
+// considerOnboarding decides whether this device should offer to be set up
+// over the air, and does it if so.
+//
+// The decision is deliberately conservative, because the failure it guards
+// against is severe: a screen on a wall that loses its network for a minute
+// must not respond by tearing down its connection and broadcasting a setup
+// network to the street. All of these have to be true.
+//
+//   - It has not been switched off in the configuration.
+//   - No network is configured for any interface. A device that has been told
+//     what to join is a device somebody has already set up.
+//   - Nothing has a usable address. This is the one that keeps a working
+//     device out of setup mode.
+//   - A wireless radio exists that can run a network of its own.
+//
+// The check runs once at startup and then every reconcile interval, so a
+// device that is unplugged from ethernet and left alone with wireless hardware
+// eventually offers itself for setup -- and one that gets its network back
+// stops offering.
+func (self *Daemon) considerOnboarding(ctx context.Context) {
+	configuration := self.store.Current()
+	interval := configuration.Network.ReconcileInterval.Duration()
+	if interval <= 0 {
+		interval = time.Minute
+	}
+
+	for {
+		self.reconsiderOnboarding(ctx)
+
+		select {
+		case <-ctx.Done():
+			self.onboarding.Stop(context.Background())
+			return
+		case <-time.After(interval):
+		}
+	}
+}
+
+func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
+	configuration := self.store.Current()
+	wanted := configuration.Network.Onboarding
+
+	if wanted == config.OnboardingOff {
+		if self.onboarding.Running() {
+			log.Noticef("setting up over the air has been switched off; taking the setup network down")
+			self.onboarding.Stop(ctx)
+		}
+		return
+	}
+
+	if self.onboarding.Running() {
+		// Once it is up it stays up until somebody finishes setting the device
+		// up, which is what takes it down. Stopping it because an address
+		// appeared would take the network away from the phone that is at that
+		// moment being told the setup worked.
+		if wanted == config.OnboardingAuto && self.hasSomewhereToBe(configuration) {
+			log.Noticef("this device has a network now; taking the setup network down")
+			self.onboarding.Stop(ctx)
+		}
+		return
+	}
+
+	if wanted == config.OnboardingAuto && self.hasSomewhereToBe(configuration) {
+		return
+	}
+
+	interfaceName := network.AccessPointCapableInterface()
+	if interfaceName == "" {
+		// Said once, at debug, because on a device with no wireless hardware
+		// this is true for ever and is not news.
+		log.Debugf("no wireless hardware here can run a network of its own, so this " +
+			"device cannot be set up over the air")
+		return
+	}
+
+	if err := self.onboarding.Start(ctx, interfaceName); err != nil {
+		log.Warningf("cannot offer to be set up over the air: %s", err)
+	}
+}
+
+// hasSomewhereToBe reports whether this device is already on a network, or has
+// been told which one to join.
+func (self *Daemon) hasSomewhereToBe(configuration *config.Configuration) bool {
+	for _, one := range configuration.Network.Interfaces {
+		if one.Wireless != nil && one.Wireless.SSID != "" {
+			return true
+		}
+	}
+
+	interfaces, err := network.Interfaces()
+	if err != nil {
+		// Unable to tell, so assume it is fine. Guessing the other way turns
+		// an unreadable interface list into a device broadcasting a setup
+		// network, which is much the worse mistake.
+		return true
+	}
+	for _, one := range interfaces {
+		if !one.Physical {
+			continue
+		}
+		if network.HasUsableAddress(one.Name) {
+			return true
+		}
+	}
+	return false
 }

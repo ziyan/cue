@@ -34,6 +34,12 @@ type fakeDevice struct {
 
 	setupNetwork network.Credentials
 	onboarding   bool
+	setupSeen    []network.WirelessNetwork
+	setupTrouble string
+
+	joinedSSID       string
+	joinedPassphrase string
+	rescans          int
 }
 
 func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
@@ -61,6 +67,13 @@ func (self *fakeDevice) XServer() *xserver.Server     { return self.xserver }
 func (self *fakeDevice) TimeSync() *timesync.Client   { return self.timesync }
 func (self *fakeDevice) SetupNetwork() (network.Credentials, bool) {
 	return self.setupNetwork, self.onboarding
+}
+func (self *fakeDevice) SetupNetworks() []network.WirelessNetwork { return self.setupSeen }
+func (self *fakeDevice) SetupTrouble() string                     { return self.setupTrouble }
+func (self *fakeDevice) RescanFromSetup() error                   { self.rescans++; return nil }
+func (self *fakeDevice) JoinFromSetup(ssid, passphrase string) error {
+	self.joinedSSID, self.joinedPassphrase = ssid, passphrase
+	return nil
 }
 func (self *fakeDevice) Network() *network.Manager             { return nil }
 func (self *fakeDevice) Restart(context.Context, string) error { return nil }

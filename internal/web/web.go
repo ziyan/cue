@@ -69,6 +69,25 @@ type Device interface {
 	// same as being able to see its screen.
 	SetupNetwork() (network.Credentials, bool)
 
+	// SetupNetworks is what the radio saw before it became an access point,
+	// which is the list the setup portal offers. It is a remembered scan and
+	// not a fresh one: the radio cannot search every channel while it is busy
+	// advertising on one.
+	SetupNetworks() []network.WirelessNetwork
+
+	// SetupTrouble is what to tell somebody about the last attempt to join,
+	// or empty. A mistyped passphrase has to be explained on the page they
+	// come back to, or they will try the same thing again.
+	SetupTrouble() string
+
+	// JoinFromSetup leaves the setup network and joins the one chosen on the
+	// portal. It returns as soon as the attempt has started, because the
+	// phone that asked is about to lose the network it asked over.
+	JoinFromSetup(ssid, passphrase string) error
+
+	// RescanFromSetup looks again for networks in range.
+	RescanFromSetup() error
+
 	// Network is the machine's own network, for the Network page.
 	Network() *network.Manager
 
@@ -164,6 +183,17 @@ func (self *Server) addRoutes() {
 	// standing in front of the screen where to go.
 	self.router.Path("/welcome").Methods(http.MethodGet).HandlerFunc(self.welcome)
 
+	// The setup portal, and the probes that make a phone open it. All of them
+	// answer 404 unless this device is actually being set up, so that a device
+	// in normal use serves nothing here. They are registered once rather than
+	// added and removed as setup starts and stops: a router cannot be changed
+	// safely while it is serving, and a guard cannot get out of step with the
+	// state it guards.
+	self.router.Path("/portal").Methods(http.MethodGet).HandlerFunc(self.onboardingOrNotFound(self.portal))
+	for _, probe := range captiveProbePaths {
+		self.router.Path(probe).Methods(http.MethodGet).HandlerFunc(self.onboardingOrNotFound(self.captiveProbe))
+	}
+
 	api := self.router.PathPrefix("/api/v1").Subrouter()
 
 	// Setting up and signing in are the two things that must work before
@@ -172,6 +202,11 @@ func (self *Server) addRoutes() {
 	api.Path("/setup").Methods(http.MethodPost).HandlerFunc(self.setup)
 	api.Path("/session").Methods(http.MethodPost).HandlerFunc(self.signIn)
 	api.Path("/session").Methods(http.MethodDelete).HandlerFunc(self.signOut)
+
+	// Setting the device up over the air happens before there is a session,
+	// for the same reason setup and sign-in do.
+	api.Path("/portal/join").Methods(http.MethodPost).HandlerFunc(self.onboardingOrNotFound(self.portalJoin))
+	api.Path("/portal/scan").Methods(http.MethodPost).HandlerFunc(self.onboardingOrNotFound(self.portalScan))
 
 	guarded := api.NewRoute().Subrouter()
 	guarded.Use(self.requireSession)

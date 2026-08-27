@@ -9,7 +9,7 @@ described in `docs/coding/execplans.md`.
 
 Today a new Cue device is useless until somebody puts it on a network. The
 screen comes up showing the welcome page, which says "open
-`http://192.168.1.50:8080/`" — an address that only exists if the machine
+`http://<an address on a network it has not joined>:8080/`" — an address that only exists if the machine
 already has a network, which is exactly what it does not have. If the room has
 no ethernet cable, the person standing in front of the screen has no way
 forward at all. They have to find a cable, or a keyboard and a shell, or take
@@ -111,10 +111,24 @@ password can join.
       yet, so `Daemon.SetupNetwork` answers "none" and the page falls back to
       the address, exactly as before.
 - [ ] Milestone 2: bring the temporary network up and down (`internal/network/accesspoint.go`).
-- [ ] Milestone 3: DHCP server and DNS responder for the temporary network.
-- [ ] Milestone 4: the setup portal, the captive-portal probes, and joining a network.
-- [ ] Milestone 5: the state machine that decides when onboarding runs, and recovery when a join fails.
+- [x] (2026-08-26 22:10Z) Milestone 3: DHCP server and DNS responder,
+      `internal/network/onboarding/`. The DNS wire format is checked against
+      `dig` and Go's own resolver, not only against the test's own query
+      builder.
+- [x] (2026-08-26 22:30Z) Milestone 4: the setup portal, the eight captive
+      probes, and the join call. `internal/web/portal.go`. Rendered at phone
+      size and looked at.
+- [x] (2026-08-26 22:45Z) Milestone 5: `internal/onboarding`, the trigger in
+      `Daemon.considerOnboarding`, the `network.onboarding` setting and its
+      control on the Network page. Remaining: none of it has run on real
+      hardware yet -- see the note below.
 - [ ] Milestone 6: documentation, changelog, decision record.
+- [ ] **The whole thing has never run on a radio.** Every piece is tested
+      separately and the pieces that need no hardware are tested properly, but
+      no access point has been advertised, no phone has joined one, and no
+      captive portal has opened by itself. That needs a wireless interface that
+      NetworkManager is not holding, and freeing one needs a local session that
+      an SSH command does not have.
 
 ## Surprises & Discoveries
 
@@ -124,9 +138,9 @@ password can join.
   told somebody to scan a code leading nowhere. Found by looking at the
   rendered page rather than by a test, which would not have noticed.
 
-  Evidence: the page as it first rendered offered `http://192.168.255.59:8080/`,
-  `http://192.168.122.1:8080/` and `http://172.18.0.1:8080/`, the last two
-  being libvirt and Docker. `machineAddresses` now prefers interfaces with
+  Evidence: the page as it first rendered offered the machine's real address
+  followed by its libvirt bridge and its Docker bridge, all three as things to
+  open. `machineAddresses` now prefers interfaces with
   hardware behind them, using `network.Interfaces()`, and shows at most three.
 
 - Observation: The generated code really is scannable, verified with a scanner
@@ -471,9 +485,10 @@ every name it looks up answered with the device's own address.
 
 The device gives itself `192.168.216.1/24` on the access point interface. That
 range is chosen to be unlikely to collide with the network the person is about
-to join: `192.168.0.0/24` and `192.168.1.0/24` are the common home ranges and
-must be avoided, and `192.168.216.0/24` is not one a consumer router picks by
-default. The DHCP server hands out `192.168.216.10` to `192.168.216.60`, a
+to join: the two ranges consumer routers hand out by default must be avoided,
+because a phone that ends up on the same subnet on both sides of the switch-over
+gets confused about which one to route to. `192.168.216.0/24` is not one any
+consumer router picks. The DHCP server hands out `192.168.216.10` to `192.168.216.60`, a
 one-hour lease, with the router and the DNS server both set to
 `192.168.216.1` — itself. It is built on `dhcpv4/server4` from
 `github.com/insomniacslk/dhcp`, already vendored for the DHCP client.
