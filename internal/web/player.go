@@ -86,24 +86,81 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
 </style>
 </head>
 <body>
-<video id="video" src="{{ .Source }}" autoplay playsinline{{ if .Muted }} muted{{ end }}></video>
+<video id="video" src="{{ .Source }}" playsinline preload="auto"{{ if .Muted }} muted{{ end }}></video>
 <div id="trouble">This video could not be played.<br>Moving on.</div>
 <script>
+  // The playlist keeps one tab open per item and switches between them, so
+  // this page exists long before its turn comes and goes on existing
+  // afterwards. That shapes everything below.
+  //
+  // The video is deliberately not marked autoplay. With autoplay it started
+  // the moment the tab was created, played all ninety seconds while a
+  // dashboard was on the screen, and was sitting on its last frame by the time
+  // anybody could see it -- which looks exactly like a video that will not
+  // play. It starts when this page becomes visible instead, and starts from
+  // the beginning each time, so a video in a rotation plays in full every time
+  // round rather than once ever.
   const video = document.getElementById("video");
   const trouble = document.getElementById("trouble");
   let moved = false;
+  let backstop = null;
+
+  const onScreen = () => document.visibilityState === "visible";
 
   // Asked for once and once only. The daemon moves the screen on, which
   // navigates this page away, and a second request racing that navigation
   // would skip the item after this one.
   function moveOn(why) {
     if (moved) return;
+    // Only ever from the page somebody is actually looking at. A video that
+    // ends while its tab is in the background would otherwise move the
+    // playlist on from whatever *is* on the screen, cutting a dashboard short
+    // for no visible reason.
+    if (!onScreen()) {
+      console.log("[cue] not moving on while off screen: " + why);
+      return;
+    }
     moved = true;
     console.log("[cue] moving on: " + why);
     fetch("/api/v1/playlist/next", { method: "POST" }).catch(() => {});
   }
 
   video.addEventListener("ended", () => moveOn("the video ended"));
+
+  // Starting and stopping with the tab. Coming on screen rewinds first: this
+  // page is reused every time the item comes round, and without the rewind it
+  // would show a finished video for ever after the first pass.
+  function start() {
+    moved = false;
+    try {
+      video.currentTime = 0;
+    } catch (error) {
+      // Seeking before the metadata has arrived throws; the load handler below
+      // starts it again once there is something to seek in.
+    }
+    armBackstop();
+    video.play().catch((error) => {
+      console.log("[cue] the video would not start: " + error);
+      trouble.style.display = "grid";
+      setTimeout(() => moveOn("the video would not start"), 4000);
+    });
+  }
+
+  function stop() {
+    video.pause();
+    if (backstop) {
+      clearTimeout(backstop);
+      backstop = null;
+    }
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (onScreen()) {
+      start();
+    } else {
+      stop();
+    }
+  });
 
   video.addEventListener("error", () => {
     // Said on the screen before moving on, so that somebody walking past a
@@ -112,26 +169,27 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
     setTimeout(() => moveOn("the video could not be played"), 4000);
   });
 
-  // A backstop. A video that neither ends nor errors -- a truncated file that
-  // stalls, a decoder that gives up quietly -- would otherwise hold the screen
-  // for ever. The wait is the video's own length plus a margin once that is
-  // known, and a flat five minutes until it is.
-  let backstop = setTimeout(() => moveOn("the video did not finish in time"), 5 * 60 * 1000);
+  // A backstop, armed only while this page is on screen. A video that neither
+  // ends nor errors -- a truncated file that stalls, a decoder that gives up
+  // quietly -- would otherwise hold the screen for ever. The wait is the
+  // video's own length plus a margin once that is known, and a flat five
+  // minutes until it is.
+  function armBackstop() {
+    if (backstop) clearTimeout(backstop);
+    const known = isFinite(video.duration) && video.duration > 0;
+    const wait = known ? (video.duration + 30) * 1000 : 5 * 60 * 1000;
+    backstop = setTimeout(() => moveOn("the video did not finish in time"), wait);
+  }
+
   video.addEventListener("loadedmetadata", () => {
-    if (!isFinite(video.duration) || video.duration <= 0) return;
-    clearTimeout(backstop);
-    backstop = setTimeout(() => moveOn("the video did not finish in time"),
-      (video.duration + 30) * 1000);
+    // Now the length is known, so the backstop can be the right length -- and
+    // a page that became visible before the metadata arrived can start.
+    if (onScreen()) start();
   });
 
-  // Autoplay can still be refused, and a refusal is silent. Chromium here is
-  // started with --autoplay-policy=no-user-gesture-required so it should not
-  // be, but if it ever is, the screen must not sit on a black rectangle.
-  video.play().catch((error) => {
-    console.log("[cue] the video would not start: " + error);
-    trouble.style.display = "grid";
-    setTimeout(() => moveOn("the video would not start"), 4000);
-  });
+  // The tab may already be the one on screen when this page loads, in which
+  // case no visibilitychange is coming and it has to start itself.
+  if (onScreen()) start();
 </script>
 </body>
 </html>

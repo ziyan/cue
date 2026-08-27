@@ -40,7 +40,8 @@ func TestThePlayerIsOneVideoFillingTheScreen(t *testing.T) {
 	if !strings.Contains(body, `src="/videos/`+item.Video.File+`"`) {
 		t.Error("the page does not point at the stored video")
 	}
-	for _, wanted := range []string{"autoplay", "playsinline", "object-fit: contain"} {
+	// Not autoplay: see TestTheVideoWaitsForItsTurnRatherThanPlayingInTheBackground.
+	for _, wanted := range []string{"playsinline", "object-fit: contain", "video.play()"} {
 		if !strings.Contains(body, wanted) {
 			t.Errorf("the page does not use %q", wanted)
 		}
@@ -80,6 +81,41 @@ func TestThePlayerMovesTheScreenOnWhenTheVideoEnds(t *testing.T) {
 	// for ever.
 	if !strings.Contains(body, "setTimeout") {
 		t.Error("the page has no backstop for a video that never finishes")
+	}
+}
+
+// The playlist keeps one tab open per item and switches between them, so this
+// page exists long before its turn. A video marked autoplay therefore played
+// out in the background and was sitting on its last frame by the time anybody
+// could see it -- which is exactly what "the video does not play" looks like
+// from in front of the screen.
+func TestTheVideoWaitsForItsTurnRatherThanPlayingInTheBackground(t *testing.T) {
+	server, item := serverWithVideoItem(t, false)
+
+	body := player(t, server, item.Identifier).Body.String()
+
+	if strings.Contains(body, " autoplay") {
+		t.Error("the video is marked autoplay, so it plays as soon as its tab opens " +
+			"rather than when it reaches the screen")
+	}
+	if !strings.Contains(body, "visibilitychange") {
+		t.Error("the page does not notice coming on and off the screen")
+	}
+	if !strings.Contains(body, "currentTime = 0") {
+		t.Error("the page does not rewind, so the second time round it would show " +
+			"a finished video")
+	}
+}
+
+// A video ending in a background tab must not move the playlist on: it would
+// cut short whatever is actually on the screen, for no visible reason.
+func TestAVideoOffScreenDoesNotMoveThePlaylistOn(t *testing.T) {
+	server, item := serverWithVideoItem(t, false)
+
+	body := player(t, server, item.Identifier).Body.String()
+	if !strings.Contains(body, "not moving on while off screen") {
+		t.Error("the page moves the playlist on regardless of whether anybody is " +
+			"looking at this video")
 	}
 }
 

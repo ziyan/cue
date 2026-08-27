@@ -63,13 +63,44 @@ uses SHA-256 and keeps the first sixteen bytes of it as hexadecimal.
 - [x] (2026-08-27 01:20Z) Established that the image's Chromium can play the
       format in question. This was the one thing that could have sunk the
       approach; evidence in `Surprises & Discoveries`.
-- [ ] Milestone 1: storing an uploaded video and serving it back.
-- [ ] Milestone 2: the page that plays one full screen, and moving on when it ends.
-- [ ] Milestone 3: the Content page: adding, naming, sound, deleting.
-- [ ] Milestone 4: cleaning up files nothing refers to.
+- [x] (2026-08-27 05:30Z) Milestone 1: storing an uploaded video and serving
+      it back. Verified with the real 66 MB file: stored byte-identical, served
+      with ranges (206 and a correct Content-Range).
+- [x] (2026-08-27 05:45Z) Milestone 2: the player, and moving on when the
+      video ends. Verified on a real screen through a full turn.
+- [x] (2026-08-27 04:10Z) Milestone 3: the Content page. Not yet exercised by
+      hand with a real upload through the browser -- the API path was.
+- [x] (2026-08-27 04:20Z) Milestone 4: sweeping. Tested; not yet watched on a
+      device with a real deletion.
 - [ ] Milestone 5: documentation, changelog, decision record.
 
 ## Surprises & Discoveries
+
+- Observation: The playlist keeps one tab open per item and switches between
+  them, rather than loading each in turn. A video marked `autoplay` therefore
+  started the moment its tab was created, played all ninety seconds while a
+  dashboard was on the screen, and was sitting on its last frame by the time
+  anybody could see it. Reported from in front of the screen as "video doesn't
+  seem to play after loading", which is exactly what that looks like.
+
+  Evidence: asking the page on the device what its video element was doing,
+  while a different item was on screen:
+
+      {"readyState": 4, "paused": true, "ended": true,
+       "currentTime": 90, "duration": 90, "error": null}
+
+  Played in full, ended, no error -- and never seen. The page now starts on
+  `visibilitychange` and rewinds first, so the video plays in full every time
+  its turn comes round rather than once ever.
+
+  The same mistake had a second half: a video ending in a background tab would
+  have called "move to the next item" and cut short whatever was actually on
+  the screen. Moving on is now refused unless the page is the one being looked
+  at.
+
+  After the fix, watched through a full turn on the device: paused at 0 while
+  off screen, 5.1, 11.1 … 89.5, ended at 90.0, and back to 3.4 when its turn
+  came round again.
 
 - Observation: The image's Chromium plays H.264 and AAC, which was not safe to
   assume. Debian builds Chromium without proprietary codecs in some
