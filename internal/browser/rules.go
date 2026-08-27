@@ -44,6 +44,27 @@ func (self *Browser) enforceRules(ctx context.Context) {
 			continue
 		}
 
+		// The mark that opens the menu, put back on any page that has lost it.
+		//
+		// It is added to a tab twice: once as a script the browser runs on
+		// every new document, and once evaluated straight into the page that
+		// is already open. Only the second survives -- a script added through
+		// a debugging session goes away when that session detaches, and the
+		// session is not kept open. So a page that reloads or follows a
+		// redirect quietly loses the mark, which is how one of three tabs on a
+		// device came to be without it.
+		//
+		// Putting it back on a timer is not elegant, but it is one call per
+		// tab every few seconds, the script does nothing if it is already
+		// there, and it covers reloads, redirects and pages that navigate
+		// themselves without needing to watch for any of them.
+		self.mutex.Lock()
+		onEveryPage := self.OnEveryPage
+		self.mutex.Unlock()
+		if onEveryPage != "" {
+			self.PutOnEveryPage(ctx, onEveryPage)
+		}
+
 		// Re-assert the window size. It is checked before it is set, so this
 		// costs one question most of the time — and it means a screen that
 		// changes size, because a monitor was plugged in, is followed by the
