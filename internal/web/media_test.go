@@ -31,7 +31,7 @@ func upload(t *testing.T, server *Server, name, mediaType string, content []byte
 	}
 	writer.Close()
 
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/videos", &body)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/media", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	if session != nil {
 		request.AddCookie(session)
@@ -61,7 +61,7 @@ func TestAVideoCanBeUploadedAndPlayedBack(t *testing.T) {
 
 	// And it comes back, with ranges, because a browser playing a video asks
 	// for them and some players fail outright without.
-	back := do(server, "GET", "/videos/"+videos[0].File, nil, session)
+	back := do(server, "GET", "/media/"+videos[0].File, nil, session)
 	if back.Code != http.StatusOK {
 		t.Fatalf("fetching it answered %d", back.Code)
 	}
@@ -141,12 +141,12 @@ func TestAVideoIsServedToThisMachineButNotToTheNetwork(t *testing.T) {
 
 	// httptest requests come from 192.0.2.1 by default, which is the
 	// documentation range and stands in for somebody else on the network.
-	fromNetwork := do(server, "GET", "/videos/"+videos[0].File, nil, nil)
+	fromNetwork := do(server, "GET", "/media/"+videos[0].File, nil, nil)
 	if fromNetwork.Code != http.StatusUnauthorized {
 		t.Errorf("a video was served to the network without a session: %d", fromNetwork.Code)
 	}
 
-	request := httptest.NewRequest(http.MethodGet, "/videos/"+videos[0].File, nil)
+	request := httptest.NewRequest(http.MethodGet, "/media/"+videos[0].File, nil)
 	request.RemoteAddr = "127.0.0.1:54321"
 	local := httptest.NewRecorder()
 	server.router.ServeHTTP(local, request)
@@ -159,11 +159,11 @@ func TestAVideoThatIsNotStoredIsNotFound(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	session := signedIn(t, server)
 
-	if code := do(server, "GET", "/videos/0123456789abcdef0123456789abcdef", nil, session).Code; code != http.StatusNotFound {
+	if code := do(server, "GET", "/media/0123456789abcdef0123456789abcdef", nil, session).Code; code != http.StatusNotFound {
 		t.Errorf("an unknown video answered %d, want 404", code)
 	}
 	// And a name that tries to walk out of the store.
-	if code := do(server, "GET", "/videos/..%2f..%2fetc%2fshadow", nil, session).Code; code == http.StatusOK {
+	if code := do(server, "GET", "/media/..%2f..%2fetc%2fshadow", nil, session).Code; code == http.StatusOK {
 		t.Error("a name that walks out of the store was served")
 	}
 }

@@ -1,5 +1,12 @@
-// Package video keeps the videos an operator has uploaded on the device's own
-// disk, so that a screen goes on playing them with no network at all.
+// Package media keeps the pictures and videos an operator has uploaded on the
+// device's own disk, so that a screen goes on showing them with no network at
+// all.
+//
+// A picture and a video are the same sort of thing here. They are uploaded the
+// same way, stored the same way, named the same way and swept the same way,
+// and they differ in exactly two places: which element the player draws them
+// with, and what decides when they are finished. Keeping two parallel sets of
+// code for that would be twice as much to get right.
 //
 // Files are stored under a digest of their own contents rather than under the
 // name they arrived with. Uploaded names are not unique, not safe to use as
@@ -8,7 +15,7 @@
 // uploading one file twice costs one copy -- and it makes cleaning up exact,
 // because a file is wanted if some playlist item names it and unwanted
 // otherwise, with no bookkeeping that can drift out of step with the truth.
-package video
+package media
 
 import (
 	"crypto/sha256"
@@ -27,8 +34,21 @@ import (
 
 var log = logging.MustGetLogger("video")
 
-// Video is one stored file.
-type Video struct {
+// Kind is what sort of thing a stored file is, which decides how the screen
+// shows it and what says when it has finished.
+type Kind string
+
+const (
+	// KindVideo plays, and the playlist moves on when it ends.
+	KindVideo Kind = "video"
+
+	// KindPicture is shown, and the playlist moves on when the ordinary
+	// rotation time is up -- a picture having no end of its own.
+	KindPicture Kind = "picture"
+)
+
+// Stored is one file on the device.
+type Stored struct {
 	// File is what it is stored under, and what a playlist item names. It is
 	// hexadecimal and nothing else, which is what makes it safe to put in a
 	// path built from a request.
@@ -39,6 +59,10 @@ type Video struct {
 
 	Size int64  `json:"size"`
 	Type string `json:"type"`
+
+	// Kind is worked out from Type when the file arrives, so that nothing
+	// later has to parse a media type again to know what to do with it.
+	Kind Kind `json:"kind"`
 }
 
 // Store is the directory the videos live in.
@@ -71,10 +95,10 @@ const maximumName = 120
 // memory: these are hundreds of megabytes. And nothing half-written is ever
 // visible under a real name, because a rename within one directory either
 // happens or does not.
-func (self *Store) Add(name, mediaType string, source io.Reader) (Video, error) {
+func (self *Store) Add(name, mediaType string, source io.Reader) (Stored, error) {
 	temporary, err := os.CreateTemp(self.directory, "incoming-*")
 	if err != nil {
-		return Video{}, fmt.Errorf("video: cannot start storing a video: %w", err)
+		return Stored{}, fmt.Errorf("video: cannot start storing a video: %w", err)
 	}
 	defer func() {
 		temporary.Close()
@@ -86,27 +110,28 @@ func (self *Store) Add(name, mediaType string, source io.Reader) (Video, error) 
 	digest := sha256.New()
 	size, err := io.Copy(io.MultiWriter(temporary, digest), source)
 	if err != nil {
-		return Video{}, fmt.Errorf("video: cannot store a video: %w", err)
+		return Stored{}, fmt.Errorf("video: cannot store a video: %w", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return Video{}, fmt.Errorf("video: cannot finish storing a video: %w", err)
+		return Stored{}, fmt.Errorf("video: cannot finish storing a video: %w", err)
 	}
 	if size == 0 {
-		return Video{}, fmt.Errorf("video: there was nothing in that file")
+		return Stored{}, fmt.Errorf("video: there was nothing in that file")
 	}
 
-	stored := Video{
+	stored := Stored{
 		File: hex.EncodeToString(digest.Sum(nil))[:32],
 		Name: tidyName(name),
 		Size: size,
 		Type: mediaType,
+		Kind: KindOf(mediaType),
 	}
 
 	if err := os.Rename(temporary.Name(), self.contents(stored.File)); err != nil {
-		return Video{}, fmt.Errorf("video: cannot store a video: %w", err)
+		return Stored{}, fmt.Errorf("video: cannot store a video: %w", err)
 	}
 	if err := self.writeDetails(stored); err != nil {
-		return Video{}, err
+		return Stored{}, err
 	}
 	log.Noticef("stored %q as %s, %d byte(s)", stored.Name, stored.File, stored.Size)
 	return stored, nil
@@ -125,9 +150,9 @@ func (self *Store) Path(file string) (string, error) {
 }
 
 // Details is what is known about one stored video.
-func (self *Store) Details(file string) (Video, error) {
+func (self *Store) Details(file string) (Stored, error) {
 	if !safeFile.MatchString(file) {
-		return Video{}, fmt.Errorf("video: %q is not the name of a stored video", file)
+		return Stored{}, fmt.Errorf("video: %q is not the name of a stored video", file)
 	}
 	return self.readDetails(file)
 }
@@ -148,13 +173,13 @@ func (self *Store) Remove(file string) error {
 }
 
 // List is everything stored.
-func (self *Store) List() ([]Video, error) {
+func (self *Store) List() ([]Stored, error) {
 	entries, err := os.ReadDir(self.directory)
 	if err != nil {
 		return nil, fmt.Errorf("video: cannot read %s: %w", self.directory, err)
 	}
 
-	var videos []Video
+	var videos []Stored
 	for _, entry := range entries {
 		file := strings.TrimSuffix(entry.Name(), ".video")
 		if entry.IsDir() || file == entry.Name() || !safeFile.MatchString(file) {
@@ -251,7 +276,7 @@ func (self *Store) details(file string) string {
 // writeDetails records what a digest cannot say: what the file was called and
 // what it is. Without it the interface could only ever show a row of
 // hexadecimal.
-func (self *Store) writeDetails(stored Video) error {
+func (self *Store) writeDetails(stored Stored) error {
 	encoded, err := json.Marshal(stored)
 	if err != nil {
 		return err
@@ -262,22 +287,26 @@ func (self *Store) writeDetails(stored Video) error {
 	return nil
 }
 
-func (self *Store) readDetails(file string) (Video, error) {
+func (self *Store) readDetails(file string) (Stored, error) {
 	content, err := os.ReadFile(self.details(file))
 	if err != nil {
 		// The bytes may still be there without their description, if the
 		// daemon died between writing the two. That is worth reporting as a
 		// video rather than hiding, so it can at least be played and deleted.
 		if information, statErr := os.Stat(self.contents(file)); statErr == nil {
-			return Video{File: file, Name: file, Size: information.Size(), Type: "video/mp4"}, nil
+			return Stored{File: file, Name: file, Size: information.Size(),
+				Type: "video/mp4", Kind: KindVideo}, nil
 		}
-		return Video{}, err
+		return Stored{}, err
 	}
-	var stored Video
+	var stored Stored
 	if err := json.Unmarshal(content, &stored); err != nil {
-		return Video{}, err
+		return Stored{}, err
 	}
 	stored.File = file
+	if stored.Kind == "" {
+		stored.Kind = KindOf(stored.Type)
+	}
 	return stored, nil
 }
 
@@ -306,4 +335,23 @@ func tidyName(name string) string {
 		return "video"
 	}
 	return builder.String()
+}
+
+// KindOf says what sort of thing a media type is.
+//
+// Anything that is not a picture is treated as a video, because a video is the
+// thing with an end and getting that wrong the other way -- treating a video
+// as a picture -- would leave a screen showing a frozen first frame for the
+// rotation time and then moving on.
+func KindOf(mediaType string) Kind {
+	if strings.HasPrefix(mediaType, "image/") {
+		return KindPicture
+	}
+	return KindVideo
+}
+
+// Playable reports whether this is something a screen can show at all, which
+// is what the upload checks before storing anything.
+func Playable(mediaType string) bool {
+	return strings.HasPrefix(mediaType, "video/") || strings.HasPrefix(mediaType, "image/")
 }

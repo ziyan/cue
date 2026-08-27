@@ -23,10 +23,10 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/hardware"
+	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
-	"github.com/ziyan/cue/internal/video"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/xserver"
 )
@@ -102,7 +102,7 @@ type Server struct {
 	device  Device
 	metrics *hardware.Collector
 
-	videos *video.Store
+	videos *media.Store
 
 	router   *mux.Router
 	listener net.Listener
@@ -126,7 +126,7 @@ func New(store *config.Store, device Device) *Server {
 // WithVideos gives the server the store uploaded videos live in. Without one
 // it refuses uploads and serves no videos, which is what a daemon that could
 // not create the directory should do.
-func (self *Server) WithVideos(store *video.Store) *Server {
+func (self *Server) WithVideos(store *media.Store) *Server {
 	self.videos = store
 	return self
 }
@@ -204,7 +204,7 @@ func (self *Server) addRoutes() {
 	// has no session and never will, so these let it through and ask everybody
 	// else for one.
 	self.router.Path("/play/{item}").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.play))
-	self.router.Path("/videos/{file}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(self.localOrSession(self.serveVideo))
+	self.router.Path("/media/{file}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(self.localOrSession(self.serveMedia))
 
 	self.router.Path("/portal").Methods(http.MethodGet).HandlerFunc(self.onboardingOrNotFound(self.portal))
 	for _, probe := range captiveProbePaths {
@@ -240,8 +240,8 @@ func (self *Server) addRoutes() {
 	guarded.Path("/network").Methods(http.MethodGet).HandlerFunc(self.networkState)
 	guarded.Path("/network/scan/{interface}").Methods(http.MethodPost).HandlerFunc(self.scanWireless)
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)
-	guarded.Path("/videos").Methods(http.MethodGet).HandlerFunc(self.listVideos)
-	guarded.Path("/videos").Methods(http.MethodPost).HandlerFunc(self.uploadVideo)
+	guarded.Path("/media").Methods(http.MethodGet).HandlerFunc(self.listMedia)
+	guarded.Path("/media").Methods(http.MethodPost).HandlerFunc(self.uploadMedia)
 
 	// Moving to the next item is how the player says its video has ended, so
 	// it has to be reachable by the browser on this device, which has no

@@ -305,8 +305,8 @@ type Browser struct {
 	ExtraArguments []string `yaml:"extraArguments,omitempty" json:"extraArguments"`
 }
 
-// ItemVideo is a video stored on this device.
-type ItemVideo struct {
+// ItemMedia is a picture or a video stored on this device.
+type ItemMedia struct {
 	// File is what the video is stored under, which is a digest of its own
 	// contents. It is not a name anybody chose and not one anybody reads.
 	File string `yaml:"file" json:"file"`
@@ -315,6 +315,12 @@ type ItemVideo struct {
 	// has something to show that is not hexadecimal.
 	Name string `yaml:"name,omitempty" json:"name"`
 
+	// Kind is "video" or "picture". A video holds the screen until it ends; a
+	// picture holds it for the ordinary rotation time, having no end of its
+	// own. It is worked out when the file is uploaded rather than guessed at
+	// from the name later.
+	Kind string `yaml:"kind,omitempty" json:"kind"`
+
 	// Sound plays this video with its sound. Off by default, and per item on
 	// purpose: a screen on a wall that starts making noise because somebody
 	// added a video is a bad surprise, and the obvious case -- one promotional
@@ -322,7 +328,8 @@ type ItemVideo struct {
 	// by a single setting for the whole device.
 	//
 	// The device's own audio settings still apply. A device with sound
-	// switched off stays silent whatever an item asks for.
+	// switched off stays silent whatever an item asks for. It means nothing
+	// for a picture.
 	Sound bool `yaml:"sound,omitempty" json:"sound"`
 }
 
@@ -365,10 +372,15 @@ type Item struct {
 	// which is what an operator wants while a site is down for maintenance.
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled"`
 
-	// Video, when set, makes this item a video the operator uploaded rather
-	// than a page on the web. URL is ignored for such an item: the daemon
-	// points the browser at its own player page instead.
-	Video *ItemVideo `yaml:"video,omitempty" json:"video"`
+	// Media, when set, makes this item a picture or a video the operator
+	// uploaded rather than a page on the web. URL is ignored for such an item:
+	// the daemon points the browser at its own player page instead.
+	Media *ItemMedia `yaml:"media,omitempty" json:"media"`
+
+	// Video is what Media used to be called, and is still read so that a file
+	// written by an older version keeps its items. Normalize moves it into
+	// Media and clears it, and it is never written back.
+	Video *ItemMedia `yaml:"video,omitempty" json:"-"`
 
 	// Login, when set, keeps this item logged in. See Login.
 	Login *Login `yaml:"login,omitempty" json:"login"`

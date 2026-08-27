@@ -5,9 +5,12 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+
+	"github.com/ziyan/cue/internal/media"
 )
 
-// The page that plays one video full screen on the device's own display.
+// The page that shows one uploaded picture or video full screen on the
+// device's own display.
 //
 // It is a page of its own rather than part of the interface because what it
 // has to be is a single video filling the screen with nothing round it: no
@@ -18,15 +21,16 @@ import (
 func (self *Server) play(response http.ResponseWriter, request *http.Request) {
 	identifier := mux.Vars(request)["item"]
 
-	var found *videoItem
+	var found *shownItem
 	for _, item := range self.store.Current().Playlist.Items {
-		if item.Identifier != identifier || item.Video == nil {
+		if item.Identifier != identifier || item.Media == nil {
 			continue
 		}
-		found = &videoItem{
-			Source: "/videos/" + item.Video.File,
-			Name:   item.Video.Name,
-			Muted:  !item.Video.Sound,
+		found = &shownItem{
+			Source:  "/media/" + item.Media.File,
+			Name:    item.Media.Name,
+			Muted:   !item.Media.Sound,
+			IsVideo: item.Media.Kind != string(media.KindPicture),
 		}
 		break
 	}
@@ -42,10 +46,15 @@ func (self *Server) play(response http.ResponseWriter, request *http.Request) {
 	}
 }
 
-type videoItem struct {
+type shownItem struct {
 	Source string
 	Name   string
 	Muted  bool
+
+	// IsVideo decides both which element draws it and what says when it is
+	// finished. A video holds the screen until it ends; a picture holds it for
+	// the ordinary rotation time, having no end of its own.
+	IsVideo bool
 }
 
 // showNext moves the screen to the item after the one on it.
@@ -74,10 +83,10 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
 <title>{{ .Name }}</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-  video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
-  /* A video whose shape does not match the screen gets bars rather than being
-     stretched or cropped: a stretched face is more obviously wrong to a person
-     walking past than a black band is. */
+  video, img { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+  /* Something whose shape does not match the screen gets bars rather than
+     being stretched or cropped: a stretched face is more obviously wrong to a
+     person walking past than a black band is. */
   #trouble {
     position: absolute; inset: 0; display: none; place-items: center;
     color: #9fb0c5; background: #000; font: 4vmin system-ui, sans-serif;
@@ -86,34 +95,27 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
 </style>
 </head>
 <body>
+{{ if .IsVideo }}
 <video id="video" src="{{ .Source }}" playsinline preload="auto"{{ if .Muted }} muted{{ end }}></video>
-<div id="trouble">This video could not be played.<br>Moving on.</div>
+{{ else }}
+<img id="picture" src="{{ .Source }}" alt="">
+{{ end }}
+<div id="trouble">This could not be shown.<br>Moving on.</div>
 <script>
   // The playlist keeps one tab open per item and switches between them, so
   // this page exists long before its turn comes and goes on existing
   // afterwards. That shapes everything below.
-  //
-  // The video is deliberately not marked autoplay. With autoplay it started
-  // the moment the tab was created, played all ninety seconds while a
-  // dashboard was on the screen, and was sitting on its last frame by the time
-  // anybody could see it -- which looks exactly like a video that will not
-  // play. It starts when this page becomes visible instead, and starts from
-  // the beginning each time, so a video in a rotation plays in full every time
-  // round rather than once ever.
-  const video = document.getElementById("video");
   const trouble = document.getElementById("trouble");
+  const video = document.getElementById("video");
   let moved = false;
   let backstop = null;
 
   const onScreen = () => document.visibilityState === "visible";
 
-  // Asked for once and once only. The daemon moves the screen on, which
-  // navigates this page away, and a second request racing that navigation
-  // would skip the item after this one.
   function moveOn(why) {
     if (moved) return;
-    // Only ever from the page somebody is actually looking at. A video that
-    // ends while its tab is in the background would otherwise move the
+    // Only ever from the page somebody is actually looking at. Something that
+    // finishes while its tab is in the background would otherwise move the
     // playlist on from whatever *is* on the screen, cutting a dashboard short
     // for no visible reason.
     if (!onScreen()) {
@@ -125,71 +127,83 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
     fetch("/api/v1/playlist/next", { method: "POST" }).catch(() => {});
   }
 
-  video.addEventListener("ended", () => moveOn("the video ended"));
-
-  // Starting and stopping with the tab. Coming on screen rewinds first: this
-  // page is reused every time the item comes round, and without the rewind it
-  // would show a finished video for ever after the first pass.
-  function start() {
-    moved = false;
-    try {
-      video.currentTime = 0;
-    } catch (error) {
-      // Seeking before the metadata has arrived throws; the load handler below
-      // starts it again once there is something to seek in.
-    }
-    armBackstop();
-    video.play().catch((error) => {
-      console.log("[cue] the video would not start: " + error);
+  const picture = document.getElementById("picture");
+  if (picture) {
+    // A picture has no end of its own, so it stays for the ordinary rotation
+    // time like every other item and this page does nothing but show it. The
+    // only thing worth handling is a picture that will not load, which would
+    // otherwise be a black screen until the clock moved on.
+    picture.addEventListener("error", () => {
       trouble.style.display = "grid";
-      setTimeout(() => moveOn("the video would not start"), 4000);
+      setTimeout(() => moveOn("the picture could not be shown"), 4000);
     });
-  }
+  } else {
+    // The video is deliberately not marked autoplay. With autoplay it started
+    // the moment the tab was created, played all the way through while a
+    // dashboard was on the screen, and was sitting on its last frame by the
+    // time anybody could see it -- which looks exactly like a video that will
+    // not play. It starts when this page becomes visible instead, and from the
+    // beginning each time, so a video in a rotation plays in full every time
+    // round rather than once ever.
+    video.addEventListener("ended", () => moveOn("the video ended"));
 
-  function stop() {
-    video.pause();
-    if (backstop) {
-      clearTimeout(backstop);
-      backstop = null;
-    }
-  }
+    video.addEventListener("error", () => {
+      // Said on the screen before moving on, so that somebody walking past a
+      // wall sees why it skipped rather than a black flash.
+      trouble.style.display = "grid";
+      setTimeout(() => moveOn("the video could not be played"), 4000);
+    });
 
-  document.addEventListener("visibilitychange", () => {
-    if (onScreen()) {
-      start();
-    } else {
-      stop();
-    }
-  });
+    // A backstop, armed only while this page is on screen. A video that
+    // neither ends nor errors -- a truncated file that stalls, a decoder that
+    // gives up quietly -- would otherwise hold the screen for ever. The wait
+    // is the video's own length plus a margin once that is known, and a flat
+    // five minutes until it is.
+    var armBackstop = function () {
+      if (backstop) clearTimeout(backstop);
+      const known = isFinite(video.duration) && video.duration > 0;
+      const wait = known ? (video.duration + 30) * 1000 : 5 * 60 * 1000;
+      backstop = setTimeout(() => moveOn("the video did not finish in time"), wait);
+    };
 
-  video.addEventListener("error", () => {
-    // Said on the screen before moving on, so that somebody walking past a
-    // wall sees why it skipped rather than a black flash.
-    trouble.style.display = "grid";
-    setTimeout(() => moveOn("the video could not be played"), 4000);
-  });
+    var start = function () {
+      moved = false;
+      try {
+        video.currentTime = 0;
+      } catch (error) {
+        // Seeking before the metadata has arrived throws; the load handler
+        // below starts it again once there is something to seek in.
+      }
+      armBackstop();
+      video.play().catch((error) => {
+        console.log("[cue] the video would not start: " + error);
+        trouble.style.display = "grid";
+        setTimeout(() => moveOn("the video would not start"), 4000);
+      });
+    };
 
-  // A backstop, armed only while this page is on screen. A video that neither
-  // ends nor errors -- a truncated file that stalls, a decoder that gives up
-  // quietly -- would otherwise hold the screen for ever. The wait is the
-  // video's own length plus a margin once that is known, and a flat five
-  // minutes until it is.
-  function armBackstop() {
-    if (backstop) clearTimeout(backstop);
-    const known = isFinite(video.duration) && video.duration > 0;
-    const wait = known ? (video.duration + 30) * 1000 : 5 * 60 * 1000;
-    backstop = setTimeout(() => moveOn("the video did not finish in time"), wait);
-  }
+    document.addEventListener("visibilitychange", () => {
+      if (onScreen()) {
+        start();
+      } else {
+        video.pause();
+        if (backstop) {
+          clearTimeout(backstop);
+          backstop = null;
+        }
+      }
+    });
 
-  video.addEventListener("loadedmetadata", () => {
-    // Now the length is known, so the backstop can be the right length -- and
-    // a page that became visible before the metadata arrived can start.
+    video.addEventListener("loadedmetadata", () => {
+      // Now the length is known, so the backstop can be the right length --
+      // and a page that became visible before the metadata arrived can start.
+      if (onScreen()) start();
+    });
+
+    // The tab may already be the one on screen when this page loads, in which
+    // case no visibilitychange is coming and it has to start itself.
     if (onScreen()) start();
-  });
-
-  // The tab may already be the one on screen when this page loads, in which
-  // case no visibilitychange is coming and it has to start itself.
-  if (onScreen()) start();
+  }
 </script>
 </body>
 </html>

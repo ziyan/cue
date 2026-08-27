@@ -348,3 +348,44 @@ func TestARemovedSettingIsTakenOutOfTheFileAndThenStopsBeingReported(t *testing.
 		t.Errorf("the tidied file names the device %q, want %q", name, "Reception")
 	}
 }
+
+// An item written under the old "video:" key must keep working. Dropping
+// somebody's content because a field was renamed is the failure this
+// repository keeps finding, and it costs ten lines to avoid.
+func TestAnItemWrittenUnderTheOldNameKeepsItsFile(t *testing.T) {
+	written := "playlist:\n" +
+		"  items:\n" +
+		"    - identifier: promo\n" +
+		"      video:\n" +
+		"        file: 0123456789abcdef0123456789abcdef\n" +
+		"        name: promo.mp4\n" +
+		"        sound: true\n"
+
+	configuration, err := Parse([]byte(written))
+	if err != nil {
+		t.Fatalf("a file written by an older version must still load: %s", err)
+	}
+	if len(configuration.Playlist.Items) != 1 {
+		t.Fatalf("the item was dropped: %+v", configuration.Playlist.Items)
+	}
+
+	item := configuration.Playlist.Items[0]
+	if item.Media == nil {
+		t.Fatal("the item lost its file")
+	}
+	if item.Media.File != "0123456789abcdef0123456789abcdef" || item.Media.Name != "promo.mp4" {
+		t.Errorf("the file came across as %+v", item.Media)
+	}
+	if !item.Media.Sound {
+		t.Error("the item lost its sound setting")
+	}
+	// Everything written under the old name was a video; there were no
+	// pictures then.
+	if item.Media.Kind != "video" {
+		t.Errorf("the item came across as kind %q, want video", item.Media.Kind)
+	}
+	// And the old field is cleared, so it is never written back.
+	if item.Video != nil {
+		t.Error("the old field survived, so it would be written back out again")
+	}
+}

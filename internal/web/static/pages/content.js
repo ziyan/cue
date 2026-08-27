@@ -62,7 +62,7 @@ export function content(main) {
             draw();
           },
         }, "Add a page"),
-        h("button", { onClick: () => chooseVideo(items) }, "Add a video"),
+        h("button", { onClick: () => chooseUpload(items) }, "Add a picture or video"),
         uploading)));
 
     body.append(h("div", { class: "actions" },
@@ -74,23 +74,23 @@ export function content(main) {
   // page while a video is on its way does not lose it.
   const uploading = h("div", { class: "uploading" });
 
-  // chooseVideo asks for a file and sends it to the device.
+  // chooseUpload asks for a file and sends it to the device.
   //
   // XMLHttpRequest rather than fetch, because fetch cannot report how far an
   // upload has got. A sixty megabyte video over wireless takes long enough
   // that somebody watching a button do nothing concludes it has hung, and the
   // next thing they do is press it again.
-  function chooseVideo(items) {
-    const chooser = h("input", { type: "file", accept: "video/*" });
+  function chooseUpload(items) {
+    const chooser = h("input", { type: "file", accept: "image/*,video/*" });
     chooser.addEventListener("change", () => {
       const file = chooser.files && chooser.files[0];
       if (!file) return;
-      uploadVideo(file, items);
+      uploadFile(file, items);
     });
     chooser.click();
   }
 
-  function uploadVideo(file, items) {
+  function uploadFile(file, items) {
     clear(uploading);
     const bar = h("div", { class: "bar" });
     const label = h("span", { class: "dim", text: `Sending ${file.name}…` });
@@ -100,7 +100,7 @@ export function content(main) {
     body.append("file", file);
 
     const request = new XMLHttpRequest();
-    request.open("POST", "/api/v1/videos");
+    request.open("POST", "/api/v1/media");
     request.upload.addEventListener("progress", (event) => {
       if (!event.lengthComputable) return;
       const done = Math.round((event.loaded / event.total) * 100);
@@ -116,14 +116,14 @@ export function content(main) {
           // The body was not JSON, so the status is all there is to say.
         }
         clear(uploading);
-        uploading.append(h("p", { class: "bad", text: `Could not send that video: ${reason}` }));
+        uploading.append(h("p", { class: "bad", text: `Could not send that file: ${reason}` }));
         return;
       }
       const stored = JSON.parse(request.responseText);
       items.push({
         title: "",
         disabled: false,
-        video: { file: stored.file, name: stored.name, sound: false },
+        media: { file: stored.file, name: stored.name, kind: stored.kind, sound: false },
       });
       configuration.playlist.items = items;
       clear(uploading);
@@ -145,14 +145,14 @@ export function content(main) {
       draw();
     };
 
-    const video = item.video || null;
+    const media = item.media || null;
 
     return h("div", { class: "item" },
       h("header", {},
         h("span", { class: "handle", text: `${index + 1}.` }),
         h("span", { class: "title truncate",
-          text: item.title || (video ? video.name : item.url) || "New page" }),
-        video ? h("span", { class: "pill", text: "Video" }) : null,
+          text: item.title || (media ? media.name : item.url) || "New page" }),
+        media ? h("span", { class: "pill", text: media.kind === "picture" ? "Picture" : "Video" }) : null,
         item.identifier
           ? h("button", { onClick: () => api.show(item.identifier).catch(() => {}) }, "Show now")
           : null,
@@ -166,16 +166,27 @@ export function content(main) {
           },
         }, "Remove")),
 
-      video
+      media
         ? h("div", {},
             h("div", { class: "row" },
               field("Name (optional)", "text", item.title, (value) => { item.title = value; },
-                `The file is ${video.name}`)),
+                `The file is ${media.name}`),
+              media.kind === "picture"
+                ? field("Seconds on screen", "number", secondsOf(item.duration), (value) => {
+                    const seconds = Math.max(0, parseInt(value, 10) || 0);
+                    item.duration = seconds ? `${seconds}s` : "0s";
+                  }, "Empty uses the rotation setting above")
+                : null),
             h("div", { class: "row" },
               h("div", {},
-                checkbox("Play this video with its sound", video.sound, (value) => { video.sound = value; }),
-                checkbox("Skip this video for now", item.disabled, (value) => { item.disabled = value; }))),
-            h("p", { class: "dim", text: "It plays full screen and the screen moves on the moment it ends, so it needs no time on screen setting. Sound also needs this device's own sound to be switched on, on the Device page." }))
+                media.kind === "picture"
+                  ? null
+                  : checkbox("Play this video with its sound", media.sound, (value) => { media.sound = value; }),
+                checkbox(media.kind === "picture" ? "Skip this picture for now" : "Skip this video for now",
+                  item.disabled, (value) => { item.disabled = value; }))),
+            h("p", { class: "dim", text: media.kind === "picture"
+              ? "It fills the screen for its time and then the screen moves on, like any other item."
+              : "It plays full screen and the screen moves on the moment it ends, so it needs no time on screen setting. Sound also needs this device's own sound to be switched on, on the Device page." }))
         : h("div", {},
             h("div", { class: "row" },
               field("Address", "url", item.url, (value) => { item.url = value; }),

@@ -1,4 +1,4 @@
-# Play a video on the screen, as one item of the playlist
+# Play a video or show a picture on the screen, as one item of the playlist
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises &
 Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to
@@ -72,7 +72,13 @@ uses SHA-256 and keeps the first sixteen bytes of it as hexadecimal.
       hand with a real upload through the browser -- the API path was.
 - [x] (2026-08-27 04:20Z) Milestone 4: sweeping. Tested; not yet watched on a
       device with a real deletion.
-- [ ] Milestone 5: documentation, changelog, decision record.
+- [x] (2026-08-27 05:55Z) Milestone 5: pictures as well as videos.
+      `internal/video` became `internal/media`; `video:` in a playlist item
+      became `media:` with a `kind`, the old key still read. Verified on a
+      virtual screen: a 400x400 picture filled the height of a 1280x720 screen
+      with black bars either side, and the playlist moved on from it on the
+      ordinary clock.
+- [ ] Milestone 6: documentation, changelog, decision record.
 
 ## Surprises & Discoveries
 
@@ -116,6 +122,36 @@ uses SHA-256 and keeps the first sixteen bytes of it as hexadecimal.
   `probably` is the strongest answer the browser gives; it never promises.
 
 ## Decision Log
+
+- Decision: One kind of uploaded thing, not two. The store, the upload, the
+  serving and the player all handle a picture and a video as the same sort of
+  item, distinguished by a `kind`, and the package is called `media` rather
+  than `video`.
+
+  Rationale: a picture and a video differ in exactly two ways -- what element
+  shows them, and what says when they are finished -- and everything else about
+  them is identical: uploaded the same way, stored the same way, named after
+  their contents the same way, swept the same way. Two parallel sets of code
+  for that would be twice as much to keep right, and a package called `video`
+  that holds pictures is the kind of naming drift that misleads whoever reads
+  it next.
+
+  The old `video:` key in a playlist item is still read, and normalised into
+  the new one. Only one device in the world has such a file, but silently
+  dropping somebody's item is exactly the failure this repository keeps
+  finding, and the alias is ten lines.
+
+  Date/Author: 2026-08-27, Claude (with Ziyan).
+
+- Decision: A picture stays on screen for the ordinary rotation time; a video
+  stays until it ends.
+
+  Rationale: a picture has no natural end, so the playlist's own timing is the
+  only sensible answer, and it is the answer for every other item that is not a
+  video. Giving pictures their own separate setting would be a second thing to
+  understand for no gain.
+
+  Date/Author: 2026-08-27, Claude (with Ziyan).
 
 - Decision: Files are stored under a digest of their contents, not under the
   name they were uploaded with.
@@ -341,7 +377,32 @@ third, that it keeps a recently written file even when unwanted, and that it
 returns the names it deleted so the log can say what went. On a device: delete
 the item, then look in `/var/lib/cue/videos`.
 
-### Milestone 5 — write it down
+### Milestone 5 — pictures
+
+**Scope.** A picture uploaded the same way, shown full screen for the ordinary
+rotation time.
+
+**Work.** `internal/video` becomes `internal/media`, and `Video` becomes
+`Stored` with a `Kind` of `"video"` or `"picture"` worked out from the media
+type at upload. The upload accepts `image/*` as well as `video/*`.
+
+`config.ItemVideo` becomes `config.ItemMedia` with the same `Kind`, and
+`config.Item.Video` becomes `config.Item.Media`. A file written with the old
+`video:` key is still read and normalised into the new one, so the one device
+that has such a file does not quietly lose its item.
+
+The player page shows an `<img>` for a picture and a `<video>` for a video,
+both `object-fit: contain` on black. A picture has no end to wait for, so
+`Browser.currentDuration` returns zero only for videos; a picture rotates on
+the ordinary clock like everything else. Sound is only offered for a video.
+
+**Acceptance.** Tests that a picture item is given the ordinary duration and a
+video item is not, that the player shows an `<img>` for one and a `<video>` for
+the other, and that a configuration written with the old `video:` key still
+loads with its item intact. Then on a device: upload a picture, watch it appear
+full screen for the rotation interval and give way to the next item.
+
+### Milestone 6 — write it down
 
 `docs/reference/configuration.md` for the new fields, a `CHANGELOG.md` entry,
 and a decision record for content-addressed storage.

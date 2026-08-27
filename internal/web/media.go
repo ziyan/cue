@@ -9,22 +9,26 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+
+	"github.com/ziyan/cue/internal/media"
 )
 
-// Uploading videos, serving them back, and the page that plays one.
+// Uploading pictures and videos, serving them back, and the page that shows
+// one.
 //
-// A video is stored on the device itself so that a screen goes on playing it
+// They are kept on the device itself so that a screen goes on showing them
 // with no network at all, which is the point: a promotional loop should not
 // stop because a web server somewhere else did.
 
-// uploadVideo takes a video the operator chose on their own machine.
+// uploadMedia takes a picture or a video the operator chose on their own
+// machine.
 //
 // The body is read as a stream and not through ParseMultipartForm, which
 // buffers the whole thing either into memory or into a temporary file of its
 // own choosing. These are hundreds of megabytes and the device is small.
-func (self *Server) uploadVideo(response http.ResponseWriter, request *http.Request) {
+func (self *Server) uploadMedia(response http.ResponseWriter, request *http.Request) {
 	if self.videos == nil {
-		writeError(response, http.StatusServiceUnavailable, "this device cannot store videos")
+		writeError(response, http.StatusServiceUnavailable, "this device cannot store uploads")
 		return
 	}
 
@@ -34,7 +38,7 @@ func (self *Server) uploadVideo(response http.ResponseWriter, request *http.Requ
 	}
 	if request.ContentLength > limit {
 		writeError(response, http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("that video is larger than the %s this device will accept",
+			fmt.Sprintf("that file is larger than the %s this device will accept",
 				describeSize(limit)))
 		return
 	}
@@ -62,10 +66,10 @@ func (self *Server) uploadVideo(response http.ResponseWriter, request *http.Requ
 			// out from the name instead.
 			mediaType = mime.TypeByExtension(strings.ToLower(filepath.Ext(name)))
 		}
-		if !strings.HasPrefix(mediaType, "video/") {
+		if !media.Playable(mediaType) {
 			_ = part.Close()
 			writeError(response, http.StatusUnsupportedMediaType,
-				fmt.Sprintf("%q is not a video this device can play", name))
+				fmt.Sprintf("%q is not a picture or a video this device can show", name))
 			return
 		}
 
@@ -84,13 +88,13 @@ func (self *Server) uploadVideo(response http.ResponseWriter, request *http.Requ
 	writeError(response, http.StatusBadRequest, "there was no file in that upload")
 }
 
-// serveVideo sends a stored video's bytes.
+// serveMedia sends a stored file's bytes.
 //
 // http.ServeContent rather than io.Copy, because a browser playing a video
 // asks for byte ranges -- to start, and again every time something seeks --
 // and a server that ignores them gives some players a video they cannot play
 // at all.
-func (self *Server) serveVideo(response http.ResponseWriter, request *http.Request) {
+func (self *Server) serveMedia(response http.ResponseWriter, request *http.Request) {
 	if self.videos == nil {
 		http.NotFound(response, request)
 		return
@@ -107,17 +111,17 @@ func (self *Server) serveVideo(response http.ResponseWriter, request *http.Reque
 		response.Header().Set("Content-Type", details.Type)
 	}
 	// The name is a digest of the contents, so the contents can never change
-	// under it. It is worth caching hard: the browser re-fetches the video
+	// under it. It is worth caching hard: the browser re-fetches the file
 	// every time the item comes round otherwise.
 	response.Header().Set("Cache-Control", "private, max-age=86400")
 	http.ServeFile(response, request, path)
 }
 
-// listVideos is what the interface shows when choosing among what is already
+// listMedia is what the interface shows when choosing among what is already
 // uploaded.
-func (self *Server) listVideos(response http.ResponseWriter, request *http.Request) {
+func (self *Server) listMedia(response http.ResponseWriter, request *http.Request) {
 	if self.videos == nil {
-		writeJSON(response, http.StatusOK, map[string]interface{}{"videos": []interface{}{}})
+		writeJSON(response, http.StatusOK, map[string]interface{}{"media": []interface{}{}})
 		return
 	}
 	videos, err := self.videos.List()
@@ -125,7 +129,7 @@ func (self *Server) listVideos(response http.ResponseWriter, request *http.Reque
 		writeError(response, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(response, http.StatusOK, map[string]interface{}{"videos": videos})
+	writeJSON(response, http.StatusOK, map[string]interface{}{"media": videos})
 }
 
 // fromThisMachine reports whether a request came from the device itself.

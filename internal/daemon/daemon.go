@@ -23,6 +23,7 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
+	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	setupnetwork "github.com/ziyan/cue/internal/network/onboarding"
 	"github.com/ziyan/cue/internal/onboarding"
@@ -30,7 +31,6 @@ import (
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/deferutil"
 	"github.com/ziyan/cue/internal/util/reaper"
-	"github.com/ziyan/cue/internal/video"
 	"github.com/ziyan/cue/internal/vncserver"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/web"
@@ -49,7 +49,7 @@ type Daemon struct {
 	timesync   *timesync.Client
 	network    *network.Manager
 	onboarding *onboarding.Onboarding
-	videos     *video.Store
+	videos     *media.Store
 	watchdog   *watchdog.Watchdog
 
 	web *web.Server
@@ -245,7 +245,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
-	if videos, err := video.Open(filepath.Join(configuration.Paths.State, "videos")); err != nil {
+	if videos, err := media.Open(filepath.Join(configuration.Paths.State, "videos")); err != nil {
 		log.Warningf("videos cannot be stored on this device: %s", err)
 	} else {
 		self.videos = videos
@@ -661,8 +661,8 @@ func (self *Daemon) sweepVideos() {
 
 	var wanted []string
 	for _, item := range self.store.Current().Playlist.Items {
-		if item.Video != nil && item.Video.File != "" {
-			wanted = append(wanted, item.Video.File)
+		if item.Media != nil && item.Media.File != "" {
+			wanted = append(wanted, item.Media.File)
 		}
 	}
 

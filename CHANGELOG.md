@@ -6,6 +6,28 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Added
+
+- A picture or a video can be an item of the playlist. Upload one from the
+  Content page and it becomes an item like any other: reorderable, nameable,
+  skippable. It lives on the device's own disk, so a screen goes on showing it
+  with no network at all.
+
+  A video plays full screen with no controls and the screen moves on the moment
+  it ends, rather than sitting on a frozen last frame for the rest of the
+  rotation. A picture has no end of its own, so it stays for the ordinary
+  rotation time. Anything that will not load says so on the screen for a few
+  seconds and then gives way, because a screen stuck for ever is worse than one
+  that skips.
+
+  Sound is per item and off by default: a screen on a wall that starts making
+  noise because somebody added a video is a bad surprise, and the person who
+  added it may not be in the room.
+
+  Files are stored under a digest of their own contents, so the same file twice
+  costs one copy, and a file nothing refers to is deleted when the item that
+  named it is.
+
 ### Security
 
 - The VNC server no longer listens on every IPv6 address when it was told to

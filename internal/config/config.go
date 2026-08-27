@@ -115,6 +115,24 @@ func (self *Configuration) Normalize() {
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
 	self.Log.Level = strings.ToUpper(strings.TrimSpace(self.Log.Level))
 
+	// "video:" is what "media:" used to be called. A file written by an older
+	// version is read and moved across rather than being told that a setting
+	// it has is not one this version knows -- which would drop the item, and
+	// dropping somebody's content silently is the failure worth going out of
+	// the way to avoid.
+	for index := range self.Playlist.Items {
+		item := &self.Playlist.Items[index]
+		if item.Video != nil && item.Media == nil {
+			item.Media = item.Video
+		}
+		item.Video = nil
+		if item.Media != nil && item.Media.Kind == "" {
+			// Everything written under the old name was a video; there were no
+			// pictures then.
+			item.Media.Kind = "video"
+		}
+	}
+
 	// A file written before this setting existed has it empty, and an empty
 	// value must not read as "never offer to be set up".
 	if self.Network.Onboarding == "" {

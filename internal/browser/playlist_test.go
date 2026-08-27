@@ -77,7 +77,7 @@ func TestAVideoItemIsShownThroughThePlayerPage(t *testing.T) {
 	browser := newTestBrowser(t, func(configuration *config.Configuration) {
 		configuration.Web.Listen = "0.0.0.0:9090"
 		configuration.Playlist.Items = []config.Item{
-			{Identifier: "promo", Video: &config.ItemVideo{File: "0123456789abcdef0123456789abcdef"}},
+			{Identifier: "promo", Media: &config.ItemMedia{File: "0123456789abcdef0123456789abcdef"}},
 			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
 		}
 	})
@@ -101,7 +101,7 @@ func TestAVideoIsNotRotatedAwayOnTheClock(t *testing.T) {
 	browser := newTestBrowser(t, func(configuration *config.Configuration) {
 		configuration.Playlist.Interval = config.Duration(30 * time.Second)
 		configuration.Playlist.Items = []config.Item{
-			{Identifier: "promo", Video: &config.ItemVideo{File: "0123456789abcdef0123456789abcdef"}},
+			{Identifier: "promo", Media: &config.ItemMedia{File: "0123456789abcdef0123456789abcdef"}},
 			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
 		}
 	})
@@ -129,7 +129,7 @@ func TestAVideoWithATimeSetKeepsThatTime(t *testing.T) {
 	browser := newTestBrowser(t, func(configuration *config.Configuration) {
 		configuration.Playlist.Items = []config.Item{
 			{Identifier: "promo", Duration: config.Duration(10 * time.Second),
-				Video: &config.ItemVideo{File: "0123456789abcdef0123456789abcdef"}},
+				Media: &config.ItemMedia{File: "0123456789abcdef0123456789abcdef"}},
 			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
 		}
 	})
@@ -140,5 +140,28 @@ func TestAVideoWithATimeSetKeepsThatTime(t *testing.T) {
 	browser.mutex.Unlock()
 	if got := browser.currentDuration(); got <= 0 || got > 10*time.Second {
 		t.Errorf("a video given ten seconds is given %s", got)
+	}
+}
+
+// A picture has no end of its own, so it rotates on the ordinary clock like
+// every other item that is not a video. Waiting for an end that never comes
+// would hold the screen for ever.
+func TestAPictureRotatesOnTheOrdinaryClock(t *testing.T) {
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Playlist.Interval = config.Duration(30 * time.Second)
+		configuration.Playlist.Items = []config.Item{
+			{Identifier: "poster", Media: &config.ItemMedia{
+				File: "0123456789abcdef0123456789abcdef", Kind: "picture"}},
+			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
+		}
+	})
+
+	browser.mutex.Lock()
+	browser.current = "poster"
+	browser.currentSince = time.Now()
+	browser.mutex.Unlock()
+
+	if got := browser.currentDuration(); got <= 0 {
+		t.Errorf("a picture is given %s on screen, so it would never move on", got)
 	}
 }

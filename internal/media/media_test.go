@@ -1,4 +1,4 @@
-package video
+package media
 
 import (
 	"bytes"
@@ -243,4 +243,59 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) {
 	return 0, errors.New("the connection went away")
+}
+
+// What sort of thing something is decides how the screen shows it and what
+// says when it is finished, so it has to be right.
+func TestWhatSortOfThingSomethingIs(t *testing.T) {
+	for mediaType, want := range map[string]Kind{
+		"image/png":       KindPicture,
+		"image/jpeg":      KindPicture,
+		"image/gif":       KindPicture,
+		"image/webp":      KindPicture,
+		"video/mp4":       KindVideo,
+		"video/webm":      KindVideo,
+		"video/quicktime": KindVideo,
+		// Anything unrecognised is treated as a video, because a video is the
+		// thing with an end: calling a video a picture would leave a screen on
+		// a frozen first frame and then move on.
+		"application/octet-stream": KindVideo,
+	} {
+		if got := KindOf(mediaType); got != want {
+			t.Errorf("%s is treated as %q, want %q", mediaType, got, want)
+		}
+	}
+}
+
+func TestOnlyPicturesAndVideosAreAccepted(t *testing.T) {
+	for mediaType, want := range map[string]bool{
+		"image/png": true, "video/mp4": true,
+		"text/html": false, "application/pdf": false, "text/plain": false, "": false,
+	} {
+		if got := Playable(mediaType); got != want {
+			t.Errorf("Playable(%q) is %v, want %v", mediaType, got, want)
+		}
+	}
+}
+
+func TestAPictureIsStoredWithItsKind(t *testing.T) {
+	store := newTestStore(t)
+
+	stored, err := store.Add("poster.png", "image/png", strings.NewReader("a test picture's bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Kind != KindPicture {
+		t.Errorf("a PNG was stored as %q", stored.Kind)
+	}
+
+	// And it comes back that way, because the interface asks the store rather
+	// than parsing media types again.
+	back, err := store.Details(stored.File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.Kind != KindPicture {
+		t.Errorf("the stored picture reads back as %q", back.Kind)
+	}
 }

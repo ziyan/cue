@@ -14,7 +14,7 @@ func serverWithVideoItem(t *testing.T, sound bool) (*Server, config.Item) {
 	item := config.Item{
 		Identifier: "promo",
 		Title:      "The promo",
-		Video:      &config.ItemVideo{File: "0123456789abcdef0123456789abcdef", Name: "promo.mp4", Sound: sound},
+		Media:      &config.ItemMedia{File: "0123456789abcdef0123456789abcdef", Name: "promo.mp4", Kind: "video", Sound: sound},
 	}
 	configuration := config.Default()
 	configuration.Playlist.Items = []config.Item{item}
@@ -37,7 +37,7 @@ func TestThePlayerIsOneVideoFillingTheScreen(t *testing.T) {
 
 	body := player(t, server, item.Identifier).Body.String()
 
-	if !strings.Contains(body, `src="/videos/`+item.Video.File+`"`) {
+	if !strings.Contains(body, `src="/media/`+item.Media.File+`"`) {
 		t.Error("the page does not point at the stored video")
 	}
 	// Not autoplay: see TestTheVideoWaitsForItsTurnRatherThanPlayingInTheBackground.
@@ -135,5 +135,50 @@ func TestThePlayerIsNotServedToTheNetworkWithoutASession(t *testing.T) {
 
 	if code := do(server, "GET", "/play/"+item.Identifier, nil, nil).Code; code != http.StatusUnauthorized {
 		t.Errorf("the player answered the network with %d, want 401", code)
+	}
+}
+
+func serverWithPicture(t *testing.T) (*Server, config.Item) {
+	t.Helper()
+	item := config.Item{
+		Identifier: "poster",
+		Media: &config.ItemMedia{
+			File: "0123456789abcdef0123456789abcdef", Name: "poster.png", Kind: "picture",
+		},
+	}
+	configuration := config.Default()
+	configuration.Playlist.Items = []config.Item{item}
+	return newTestServer(t, configuration), item
+}
+
+// A picture is drawn with an image element, not a video one, and there is
+// nothing to play or wait for.
+func TestAPictureIsShownAsAPicture(t *testing.T) {
+	server, item := serverWithPicture(t)
+
+	body := player(t, server, item.Identifier).Body.String()
+
+	if !strings.Contains(body, `<img id="picture"`) {
+		t.Error("a picture item is not drawn with an image element")
+	}
+	if strings.Contains(body, "<video") {
+		t.Error("a picture item has a video element on the page")
+	}
+	if !strings.Contains(body, `src="/media/`+item.Media.File+`"`) {
+		t.Error("the page does not point at the stored picture")
+	}
+	if !strings.Contains(body, "object-fit: contain") {
+		t.Error("a picture that does not match the screen would be stretched")
+	}
+}
+
+// A picture that will not load must not leave a black screen until the clock
+// happens to move on.
+func TestAPictureThatWillNotLoadMovesOn(t *testing.T) {
+	server, item := serverWithPicture(t)
+
+	body := player(t, server, item.Identifier).Body.String()
+	if !strings.Contains(body, "the picture could not be shown") {
+		t.Error("nothing happens when a picture fails to load")
 	}
 }

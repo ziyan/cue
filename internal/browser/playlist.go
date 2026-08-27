@@ -215,11 +215,14 @@ func (self *Browser) currentDuration() time.Duration {
 		if item.Identifier != current {
 			continue
 		}
-		if item.Video != nil && item.Duration <= 0 {
+		if item.Media != nil && item.Media.Kind != "picture" && item.Duration <= 0 {
 			// A video stays until it ends, and the page playing it says when
 			// that is. Rotating it away on the ordinary interval would cut a
 			// long video off part way and leave a short one frozen on its last
 			// frame for the rest of the interval.
+			//
+			// A picture has no end of its own, so it rotates on the ordinary
+			// clock like everything else that is not a video.
 			return 0
 		}
 		if item.Duration > 0 {
@@ -511,7 +514,7 @@ func (self *Browser) plannedItems() []config.Item {
 		// player page, which is what knows how to fill the screen with one
 		// video and say when it has ended.
 		for index := range items {
-			if items[index].Video != nil {
+			if items[index].Media != nil {
 				items[index].URL = self.playerURL(items[index].Identifier)
 			}
 		}

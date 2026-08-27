@@ -43,11 +43,11 @@ func (self Problems) Error() string {
 // Validate reports every problem with the configuration. A configuration that
 // validates is one the daemon is willing to run; it is not a promise that the
 // hardware exists, because a monitor that is unplugged is not a mistake.
-// storedVideo is what a stored video is named: a digest of its own contents,
-// hexadecimal and nothing else. Checking it here as well as in the store means
-// a hand-edited configuration file is refused with a sentence rather than
-// producing a screen that shows nothing.
-var storedVideo = regexp.MustCompile(`^[0-9a-f]{32}$`)
+// storedMedia is what an uploaded file is named: a digest of its own
+// contents, hexadecimal and nothing else. Checking it here as well as in the
+// store means a hand-edited configuration file is refused with a sentence
+// rather than producing a screen that shows nothing.
+var storedMedia = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func (self *Configuration) Validate() error {
 	if !self.Network.Onboarding.Valid() {
@@ -155,17 +155,20 @@ func (self *Configuration) Validate() error {
 			}
 			seenItems[item.Identifier] = true
 		}
-		if item.Video != nil {
-			// A video item has no address: the daemon points the browser at
-			// its own player page. What it must have is the file, which is
-			// what the video was stored under.
-			if item.Video.File == "" {
-				add(path+".video.file", "must not be empty")
-			} else if !storedVideo.MatchString(item.Video.File) {
-				add(path+".video.file", "%q is not a video stored on this device", item.Video.File)
+		if item.Media != nil {
+			// An uploaded item has no address: the daemon points the browser
+			// at its own player page. What it must have is the file, which is
+			// what the upload was stored under.
+			if item.Media.File == "" {
+				add(path+".media.file", "must not be empty")
+			} else if !storedMedia.MatchString(item.Media.File) {
+				add(path+".media.file", "%q is not a picture or video stored on this device", item.Media.File)
+			}
+			if kind := item.Media.Kind; kind != "" && kind != "video" && kind != "picture" {
+				add(path+".media.kind", "%q is neither a video nor a picture", kind)
 			}
 			if item.URL != "" {
-				add(path+".url", "a video item has no address; remove it or remove the video")
+				add(path+".url", "an uploaded item has no address; remove it or remove the upload")
 			}
 		} else if item.URL == "" {
 			add(path+".url", "must not be empty")

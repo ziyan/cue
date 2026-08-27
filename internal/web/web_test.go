@@ -13,10 +13,10 @@ import (
 
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
-	"github.com/ziyan/cue/internal/video"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/xserver"
 )
@@ -92,7 +92,7 @@ func newTestServer(t *testing.T, configuration *config.Configuration) *Server {
 	configuration.Normalize()
 
 	store := config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration)
-	videos, err := video.Open(filepath.Join(t.TempDir(), "videos"))
+	videos, err := media.Open(filepath.Join(t.TempDir(), "videos"))
 	if err != nil {
 		t.Fatal(err)
 	}
