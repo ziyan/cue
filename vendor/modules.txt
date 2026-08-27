@@ -8,8 +8,10 @@ github.com/gorilla/websocket
 ## explicit; go 1.23.0
 github.com/insomniacslk/dhcp/dhcpv4
 github.com/insomniacslk/dhcp/dhcpv4/nclient4
+github.com/insomniacslk/dhcp/dhcpv4/server4
 github.com/insomniacslk/dhcp/iana
 github.com/insomniacslk/dhcp/interfaces
+github.com/insomniacslk/dhcp/internal/xsocket
 github.com/insomniacslk/dhcp/rfc1035label
 # github.com/jezek/xgb v1.3.1
 ## explicit; go 1.11
@@ -39,6 +41,11 @@ github.com/pierrec/lz4/v4/internal/lz4block
 github.com/pierrec/lz4/v4/internal/lz4errors
 github.com/pierrec/lz4/v4/internal/lz4stream
 github.com/pierrec/lz4/v4/internal/xxh32
+# github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+## explicit; go 1.13
+github.com/skip2/go-qrcode
+github.com/skip2/go-qrcode/bitset
+github.com/skip2/go-qrcode/reedsolomon
 # github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923
 ## explicit; go 1.16
 github.com/u-root/uio/rand
