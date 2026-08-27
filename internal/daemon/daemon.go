@@ -85,6 +85,9 @@ func New(store *config.Store) (*Daemon, error) {
 	self.timesync = timesync.New(store)
 	self.network = network.New(store)
 	self.onboarding = onboarding.New(store)
+	// While the device is being set up over the air, the screen shows the
+	// page carrying the code to scan rather than the playlist.
+	self.browser.SetupInProgress = self.onboarding.Running
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,
@@ -531,7 +534,8 @@ func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
 	if wanted == config.OnboardingOff {
 		if self.onboarding.Running() {
 			log.Noticef("setting up over the air has been switched off; taking the setup network down")
-			self.onboarding.Stop(ctx)
+			self.onboarding.Finish(ctx)
+			self.browser.Refresh(ctx)
 		}
 		return
 	}
@@ -543,7 +547,8 @@ func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
 		// moment being told the setup worked.
 		if wanted == config.OnboardingAuto && self.hasSomewhereToBe(configuration) {
 			log.Noticef("this device has a network now; taking the setup network down")
-			self.onboarding.Stop(ctx)
+			self.onboarding.Finish(ctx)
+			self.browser.Refresh(ctx)
 		}
 		return
 	}
@@ -563,7 +568,11 @@ func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
 
 	if err := self.onboarding.Start(ctx, interfaceName); err != nil {
 		log.Warningf("cannot offer to be set up over the air: %s", err)
+		return
 	}
+	// The screen has to change to the page carrying the code, and nothing
+	// else will notice that it should.
+	self.browser.Refresh(ctx)
 }
 
 // hasSomewhereToBe reports whether this device is already on a network, or has

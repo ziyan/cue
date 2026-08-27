@@ -44,14 +44,7 @@ func (self *Browser) openTabs(ctx context.Context) error {
 		return err
 	}
 
-	items := self.enabledItems()
-	if len(items) == 0 {
-		// A device that has been set up but has nothing to show still needs
-		// something on the screen, and a black rectangle tells whoever is
-		// standing in front of it nothing at all. The daemon's own holding
-		// page says where to point a browser to configure it.
-		items = []config.Item{{Identifier: holdingIdentifier, URL: self.holdingPageURL()}}
-	}
+	items := self.plannedItems()
 
 	existing, err := self.client.Pages(ctx)
 	if err != nil {
@@ -456,4 +449,67 @@ func describeTarget(target cdp.Target) string {
 		return fmt.Sprintf("%q at %s", target.Title, address)
 	}
 	return address
+}
+
+// settingUp reports whether this device is being set up over the air, and so
+// needs its screen for the code somebody has to scan.
+//
+// It is a function rather than a field because the answer changes while the
+// daemon runs: setup starts when a device finds itself with no network and
+// ends when it has one.
+func (self *Browser) settingUp() bool {
+	if self.SetupInProgress == nil {
+		return false
+	}
+	return self.SetupInProgress()
+}
+
+// Refresh makes the tabs match the playlist again, now.
+//
+// The tabs are normally worked out when the browser starts and when the
+// configuration changes, which covers everything the playlist depends on --
+// except one thing. Setting a device up over the air takes the screen for the
+// page carrying the code to scan, and that starts and stops on its own, with
+// no configuration change to notice. Without this, a device that decided to
+// offer itself for setup would go on showing its old playlist and nobody could
+// set it up.
+func (self *Browser) Refresh(ctx context.Context) {
+	self.mutex.Lock()
+	ready := self.ready
+	self.mutex.Unlock()
+
+	if !ready {
+		// The browser is not up yet, and afterReady will open the tabs with
+		// the current answer when it is.
+		return
+	}
+	if err := self.openTabs(ctx); err != nil {
+		log.Warningf("cannot bring the screen up to date: %s", err)
+	}
+}
+
+// plannedItems is what should be on the screen: the playlist, or the daemon's
+// own holding page when there is no playlist or when the device is being set
+// up over the air.
+//
+// It is separate from openTabs so that the decision can be checked without a
+// browser to drive.
+func (self *Browser) plannedItems() []config.Item {
+	items := self.enabledItems()
+	if len(items) > 0 && !self.settingUp() {
+		return items
+	}
+
+	// A device that has been set up but has nothing to show still needs
+	// something on the screen, and a black rectangle tells whoever is standing
+	// in front of it nothing at all. The daemon's own holding page says where
+	// to point a browser to configure it.
+	//
+	// It also takes the screen while the device is being set up over the air,
+	// playlist or no playlist. The code somebody has to scan is on that page,
+	// and that code is the only place the setup network's passphrase exists --
+	// a screen showing a dashboard instead is a device nobody can set up. A
+	// device in that state has no network, so whatever the playlist points at
+	// would not load anyway.
+	return []config.Item{{Identifier: holdingIdentifier, URL: self.holdingPageURL()}}
 }

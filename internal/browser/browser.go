@@ -31,6 +31,13 @@ var log = logging.MustGetLogger("browser")
 
 // Browser is the running Chromium and everything the daemon does with it.
 type Browser struct {
+	// SetupInProgress reports whether the device is being set up over the air.
+	// While it is, the screen shows the daemon's own page rather than the
+	// playlist, because that page carries the code somebody has to scan. The
+	// daemon sets this; it is nil in tests and in tools, where it reads as
+	// "not being set up".
+	SetupInProgress func() bool
+
 	configuration *config.Configuration
 	client        *cdp.Client
 

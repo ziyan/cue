@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -163,4 +164,59 @@ func phyIndexOf(interfaceName string) (int, error) {
 			interfaceName, strings.TrimSpace(string(content)))
 	}
 	return index, nil
+}
+
+const (
+	nl80211CommandGetInterface = 5
+
+	nl80211AttributeIfindex = 3
+	nl80211AttributeIftype  = 5
+	nl80211AttributeSSID    = 52
+)
+
+// associatedNetwork returns the network this interface is currently joined to,
+// or an empty string when it is joined to nothing.
+//
+// This is asked of the kernel rather than of wpa_supplicant, because the whole
+// point of asking is to find out whether some *other* program has the radio --
+// in which case there is no control socket of ours to ask. It works from
+// inside a container, where reading another program's /proc entry does not:
+// the container has its own view of processes but shares the kernel's view of
+// the machine's interfaces.
+func associatedNetwork(interfaceName string) (string, error) {
+	link, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return "", err
+	}
+
+	family, err := genericFamily("nl80211")
+	if err != nil {
+		return "", err
+	}
+
+	request := nl.NewNetlinkRequest(int(family), unix.NLM_F_REQUEST|unix.NLM_F_ACK)
+	request.AddData(&nl.Genlmsg{Command: nl80211CommandGetInterface, Version: 0})
+	request.AddData(nl.NewRtAttr(nl80211AttributeIfindex, nl.Uint32Attr(uint32(link.Index))))
+
+	messages, err := request.Execute(unix.NETLINK_GENERIC, 0)
+	if err != nil {
+		return "", err
+	}
+	for _, message := range messages {
+		if len(message) < nl.SizeofGenlmsg {
+			continue
+		}
+		attributes, err := nl.ParseRouteAttr(message[nl.SizeofGenlmsg:])
+		if err != nil {
+			continue
+		}
+		for _, attribute := range attributes {
+			// The kernel reports a network name only while the interface is
+			// actually associated with one, so its presence is the answer.
+			if attribute.Attr.Type == nl80211AttributeSSID {
+				return string(attribute.Value), nil
+			}
+		}
+	}
+	return "", nil
 }

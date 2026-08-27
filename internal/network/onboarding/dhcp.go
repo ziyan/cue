@@ -15,10 +15,10 @@ import (
 // hands out.
 //
 // 192.168.216.0/24 is chosen to be unlikely to collide with the network the
-// person is about to join. Consumer routers overwhelmingly use 192.168.0.0/24,
-// 192.168.1.0/24 or 10.0.0.0/24, and a phone that ends up with the same subnet
-// on both sides of a switch-over gets confused about which one to route to.
-// Nothing well known uses 192.168.216.0/24.
+// person is about to join. A phone that ends up on the same subnet on both
+// sides of the switch-over gets confused about which one to route to, so the
+// ranges consumer routers hand out by default are the ones to stay away from.
+// No consumer router picks this one.
 var (
 	// DeviceAddress is where the device answers on the setup network: DHCP,
 	// DNS and the setup page are all here.

@@ -71,3 +71,37 @@ func someWirelessInterface(t *testing.T) string {
 	t.Skip("no wireless hardware on this machine; this runs where there is some")
 	return ""
 }
+
+// Asking the kernel which network an interface is on has to agree with what
+// the machine actually shows. This is how the daemon tells "nothing is here"
+// from "something else already has this radio", and it must work from inside
+// a container, where reading another program's /proc entry does not.
+func TestTheKernelSaysWhichNetworkTheRadioIsOn(t *testing.T) {
+	name := someWirelessInterface(t)
+
+	joined, err := associatedNetwork(name)
+	if err != nil {
+		t.Fatalf("asking what %s is joined to: %s", name, err)
+	}
+	t.Logf("%s is joined to %q", name, joined)
+}
+
+func TestAWiredInterfaceIsJoinedToNothing(t *testing.T) {
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		t.Skip("no /sys/class/net here")
+	}
+	for _, entry := range entries {
+		if entry.Name() == "lo" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("/sys/class/net", entry.Name(), "phy80211")); err == nil {
+			continue
+		}
+		if joined, _ := associatedNetwork(entry.Name()); joined != "" {
+			t.Errorf("%s has no radio but is reported joined to %q", entry.Name(), joined)
+		}
+		return
+	}
+	t.Skip("every interface here is wireless")
+}

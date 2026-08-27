@@ -131,6 +131,12 @@ func (self *AccessPoint) Start(ctx context.Context) error {
 	defer cancel()
 	if err := process.WaitReady(readyContext); err != nil {
 		self.Stop(ctx)
+		if other := somethingElseOwns(self.interfaceName); other != "" {
+			return fmt.Errorf("network: %s did not come up as %q because %s is "+
+				"driving the radio; stop it managing this interface and try again "+
+				"(with NetworkManager that is \"nmcli dev set %s managed no\"): %w",
+				self.interfaceName, self.credentials.SSID, other, self.interfaceName, err)
+		}
 		return fmt.Errorf("network: %s did not come up as %q: %w",
 			self.interfaceName, self.credentials.SSID, err)
 	}
@@ -314,4 +320,27 @@ func Forget(interfaceName string) error {
 		}
 	}
 	return nil
+}
+
+// somethingElseOwns names the program driving this radio, if one is, and an
+// empty string otherwise.
+//
+// A radio can only be driven by one program. When another wpa_supplicant has
+// it -- which on an ordinary desktop means NetworkManager's -- ours starts
+// cleanly, fails every scan with a bare error number, and never advertises.
+// The message that produces says nothing whatever about the cause, and the
+// cause is both common and easy to put right, so it is worth the effort of
+// looking.
+//
+// The interface being associated with a network is the evidence: this daemon
+// has not joined anything, so if the radio is on somebody's network then some
+// other program put it there.
+func somethingElseOwns(interfaceName string) string {
+	// This daemon has joined nothing -- it was about to run an access point --
+	// so a radio that is sitting on somebody's network was put there by some
+	// other program, and that program still has it.
+	if joined, err := associatedNetwork(interfaceName); err == nil && joined != "" {
+		return fmt.Sprintf("another program has it joined to %q and", joined)
+	}
+	return ""
 }

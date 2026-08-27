@@ -123,7 +123,13 @@ password can join.
       control on the Network page. Remaining: none of it has run on real
       hardware yet -- see the note below.
 - [ ] Milestone 6: documentation, changelog, decision record.
-- [ ] **The whole thing has never run on a radio.** Every piece is tested
+- [x] (2026-08-26 22:55Z) Ran on a real radio: carbon advertised `cue-gbkthq`
+      and a second machine's radio saw it on WPA2. The portal listed nine real
+      networks from the room, the welcome page carried the join code, and a
+      captive probe answered 302 to the portal.
+- [ ] **A phone has still not joined one.** Blocked on the radio: see the
+      NetworkManager discovery below.
+- [ ] Old note, kept for the record: **the whole thing has never run on a radio.** Every piece is tested
       separately and the pieces that need no hardware are tested properly, but
       no access point has been advertised, no phone has joined one, and no
       captive portal has opened by itself. That needs a wireless interface that
@@ -131,6 +137,43 @@ password can join.
       an SSH command does not have.
 
 ## Surprises & Discoveries
+
+- Observation: On a machine where NetworkManager is running, the setup network
+  cannot come up at all, and the failure says nothing about why. NetworkManager
+  keeps its own wpa_supplicant on the radio; ours starts cleanly, fails every
+  scan with a bare error number, and never advertises.
+
+  Evidence: the log filled with `wlp4s0: CTRL-EVENT-SCAN-FAILED ret=-2 retry=1`
+  and then `was not ready within 20s`, while `nmcli dev status` showed the same
+  interface `connected` to a network. The device now detects this and says so:
+
+      cannot offer to be set up over the air: network: wlp4s0 did not come up as
+      "cue-wcu83k" because another program has it joined to "joe" and is driving
+      the radio; stop it managing this interface and try again (with
+      NetworkManager that is "nmcli dev set wlp4s0 managed no")
+
+  Detecting it needed care. The obvious check -- look for another
+  wpa_supplicant in /proc -- does not work, because the daemon runs in a
+  container with its own view of processes. Asking the kernel over nl80211
+  which network the interface is associated with does work, because the
+  container shares the kernel's view of the machine's interfaces. The daemon
+  has joined nothing, so a radio sitting on somebody's network was put there by
+  something else.
+
+- Observation: The setup network must keep its name and passphrase when it goes
+  down and comes back, and the first version did not. It comes down twice in
+  normal use -- to free the radio for a scan, and to free it to try joining --
+  and each restart invented new credentials, so the phone would have been
+  looking for a network that no longer existed while the new password sat on a
+  screen the person had walked away from. Found by reading the recovery path
+  rather than by a test, and now pinned by one.
+
+- Observation: Taking the screen was a separate problem from deciding to offer
+  setup. The tabs are worked out when the browser starts and when the
+  configuration changes, and setup starting is neither, so a device with a
+  playlist went on showing it while quietly advertising a setup network nobody
+  could see the code for. Reported from the room as "I see the cue wifi, but I
+  do not see the qrcode".
 
 - Observation: The welcome page listed the addresses of Docker and libvirt
   bridges alongside the real one, and the QR code carries the first address in

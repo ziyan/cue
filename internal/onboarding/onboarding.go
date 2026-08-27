@@ -103,7 +103,17 @@ func (self *Onboarding) Start(ctx context.Context, interfaceName string) error {
 			"its own, so this device cannot be set up over the air", interfaceName)
 	}
 
-	credentials, err := network.NewCredentials()
+	// Invented once per session and then kept, even across the access point
+	// going down and coming back.
+	//
+	// This matters more than it looks. The network comes down and back up
+	// twice in normal use: when somebody asks to scan again, and when a join
+	// fails and setup has to be recovered. If the name and passphrase changed
+	// each time, the phone could not rejoin -- it would be looking for a
+	// network that no longer exists, and the new one's passphrase is on a
+	// screen the person may have already walked away from. The whole recovery
+	// story depends on the setup network coming back as the same network.
+	credentials, err := self.sessionCredentials()
 	if err != nil {
 		return err
 	}
@@ -111,7 +121,7 @@ func (self *Onboarding) Start(ctx context.Context, interfaceName string) error {
 	// Best effort: a scan that fails leaves an empty list, and the portal
 	// offers a "scan again" button. Refusing to start setup because a scan
 	// failed would leave the person with nothing at all.
-	found, err := network.Scan(interfaceName)
+	found, err := network.ScanStandalone(ctx, self.store, interfaceName)
 	if err != nil {
 		log.Warningf("cannot scan from %s before setting up, so the setup page will "+
 			"start with an empty list: %s", interfaceName, err)
@@ -154,7 +164,11 @@ func (self *Onboarding) Start(ctx context.Context, interfaceName string) error {
 	return nil
 }
 
-// Stop takes the setup network down and forgets the passphrase.
+// Stop takes the setup network down.
+//
+// The name and passphrase are kept, because the network usually comes back:
+// this is called to free the radio for a scan, and to free it for an attempt
+// to join. Finish is what ends a session and forgets them.
 func (self *Onboarding) Stop(ctx context.Context) {
 	self.mutex.Lock()
 	point := self.point
@@ -162,7 +176,6 @@ func (self *Onboarding) Stop(ctx context.Context) {
 	self.running = false
 	self.point = nil
 	self.stop = nil
-	self.credentials = network.Credentials{}
 	self.mutex.Unlock()
 
 	if stop != nil {
@@ -191,9 +204,22 @@ func (self *Onboarding) Rescan(ctx context.Context) error {
 		return fmt.Errorf("onboarding: this device is not being set up")
 	}
 
-	found, err := network.Scan(interfaceName)
-	if err != nil {
-		return err
+	// The access point comes down first. A radio that is advertising cannot
+	// search the other channels, and a supplicant in access point mode refuses
+	// a scan outright, so asking it while it is up returns nothing at all --
+	// which would look to somebody pressing the button like an empty room.
+	self.Stop(ctx)
+
+	found, scanErr := network.ScanStandalone(ctx, self.store, interfaceName)
+
+	// Back up whatever the scan did, because a device left with neither its
+	// own network nor anybody else's is a device somebody has to walk to.
+	if err := self.Start(ctx, interfaceName); err != nil {
+		return fmt.Errorf("onboarding: the setup network did not come back after "+
+			"looking for networks: %w", err)
+	}
+	if scanErr != nil {
+		return scanErr
 	}
 
 	self.mutex.Lock()
@@ -240,6 +266,7 @@ func (self *Onboarding) Join(ctx context.Context, ssid, passphrase string) error
 		if network.HasUsableAddress(interfaceName) {
 			log.Noticef("joined %q and has an address; setup is finished", ssid)
 			self.remember(interfaceName, ssid, passphrase)
+			self.Finish(ctx)
 			return nil
 		}
 		select {
@@ -304,4 +331,43 @@ func (self *Onboarding) remember(interfaceName, ssid, passphrase string) {
 		log.Errorf("this device joined %q but the network could not be written to its "+
 			"configuration, so it will not come back after a restart: %s", ssid, err)
 	}
+}
+
+// sessionCredentials invents a name and passphrase the first time and returns
+// the same ones afterwards, so that a setup network which goes down and comes
+// back is the same network to a phone that has already joined it.
+func (self *Onboarding) sessionCredentials() (network.Credentials, error) {
+	self.mutex.Lock()
+	existing := self.credentials
+	self.mutex.Unlock()
+
+	if existing.SSID != "" {
+		return existing, nil
+	}
+
+	made, err := network.NewCredentials()
+	if err != nil {
+		return network.Credentials{}, err
+	}
+
+	self.mutex.Lock()
+	if self.credentials.SSID == "" {
+		self.credentials = made
+	}
+	made = self.credentials
+	self.mutex.Unlock()
+	return made, nil
+}
+
+// Finish ends a setup session: the network goes down and its passphrase is
+// forgotten, so that the next session -- if there ever is one -- is a new
+// network with a new password rather than one somebody wrote down last month.
+func (self *Onboarding) Finish(ctx context.Context) {
+	self.Stop(ctx)
+
+	self.mutex.Lock()
+	self.credentials = network.Credentials{}
+	self.networks = nil
+	self.trouble = ""
+	self.mutex.Unlock()
 }

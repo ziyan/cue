@@ -3,6 +3,8 @@ package browser
 import (
 	"context"
 	"testing"
+
+	"github.com/ziyan/cue/internal/config"
 )
 
 func TestNothingIsClosedWhenTheDaemonDoesNotKnowWhichTabsAreItsOwn(t *testing.T) {
@@ -39,5 +41,31 @@ func TestAskingForTheBrowserBeforeItStartedIsAnErrorAndNotAPanic(t *testing.T) {
 
 	if _, err := browser.browser(context.Background()); err == nil {
 		t.Fatal("attaching to a browser that has not started returned no error")
+	}
+}
+
+// While a device is being set up over the air, its screen must show the page
+// carrying the code to scan -- even if it has a playlist.
+//
+// A device in that state has no network, so whatever the playlist points at
+// would not load anyway; and the setup network's passphrase exists only on
+// that page, so a screen showing anything else is a device nobody can set up.
+func TestTheScreenIsGivenToSetupEvenWhenThereIsAPlaylist(t *testing.T) {
+	browser := newTestBrowser(t, func(configuration *config.Configuration) {
+		configuration.Playlist.Items = []config.Item{
+			{Identifier: "dashboard", URL: "http://dashboard.example.com/"},
+			{Identifier: "second", URL: "http://second.example.com/"},
+		}
+	})
+
+	if got := browser.plannedItems(); len(got) != 2 {
+		t.Fatalf("without setup running the screen shows %d page(s), want the 2 in the playlist", len(got))
+	}
+
+	browser.SetupInProgress = func() bool { return true }
+
+	planned := browser.plannedItems()
+	if len(planned) != 1 || planned[0].Identifier != holdingIdentifier {
+		t.Fatalf("while being set up the screen shows %+v, want only the holding page", planned)
 	}
 }
