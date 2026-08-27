@@ -1,0 +1,309 @@
+// Package video keeps the videos an operator has uploaded on the device's own
+// disk, so that a screen goes on playing them with no network at all.
+//
+// Files are stored under a digest of their own contents rather than under the
+// name they arrived with. Uploaded names are not unique, not safe to use as
+// paths, and not stable: two people upload "promo.mp4" and mean different
+// files. A digest is unique, safe, and the same for the same bytes, so
+// uploading one file twice costs one copy -- and it makes cleaning up exact,
+// because a file is wanted if some playlist item names it and unwanted
+// otherwise, with no bookkeeping that can drift out of step with the truth.
+package video
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/op/go-logging"
+)
+
+var log = logging.MustGetLogger("video")
+
+// Video is one stored file.
+type Video struct {
+	// File is what it is stored under, and what a playlist item names. It is
+	// hexadecimal and nothing else, which is what makes it safe to put in a
+	// path built from a request.
+	File string `json:"file"`
+
+	// Name is what it was called when it arrived, for the interface to show.
+	Name string `json:"name"`
+
+	Size int64  `json:"size"`
+	Type string `json:"type"`
+}
+
+// Store is the directory the videos live in.
+type Store struct {
+	directory string
+}
+
+// Open prepares the store. The directory is created if it is not there.
+func Open(directory string) (*Store, error) {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return nil, fmt.Errorf("video: cannot create %s: %w", directory, err)
+	}
+	return &Store{directory: directory}, nil
+}
+
+// safeFile is what a stored file's name may look like: hexadecimal, nothing
+// else. Names arrive in requests, and a name that could contain a slash or a
+// pair of dots is a way to ask this store for /etc/shadow.
+var safeFile = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// maximumName is how much of an uploaded name is kept. Somebody's file manager
+// will one day produce a name thousands of characters long, and it is only
+// ever shown in a list.
+const maximumName = 120
+
+// Add streams a video in and returns what it was stored as.
+//
+// The bytes go to a temporary file in the same directory while the digest is
+// computed, and that file is renamed into place at the end. Nothing is held in
+// memory: these are hundreds of megabytes. And nothing half-written is ever
+// visible under a real name, because a rename within one directory either
+// happens or does not.
+func (self *Store) Add(name, mediaType string, source io.Reader) (Video, error) {
+	temporary, err := os.CreateTemp(self.directory, "incoming-*")
+	if err != nil {
+		return Video{}, fmt.Errorf("video: cannot start storing a video: %w", err)
+	}
+	defer func() {
+		temporary.Close()
+		// Harmless once the rename has happened, and the whole point when it
+		// has not.
+		_ = os.Remove(temporary.Name())
+	}()
+
+	digest := sha256.New()
+	size, err := io.Copy(io.MultiWriter(temporary, digest), source)
+	if err != nil {
+		return Video{}, fmt.Errorf("video: cannot store a video: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return Video{}, fmt.Errorf("video: cannot finish storing a video: %w", err)
+	}
+	if size == 0 {
+		return Video{}, fmt.Errorf("video: there was nothing in that file")
+	}
+
+	stored := Video{
+		File: hex.EncodeToString(digest.Sum(nil))[:32],
+		Name: tidyName(name),
+		Size: size,
+		Type: mediaType,
+	}
+
+	if err := os.Rename(temporary.Name(), self.contents(stored.File)); err != nil {
+		return Video{}, fmt.Errorf("video: cannot store a video: %w", err)
+	}
+	if err := self.writeDetails(stored); err != nil {
+		return Video{}, err
+	}
+	log.Noticef("stored %q as %s, %d byte(s)", stored.Name, stored.File, stored.Size)
+	return stored, nil
+}
+
+// Path is where a stored video's bytes are, for serving it back.
+func (self *Store) Path(file string) (string, error) {
+	if !safeFile.MatchString(file) {
+		return "", fmt.Errorf("video: %q is not the name of a stored video", file)
+	}
+	path := self.contents(file)
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("video: no video is stored as %s", file)
+	}
+	return path, nil
+}
+
+// Details is what is known about one stored video.
+func (self *Store) Details(file string) (Video, error) {
+	if !safeFile.MatchString(file) {
+		return Video{}, fmt.Errorf("video: %q is not the name of a stored video", file)
+	}
+	return self.readDetails(file)
+}
+
+// Remove deletes one, and what is known about it. Removing something that is
+// not there is not an error: the point is that it is gone.
+func (self *Store) Remove(file string) error {
+	if !safeFile.MatchString(file) {
+		return fmt.Errorf("video: %q is not the name of a stored video", file)
+	}
+	if err := os.Remove(self.contents(file)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("video: cannot remove %s: %w", file, err)
+	}
+	if err := os.Remove(self.details(file)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("video: cannot remove what is known about %s: %w", file, err)
+	}
+	return nil
+}
+
+// List is everything stored.
+func (self *Store) List() ([]Video, error) {
+	entries, err := os.ReadDir(self.directory)
+	if err != nil {
+		return nil, fmt.Errorf("video: cannot read %s: %w", self.directory, err)
+	}
+
+	var videos []Video
+	for _, entry := range entries {
+		file := strings.TrimSuffix(entry.Name(), ".video")
+		if entry.IsDir() || file == entry.Name() || !safeFile.MatchString(file) {
+			continue
+		}
+		details, err := self.readDetails(file)
+		if err != nil {
+			continue
+		}
+		videos = append(videos, details)
+	}
+	return videos, nil
+}
+
+// settleTime is how long a newly written file is left alone even when nothing
+// refers to it.
+//
+// A video that has finished uploading but whose item has not been saved yet is
+// exactly a file nothing refers to. Without this, uploading one and then
+// saving would lose it every time, and the loss would look random.
+const settleTime = 15 * time.Minute
+
+// Sweep deletes every stored video not in wanted, and returns what it deleted.
+//
+// This is what keeps the disk of a machine nobody logs into from filling with
+// videos of last year's promotions. It is exact because of how files are
+// named: an item names a digest, a file is that digest, and there is nothing
+// in between to get out of step.
+func (self *Store) Sweep(wanted []string) ([]string, error) {
+	keep := make(map[string]bool, len(wanted))
+	for _, file := range wanted {
+		keep[file] = true
+	}
+
+	entries, err := os.ReadDir(self.directory)
+	if err != nil {
+		return nil, fmt.Errorf("video: cannot read %s: %w", self.directory, err)
+	}
+
+	var removed []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		file := strings.TrimSuffix(strings.TrimSuffix(name, ".video"), ".json")
+
+		// An abandoned upload, from a request that died halfway.
+		if strings.HasPrefix(name, "incoming-") {
+			if recentlyWritten(entry) {
+				continue
+			}
+			if err := os.Remove(filepath.Join(self.directory, name)); err == nil {
+				removed = append(removed, name)
+			}
+			continue
+		}
+
+		if !safeFile.MatchString(file) || keep[file] {
+			continue
+		}
+		if recentlyWritten(entry) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(self.directory, name)); err != nil {
+			log.Warningf("cannot remove the unused video %s: %s", name, err)
+			continue
+		}
+		if strings.HasSuffix(name, ".video") {
+			removed = append(removed, file)
+		}
+	}
+	return removed, nil
+}
+
+func recentlyWritten(entry os.DirEntry) bool {
+	information, err := entry.Info()
+	if err != nil {
+		// Cannot tell how old it is, so leave it alone. Deleting something on
+		// a guess is the worse mistake.
+		return true
+	}
+	return time.Since(information.ModTime()) < settleTime
+}
+
+func (self *Store) contents(file string) string {
+	return filepath.Join(self.directory, file+".video")
+}
+
+func (self *Store) details(file string) string {
+	return filepath.Join(self.directory, file+".json")
+}
+
+// writeDetails records what a digest cannot say: what the file was called and
+// what it is. Without it the interface could only ever show a row of
+// hexadecimal.
+func (self *Store) writeDetails(stored Video) error {
+	encoded, err := json.Marshal(stored)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(self.details(stored.File), encoded, 0o644); err != nil {
+		return fmt.Errorf("video: cannot record what %s is: %w", stored.File, err)
+	}
+	return nil
+}
+
+func (self *Store) readDetails(file string) (Video, error) {
+	content, err := os.ReadFile(self.details(file))
+	if err != nil {
+		// The bytes may still be there without their description, if the
+		// daemon died between writing the two. That is worth reporting as a
+		// video rather than hiding, so it can at least be played and deleted.
+		if information, statErr := os.Stat(self.contents(file)); statErr == nil {
+			return Video{File: file, Name: file, Size: information.Size(), Type: "video/mp4"}, nil
+		}
+		return Video{}, err
+	}
+	var stored Video
+	if err := json.Unmarshal(content, &stored); err != nil {
+		return Video{}, err
+	}
+	stored.File = file
+	return stored, nil
+}
+
+// tidyName makes an uploaded name safe to show and short enough to fit.
+//
+// It is never used as a path -- the digest is -- so this is only about what a
+// person reads. Control characters are stripped because a name containing them
+// can make a log line lie about its own shape.
+func tidyName(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "." || name == "/" || name == "" {
+		name = "video"
+	}
+
+	var builder strings.Builder
+	for _, character := range name {
+		if character < 0x20 || character == 0x7f {
+			continue
+		}
+		builder.WriteRune(character)
+		if builder.Len() >= maximumName {
+			break
+		}
+	}
+	if builder.Len() == 0 {
+		return "video"
+	}
+	return builder.String()
+}
