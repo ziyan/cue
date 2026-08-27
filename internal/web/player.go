@@ -27,7 +27,7 @@ func (self *Server) play(response http.ResponseWriter, request *http.Request) {
 			continue
 		}
 		found = &shownItem{
-			WayBack: wayBack(),
+			WayBack: self.wayBack(),
 			Source:  "/media/" + item.Media.File,
 			Name:    item.Media.Name,
 			Muted:   !item.Media.Sound,

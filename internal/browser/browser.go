@@ -31,6 +31,10 @@ var log = logging.MustGetLogger("browser")
 
 // Browser is the running Chromium and everything the daemon does with it.
 type Browser struct {
+	// holds is how many things are keeping the playlist still, which is what
+	// the menu on the screen does while somebody has it open.
+	holds int
+
 	// OnEveryPage is a script added to every tab, now and on every page they
 	// visit afterwards. It carries the control that puts this device back into
 	// setup, which has to be reachable from whatever is on the screen.

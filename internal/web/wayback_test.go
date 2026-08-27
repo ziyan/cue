@@ -29,7 +29,7 @@ func TestTheWayBackIsOnEveryPageTheScreenShows(t *testing.T) {
 // cursor is: a wall display with a button permanently on it has that button in
 // every photograph of it.
 func TestTheWayBackIsHiddenUntilSomebodyIsThere(t *testing.T) {
-	script := WayBackScript()
+	script := newTestServer(t, config.Default()).WayBackScript()
 
 	if !strings.Contains(script, "opacity:0") {
 		t.Error("the control starts visible")
@@ -45,15 +45,79 @@ func TestTheWayBackIsHiddenUntilSomebodyIsThere(t *testing.T) {
 }
 
 // A screen in a lobby must not be resettable by one stray click.
-func TestTheWayBackAsksBeforeItActs(t *testing.T) {
-	script := WayBackScript()
-	if !strings.Contains(script, "Forget this network and show the setup code?") {
-		t.Error("the control acts without asking")
+// The mark itself can do nothing at all. Everything it leads to lives in a
+// page this daemon served, because this script runs inside whatever is on the
+// screen -- usually somebody else's page -- and a page from somewhere else may
+// not act on this device however it got here.
+func TestTheMarkItselfCanDoNothing(t *testing.T) {
+	script := newTestServer(t, config.Default()).WayBackScript()
+
+	for _, forbidden := range []string{"/api/v1/wireless/reset", "/api/v1/menu/restart", "/api/v1/playlist/next"} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("the script injected into other people's pages calls %s itself", forbidden)
+		}
 	}
-	// The request is only made from the confirming button.
-	if before, _, _ := strings.Cut(script, "Forget this network"); strings.Contains(before, "/api/v1/wireless/reset") {
-		t.Error("the reset is asked for before the question is put")
+	if !strings.Contains(script, "/menu") {
+		t.Error("the mark does not open the menu")
 	}
+	if !strings.Contains(script, "iframe") {
+		t.Error("the menu is not opened as a page of its own")
+	}
+}
+
+// The menu asks before anything that takes the screen away.
+func TestTheMenuAsksBeforeTheDisruptiveThings(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	for _, asked := range []string{
+		"Restart the browser?",
+		"Restart the screen?",
+		"Forget this wireless network and show the setup code?",
+	} {
+		if !strings.Contains(body, asked) {
+			t.Errorf("the menu does not ask %q", asked)
+		}
+	}
+}
+
+// It offers actions and no settings: changing a URL or a timezone is work for
+// a keyboard and the web interface.
+func TestTheMenuChangesNoSettings(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	for _, absent := range []string{"/api/v1/configuration", "<input", "<select", "<textarea"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("the menu offers %q, which makes it a settings page", absent)
+		}
+	}
+}
+
+// While it is open the screen must not rotate out from under whoever is
+// reading it.
+func TestTheMenuHoldsTheScreenStill(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	if !strings.Contains(body, "/api/v1/playlist/hold") {
+		t.Error("the menu does not hold the screen still while it is open")
+	}
+	if !strings.Contains(body, "/api/v1/playlist/release") {
+		t.Error("the menu never lets the screen go again")
+	}
+}
+
+func menuPage(t *testing.T, server *Server) string {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, "/menu", nil)
+	request.RemoteAddr = "127.0.0.1:54321"
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("the menu answered %d", response.Code)
+	}
+	return response.Body.String()
 }
 
 // Somebody at the screen has demonstrated the access this grants. Somebody on
@@ -140,7 +204,7 @@ func TestARequestWithNoOriginIsRefused(t *testing.T) {
 
 // Injecting the same script twice must not give a screen two buttons.
 func TestTheWayBackOnlyInstallsItselfOnce(t *testing.T) {
-	if !strings.Contains(WayBackScript(), "if (window.__cueWayBack) return;") {
+	if !strings.Contains(newTestServer(t, config.Default()).WayBackScript(), "if (window.__cueWayBack) return;") {
 		t.Error("the script does not guard against being added twice")
 	}
 }

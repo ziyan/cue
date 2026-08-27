@@ -176,6 +176,17 @@ func (self *Browser) fillTheScreen(ctx context.Context, session *cdp.Session, ta
 // item can set its own duration and the configuration can change underneath.
 func (self *Browser) rotate(ctx context.Context) {
 	for {
+		if self.held() {
+			// Somebody is looking at the menu. Come back and ask again rather
+			// than working out a deadline that will be wrong by then.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+			continue
+		}
+
 		wait := self.currentDuration()
 		if wait <= 0 {
 			// A single page, or a playlist with rotation switched off. Wake
@@ -203,6 +214,40 @@ func (self *Browser) rotate(ctx context.Context) {
 			log.Warningf("cannot move to the next page: %s", err)
 		}
 	}
+}
+
+// Hold stops the playlist rotating, and Release starts it again.
+//
+// It is held while somebody at the screen has the menu open. Rotating out from
+// under them would move the page the menu is drawn over, and a menu that
+// disappears while somebody is reading it is worse than no menu.
+//
+// A count rather than a flag, because two things could hold it at once and the
+// second releasing must not start the screen moving under the first.
+func (self *Browser) Hold() {
+	self.mutex.Lock()
+	self.holds++
+	self.mutex.Unlock()
+}
+
+// Release gives back one hold.
+func (self *Browser) Release() {
+	self.mutex.Lock()
+	if self.holds > 0 {
+		self.holds--
+	}
+	// The item has been on screen for however long the menu was open, and
+	// moving on the instant it closes would be startling. The clock starts
+	// again from now.
+	self.currentSince = time.Now()
+	self.mutex.Unlock()
+}
+
+// held reports whether the playlist is being kept still.
+func (self *Browser) held() bool {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.holds > 0
 }
 
 // currentDuration is how long the item now on screen should stay there.

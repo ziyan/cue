@@ -69,3 +69,17 @@ func Draw(width, height int) image.Image {
 		mark, mark.Bounds().Min, draw.Over)
 	return canvas
 }
+
+// Mark is this project's logo on its own, for anything that wants to show it
+// small: the menu somebody opens at the screen, for one.
+//
+// It returns nil rather than an error if the mark cannot be decoded. It is
+// compiled in, so that cannot happen unless the build is broken, and a missing
+// picture is not a reason to fail whatever wanted it.
+func Mark() image.Image {
+	mark, err := png.Decode(bytes.NewReader(logoPNG))
+	if err != nil {
+		return nil
+	}
+	return mark
+}

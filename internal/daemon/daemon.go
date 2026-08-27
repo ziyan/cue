@@ -104,9 +104,6 @@ func New(store *config.Store) (*Daemon, error) {
 	// While the device is being set up over the air, the screen shows the
 	// page carrying the code to scan rather than the playlist.
 	self.browser.SetupInProgress = self.onboarding.Running
-	// Somebody standing in front of the screen can always put it back into
-	// setup, whatever page is showing.
-	self.browser.OnEveryPage = web.WayBackScript()
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,
@@ -260,6 +257,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
+	// Somebody standing in front of the screen can always open the menu,
+	// whatever page is showing. It has to be set after the web server exists,
+	// because only the server knows which port the menu answers on.
+	self.browser.OnEveryPage = self.web.WayBackScript()
 	// The wireless configurations used to sit loose in the state directory.
 	// wpa_supplicant saves the networks it has joined into them, so leaving
 	// them behind is a device that forgets every network it knew.

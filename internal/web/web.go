@@ -258,6 +258,14 @@ func (self *Server) addRoutes() {
 	// screen's own browser asks for.
 	api.Path("/wireless/reset").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.resetWireless))
 
+	// The menu somebody at the screen can open, and the few things it does.
+	// All of them are actions; none of them changes a setting.
+	self.router.Path("/menu").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menu))
+	api.Path("/playlist/hold").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
+	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
+	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuReload))
+	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuRestart))
+
 	// Everything else is the interface itself.
 	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)
 }

@@ -74,7 +74,7 @@ func (self *Server) welcome(response http.ResponseWriter, request *http.Request)
 		"NeedsSetup": !self.isSetUp(),
 		"Code":       code,
 		"Onboarding": onboarding,
-		"WayBack":    wayBack(),
+		"WayBack":    self.wayBack(),
 		"SetupSSID":  setup.SSID,
 	})
 	if err != nil {
