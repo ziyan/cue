@@ -70,7 +70,14 @@ export function device(main) {
         field("Where it is", "text", configuration.device.location, (value) => { configuration.device.location = value; }),
         searchable("Timezone", timezones, configuration.device.timezone, (value) => {
           configuration.device.timezone = value;
-        }, "What the screen and these logs call the time. It does not change the machine's own setting, which lives outside the container.")),
+        }, "What the screen and these logs call the time. It does not change the machine's own setting, which lives outside the container."),
+        choice("Language on the screen", [
+          { value: "", label: "English" },
+          { value: "zh", label: "中文" },
+          { value: "ja", label: "日本語" },
+        ], configuration.device.language || "", (value) => {
+          configuration.device.language = value;
+        }, "What the menu somebody opens at the screen is written in. Whoever is standing there can also change it from that menu, and the choice comes back here.")),
       h("div", { class: "readout" },
         h("span", { class: "label", text: "Identifier" }),
         h("span", { class: "value mono", text: configuration.device.identifier })),

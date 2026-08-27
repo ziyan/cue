@@ -59,6 +59,16 @@ type Device struct {
 	// same instant, labelled differently. The instant itself comes from the
 	// clock, which is shared, and which is what the time section is about.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone"`
+
+	// Language is what the device says on its own screen: the menu somebody
+	// opens at the display, and anything else shown there. A language tag such
+	// as "en", "zh" or "ja"; empty means English.
+	//
+	// It is kept here as well as in the browser because a browser profile is
+	// not a durable place. Wiping it is one of the things the watchdog does
+	// when a screen wedges, and a device that forgot which language it spoke
+	// every time it recovered would be a poor thing to live with.
+	Language string `yaml:"language,omitempty" json:"language"`
 }
 
 // Log controls what the daemon writes to its standard error, which in a

@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"sort"
 
 	"github.com/ziyan/cue/internal/config"
@@ -135,3 +136,39 @@ func (self *Server) menuConfigureWired(response http.ResponseWriter, request *ht
 	}
 	writeJSON(response, http.StatusOK, map[string]interface{}{"configured": wanted.Interface})
 }
+
+// menuLanguage remembers what language somebody chose at the screen.
+//
+// The browser remembers it too, but a browser profile is not a durable place:
+// wiping it is one of the things the watchdog does when a screen wedges, and a
+// device that forgot which language it spoke every time it recovered would be
+// a poor thing to live with.
+func (self *Server) menuLanguage(response http.ResponseWriter, request *http.Request) {
+	var wanted struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&wanted); err != nil {
+		writeError(response, http.StatusBadRequest, "that is not a language")
+		return
+	}
+	// A tag, not a sentence. This ends up in a file and in a page.
+	if !languageTag.MatchString(wanted.Language) {
+		writeError(response, http.StatusBadRequest, "that is not a language tag")
+		return
+	}
+
+	err := self.store.Update(func(configuration *config.Configuration) error {
+		configuration.Device.Language = wanted.Language
+		return nil
+	})
+	if err != nil {
+		writeError(response, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]interface{}{"language": wanted.Language})
+}
+
+// languageTag is what a language may look like: letters, and optionally a
+// region after a dash. Anything else is refused rather than written into the
+// configuration and then into a page.
+var languageTag = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$`)

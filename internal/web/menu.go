@@ -70,6 +70,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		"Uptime":     time.Since(self.device.StartedAt()).Round(time.Second).String(),
 		"Machine":    runtime.GOARCH,
 		"SettingUp":  setUp,
+		"Language":   configuration.Device.Language,
 		"Mark":       template.URL("data:image/png;base64," + smallMark()),
 	}); err != nil {
 		log.Debugf("cannot render the menu: %s", err)
@@ -159,11 +160,24 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   h1 { font-size: 2.8vmin; margin: 0; flex: 1; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* The languages, small and out of the way until wanted. */
-  .languages { display: flex; gap: calc(var(--step) * 0.5); flex: none; }
-  .languages button { padding: calc(var(--step) * 0.5) var(--step);
-    font-size: 1.6vmin; color: #9fb0c5; background: #131920; }
-  .languages button.on { color: #e7ecf3; border-color: var(--accent); }
+  /* The languages: a globe, and a list that appears under it. A row of
+     buttons was there first and does not survive a fourth language. */
+  .languages { position: relative; flex: none; }
+  #globe { padding: calc(var(--step) * 0.7); color: #9fb0c5; background: #131920;
+    display: grid; place-items: center; }
+  #globe:hover, #globe[aria-expanded="true"] { color: #e7ecf3; border-color: var(--accent); }
+  #globe svg { width: 2.6vmin; height: 2.6vmin; display: block; }
+  #languages { position: absolute; top: calc(100% + var(--step) * 0.6); right: 0;
+    z-index: 5; margin: 0; padding: calc(var(--step) * 0.4); list-style: none;
+    min-width: 22vmin; max-height: 40vmin; overflow-y: auto;
+    background: #171d24; border: 1px solid #2a323d;
+    border-radius: var(--step); box-shadow: 0 1vmin 3vmin rgba(0,0,0,0.6); }
+  #languages li + li { margin-top: calc(var(--step) * 0.3); }
+  #languages button { width: 100%; background: none; border: 0; font-size: 1.7vmin;
+    padding: calc(var(--step) * 0.7) var(--step); display: flex;
+    align-items: center; gap: var(--step); }
+  #languages button:hover { background: #1f2731; }
+  #languages button .tick { color: var(--accent); width: 1.6vmin; flex: none; }
 
   .facts { color: #9fb0c5; font-size: 1.7vmin; line-height: 1.7; margin: 0; }
   .facts b { color: #e7ecf3; font-weight: 600; }
@@ -221,9 +235,17 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     {{ if .Mark }}<img src="{{ .Mark }}" alt="">{{ end }}
     <h1>{{ .Device }}</h1>
     <div class="languages">
-      <button data-language="en">EN</button>
-      <button data-language="zh">中文</button>
-      <button data-language="ja">日本語</button>
+      <button id="globe" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M3 12h18"></path>
+          <path d="M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"></path>
+        </svg>
+      </button>
+      <!-- Filled in from the dictionary, so that adding a language is one
+           edit rather than one edit and a forgotten second one. -->
+      <ul id="languages" role="listbox" hidden></ul>
     </div>
   </header>
 
@@ -313,7 +335,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      "language-name": "English", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
       "next": "Show the next item", "next-why": "Move the screen on now",
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
@@ -346,7 +368,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      "language-name": "中文", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
       "next": "显示下一项", "next-why": "立即切换到下一个内容",
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
@@ -379,7 +401,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      "language-name": "日本語", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
       "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
@@ -413,13 +435,20 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     },
   };
 
+  // What language to start in, in order of how much it is worth trusting.
+  //
+  // The device's own setting first: it is the one an operator chose and the
+  // one that survives a browser profile being wiped, which the watchdog does
+  // when a screen wedges. Then whatever this browser remembers, for the case
+  // where the setting has never been written. Then English.
   let language = "en";
   try {
     const remembered = localStorage.getItem("cue.language");
     if (remembered && SAID[remembered]) language = remembered;
   } catch (error) {
-    // A browser with storage switched off. English, then.
+    // A browser with storage switched off. Carry on.
   }
+  {{ if .Language }}if (SAID["{{ .Language }}"]) language = "{{ .Language }}";{{ end }}
 
   function say(key, ...values) {
     const words = (SAID[language] || SAID.en)[key] || SAID.en[key] || key;
@@ -428,16 +457,26 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   }
 
   function speak(chosen) {
-    if (chosen) {
+    if (chosen && chosen !== language) {
       language = chosen;
       try { localStorage.setItem("cue.language", chosen); } catch (error) {}
+      // And on the device, so it outlives this browser profile.
+      fetch("/api/v1/menu/language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: chosen }),
+      }).catch(() => {});
+    } else if (chosen) {
+      language = chosen;
     }
     document.documentElement.lang = language;
     document.querySelectorAll("[data-t]").forEach((node) => {
       node.textContent = say(node.dataset.t);
     });
-    document.querySelectorAll(".languages button").forEach((button) => {
-      button.className = button.dataset.language === language ? "on" : "";
+    document.querySelectorAll("#languages button").forEach((button) => {
+      const chosen = button.dataset.language === language;
+      button.setAttribute("aria-selected", chosen ? "true" : "false");
+      button.querySelector(".tick").textContent = chosen ? "✓" : "";
     });
     // The parts drawn by script rather than markup.
     if (chosenNetwork) document.getElementById("chosen").textContent = chosenNetwork;
@@ -454,9 +493,46 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     if (!scanned) showScanning();
   }
 
-  document.querySelectorAll(".languages button").forEach((button) => {
-    button.addEventListener("click", () => speak(button.dataset.language));
+  // The list of languages is built from the dictionary itself. Adding one is
+  // then a single edit: put its words in SAID, with a language-name, and it
+  // appears here.
+  const globe = document.getElementById("globe");
+  const languages = document.getElementById("languages");
+
+  for (const code of Object.keys(SAID)) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.dataset.language = code;
+    button.setAttribute("role", "option");
+
+    const tick = document.createElement("span");
+    tick.className = "tick";
+    button.appendChild(tick);
+
+    const name = document.createElement("span");
+    name.textContent = SAID[code]["language-name"] || code;
+    button.appendChild(name);
+
+    button.addEventListener("click", () => {
+      speak(code);
+      showLanguages(false);
+    });
+    item.appendChild(button);
+    languages.appendChild(item);
+  }
+
+  function showLanguages(open) {
+    languages.hidden = !open;
+    globe.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  globe.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showLanguages(languages.hidden);
   });
+  // Anywhere else closes it, which is what everybody expects of a menu.
+  document.addEventListener("click", () => showLanguages(false));
+  languages.addEventListener("click", (event) => event.stopPropagation());
 
   const actions = document.getElementById("actions");
   const confirm = document.getElementById("confirm");

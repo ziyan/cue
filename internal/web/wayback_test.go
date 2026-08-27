@@ -105,6 +105,9 @@ func TestTheMenuChangesTheNetworkAndNothingElse(t *testing.T) {
 		case strings.HasPrefix(call, "/api/v1/menu/network"):
 		case strings.HasPrefix(call, "/api/v1/menu/restart"),
 			call == "/api/v1/menu/reload",
+			// Which language the screen speaks: a preference of the person
+			// standing there, and the only other thing they may write.
+			call == "/api/v1/menu/language",
 			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
@@ -336,10 +339,20 @@ func TestTheMenuSpeaksThreeLanguages(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	body := menuPage(t, server)
 
-	for _, language := range []string{`data-language="en"`, `data-language="zh"`, `data-language="ja"`} {
-		if !strings.Contains(body, language) {
-			t.Errorf("the menu does not offer %s", language)
+	// The list is built from the dictionary rather than written in the markup,
+	// so that adding a language is one edit. That is what is checked: the
+	// dictionary names each language, and the page builds a list from it.
+	for _, name := range []string{`"language-name": "English"`, `"language-name": "中文"`, `"language-name": "日本語"`} {
+		if !strings.Contains(body, name) {
+			t.Errorf("the dictionary does not name %s", name)
 		}
+	}
+	if !strings.Contains(body, "for (const code of Object.keys(SAID))") {
+		t.Error("the language list is not built from the dictionary, so adding a " +
+			"language would mean remembering to edit the markup as well")
+	}
+	if !strings.Contains(body, `id="globe"`) {
+		t.Error("there is no globe to open the languages with")
 	}
 	// A few words from each, so that an empty dictionary would fail here.
 	for _, words := range []string{"Set up the network", "设置网络", "ネットワークを設定"} {
@@ -405,5 +418,67 @@ func TestEveryKeyInTheMarkupHasWordsBehindIt(t *testing.T) {
 		if !strings.Contains(said, `"`+key+`":`) {
 			t.Errorf("the markup asks for %q and the dictionary has no such phrase", key)
 		}
+	}
+}
+
+// A language chosen at the screen is written to the device, not only to the
+// browser. Wiping the browser profile is one of the things the watchdog does
+// when a screen wedges, and a device that forgot its language every time it
+// recovered would be a poor thing to live with.
+func TestALanguageChosenAtTheScreenIsRememberedByTheDevice(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	signedIn(t, server)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	ask := func(body string) int {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/menu/language", strings.NewReader(body))
+		request.RemoteAddr = "127.0.0.1:54321"
+		request.Header.Set("Origin", "http://127.0.0.1:"+port)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.router.ServeHTTP(response, request)
+		return response.Code
+	}
+
+	if code := ask(`{"language":"ja"}`); code != http.StatusOK {
+		t.Fatalf("choosing a language answered %d", code)
+	}
+	if got := server.store.Current().Device.Language; got != "ja" {
+		t.Errorf("the device remembers %q, want ja", got)
+	}
+
+	// And the menu comes back in that language without being told.
+	if !strings.Contains(menuPage(t, server), `if (SAID["ja"]) language = "ja"`) {
+		t.Error("the menu does not start in the language the device remembers")
+	}
+}
+
+// It goes into a file and into a page, so it has to be a tag and not a
+// sentence.
+func TestOnlyALanguageTagIsAccepted(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	signedIn(t, server)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	for _, attempt := range []string{
+		`{"language":"<script>alert(1)</script>"}`,
+		`{"language":"../../etc/passwd"}`,
+		`{"language":"english please"}`,
+		`{"language":"e"}`,
+		`{"language":""}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/menu/language", strings.NewReader(attempt))
+		request.RemoteAddr = "127.0.0.1:54321"
+		request.Header.Set("Origin", "http://127.0.0.1:"+port)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.router.ServeHTTP(response, request)
+
+		if response.Code == http.StatusOK {
+			t.Errorf("%s was accepted as a language", attempt)
+		}
+	}
+	if got := server.store.Current().Device.Language; got != "" {
+		t.Errorf("the device ended up with language %q", got)
 	}
 }

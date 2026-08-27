@@ -278,6 +278,7 @@ func (self *Server) addRoutes() {
 	api.Path("/menu/network/scan").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuScan))
 	api.Path("/menu/network/wireless").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuJoinWireless))
 	api.Path("/menu/network/wired").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuConfigureWired))
+	api.Path("/menu/language").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuLanguage))
 
 	// Everything else is the interface itself.
 	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)
