@@ -120,9 +120,40 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 		return fmt.Errorf("%w (nothing on %s was changed)", err, host)
 	}
 
-	// Only now. And before looking at what holds the graphics device, or this
-	// deployment's own X server is found and reported as the thing in the
-	// way — which is true, and unhelpful, and stops a redeployment dead.
+	step("preparing the directories")
+	if err := remote(host, "mkdir", "-p", "/etc/cue", "/var/lib/cue"); err != nil {
+		return err
+	}
+
+	if configFile != "" {
+		step("installing %s", configFile)
+		content, err := os.ReadFile(configFile)
+		if err != nil {
+			return err
+		}
+		// Written through a pipe rather than scp so that this needs nothing
+		// on the machine but ssh, and so that the file lands with the right
+		// mode: it holds the passwords the screen signs in with.
+		if err := remoteInput(host, bytes.NewReader(content), "sh", "-c",
+			"umask 077 && cat > /etc/cue/cue.yaml"); err != nil {
+			return err
+		}
+	}
+
+	// Everything above this line leaves the machine as it was found, and
+	// everything below it takes the screen down. They are in that order on
+	// purpose.
+	//
+	// They were not, once. Preparing the directories came after the old
+	// container was removed, and a deployment to a machine that went away
+	// between the two left a device with no container at all -- a blank
+	// screen, and nothing running to put anything on it. The machine in
+	// question was a wall display; the failure was noticed by somebody
+	// looking at the wall.
+	//
+	// So nothing is stopped until the last thing that can fail has succeeded,
+	// and the window in which the screen is dark is as short as starting a
+	// container.
 	step("stopping any previous deployment")
 	_ = remote(host, "docker", "rm", "-f", name)
 
@@ -166,26 +197,6 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 		fmt.Println("    nothing is holding it now")
 	}
 
-	step("preparing the directories")
-	if err := remote(host, "mkdir", "-p", "/etc/cue", "/var/lib/cue"); err != nil {
-		return err
-	}
-
-	if configFile != "" {
-		step("installing %s", configFile)
-		content, err := os.ReadFile(configFile)
-		if err != nil {
-			return err
-		}
-		// Written through a pipe rather than scp so that this needs nothing
-		// on the machine but ssh, and so that the file lands with the right
-		// mode: it holds the passwords the screen signs in with.
-		if err := remoteInput(host, bytes.NewReader(content), "sh", "-c",
-			"umask 077 && cat > /etc/cue/cue.yaml"); err != nil {
-			return err
-		}
-	}
-
 	step("starting the container")
 
 	// Input and sound are passed through only when the machine has them.
@@ -201,7 +212,10 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 	}
 
 	if err := remote(host, containerArguments(image, name, terminal, optional)...); err != nil {
-		return err
+		return fmt.Errorf("%w\n\n"+
+			"    The previous deployment has already been stopped, so %s now has\n"+
+			"    nothing running and its screen is blank. Run this again once the\n"+
+			"    reason above is dealt with.", err, host)
 	}
 
 	step("waiting for it to say it is working")
