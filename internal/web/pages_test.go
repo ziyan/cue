@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -271,4 +272,54 @@ func waitFor(ctx context.Context, session *cdp.Session, expression string) error
 		return last
 	}
 	return fmt.Errorf("%s never became true", expression)
+}
+
+// Everything the screen's own browser is allowed to do without a password
+// rests on one assumption about browsers: that a page cannot lie about where
+// it came from, and that a same-origin POST says where it came from at all.
+//
+// The second half is worth pinning with a real browser. If Chromium ever
+// stopped sending Origin on a same-origin POST, the screen would quietly stop
+// moving on at the end of a video and nothing would say why.
+func TestOurOwnPageSaysWhereItCameFromOnAPost(t *testing.T) {
+	executable := findBrowser()
+	if executable == "" {
+		t.Skip("no Chromium on this machine; the image has one and CI runs this there")
+	}
+
+	seen := make(chan string, 4)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/asked", func(response http.ResponseWriter, request *http.Request) {
+		seen <- request.Header.Get("Origin")
+		response.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/html")
+		_, _ = response.Write([]byte(`<!doctype html><body><script>
+			fetch("/asked", {method: "POST"});
+		</script></body>`))
+	})
+	site := httptest.NewServer(mux)
+	defer site.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	session, stop := startBrowser(ctx, t, executable)
+	defer stop()
+
+	if err := session.Call(ctx, "Page.navigate", map[string]interface{}{"url": site.URL}, nil); err != nil {
+		t.Fatalf("navigating: %s", err)
+	}
+
+	select {
+	case origin := <-seen:
+		if origin != site.URL {
+			t.Errorf("a same-origin POST arrived with Origin %q, want %q. "+
+				"Everything the screen may do without a password depends on this.",
+				origin, site.URL)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the page never made the request")
+	}
 }

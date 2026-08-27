@@ -5,6 +5,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -148,11 +149,54 @@ func fromThisMachine(request *http.Request) bool {
 	return address != nil && address.IsLoopback()
 }
 
+// fromOurOwnPage reports whether a request came from a page this daemon
+// served, rather than from a page it merely displays.
+//
+// This is the difference that matters for anything the screen's own browser is
+// allowed to do without a password. "It came from the loopback" is not enough:
+// the browser on this device spends its life showing pages written by other
+// people, and any one of them can ask the loopback for whatever it likes. A
+// dashboard that decided to take its own screen off the network would be an
+// unpleasant surprise.
+//
+// A browser sets Origin itself and a page cannot forge it, so a page from
+// somewhere else is recognisable. A request with no Origin at all is refused
+// too: that is a command line, not a page, and a command line has the API and
+// a password.
+func (self *Server) fromOurOwnPage(request *http.Request) bool {
+	origin := request.Header.Get("Origin")
+	if origin == "" {
+		return false
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+
+	host, port, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		host, port = parsed.Host, ""
+	}
+	if address := net.ParseIP(host); address == nil || !address.IsLoopback() {
+		// Only the loopback. A page served from this device's address on the
+		// network is still this device's page, but it reached the browser over
+		// the network and there is no reason for the screen to use that.
+		return false
+	}
+
+	_, ours, err := net.SplitHostPort(self.Address())
+	if err != nil {
+		return false
+	}
+	return port == ours
+}
+
 // localOrSession allows this machine's own browser through, and asks everybody
 // else for a session.
 func (self *Server) localOrSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if fromThisMachine(request) {
+		if fromThisMachine(request) && (request.Method == http.MethodGet ||
+			request.Method == http.MethodHead || self.fromOurOwnPage(request)) {
 			next(response, request)
 			return
 		}
