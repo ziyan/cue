@@ -100,32 +100,60 @@ func (self *Manager) Run(ctx context.Context) {
 	self.manageable, self.whyNot = manageable, whyNot
 	self.mutex.Unlock()
 
-	configuration := self.store.Current()
-	if !configuration.Network.Manage {
-		return
-	}
 	if !manageable {
 		log.Warningf("the network cannot be managed from here: %s", whyNot)
 		return
 	}
 
-	interval := configuration.Network.ReconcileInterval.Duration()
+	interval := self.store.Current().Network.ReconcileInterval.Duration()
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 
-	log.Noticef("managing %d network interface(s)", len(configuration.Network.Interfaces))
-
-	self.reconcile(ctx)
+	// Whether to manage the network is re-read every time round rather than
+	// once at the start. It used to be read once, and a daemon that started
+	// with it off never looked again -- so a device set up over the air, which
+	// turns it on and writes an interface into the configuration as the last
+	// step, went on managing nothing and never joined the network somebody had
+	// just chosen for it. Anything that can be switched on while the daemon
+	// runs has to be looked at while the daemon runs.
+	managing := false
 	for {
+		configuration := self.store.Current()
+		if configuration.Network.Manage {
+			if !managing {
+				log.Noticef("managing %d network interface(s)", len(configuration.Network.Interfaces))
+				managing = true
+			}
+			self.reconcile(ctx)
+		} else if managing {
+			log.Noticef("no longer managing the network")
+			managing = false
+			self.stopAll()
+		}
+
 		select {
 		case <-ctx.Done():
 			self.stopAll()
 			return
 		case <-time.After(interval):
-			self.reconcile(ctx)
 		}
 	}
+}
+
+// ReconcileNow puts every configured interface into the state it should be in,
+// immediately, instead of waiting for the next time round the loop.
+//
+// It exists for the moment a device is set up over the air: somebody has just
+// chosen a network on their phone, the configuration has been written, and
+// waiting up to a reconcile interval before even trying to join it would be
+// half a minute of a screen saying nothing while they stand there.
+func (self *Manager) ReconcileNow(ctx context.Context) {
+	if manageable, whyNot := Manageable(); !manageable {
+		log.Warningf("the network cannot be managed from here: %s", whyNot)
+		return
+	}
+	self.reconcile(ctx)
 }
 
 // reconcile puts every configured interface into the state it should be in.

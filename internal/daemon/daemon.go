@@ -84,7 +84,7 @@ func New(store *config.Store) (*Daemon, error) {
 	self.vncserver = vncserver.New(store, server.DisplayName(), server.AuthorityFilename())
 	self.timesync = timesync.New(store)
 	self.network = network.New(store)
-	self.onboarding = onboarding.New(store)
+	self.onboarding = onboarding.New(store, self.network)
 	// While the device is being set up over the air, the screen shows the
 	// page carrying the code to scan rather than the playlist.
 	self.browser.SetupInProgress = self.onboarding.Running

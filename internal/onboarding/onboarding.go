@@ -27,6 +27,12 @@ var log = logging.MustGetLogger("onboarding")
 type Onboarding struct {
 	store *config.Store
 
+	// manager owns the machine's network once setup has chosen one: it starts
+	// the supplicant, joins, asks for an address, and brings it all back after
+	// a restart. Setting a device up over the air ends by writing the
+	// configuration and letting it do that.
+	manager *network.Manager
+
 	// portal serves the setup page on the setup network's own address, on
 	// port 80. The web server provides it; it is a function rather than the
 	// server itself so that this package does not depend on that one.
@@ -50,8 +56,8 @@ type Onboarding struct {
 	trouble string
 }
 
-func New(store *config.Store) *Onboarding {
-	return &Onboarding{store: store}
+func New(store *config.Store, manager *network.Manager) *Onboarding {
+	return &Onboarding{store: store, manager: manager}
 }
 
 // ServePortalWith says how to serve the setup page on the setup network. The
@@ -284,16 +290,29 @@ func (self *Onboarding) Join(ctx context.Context, ssid, passphrase string) error
 	log.Noticef("leaving the setup network to join %q", ssid)
 	self.Stop(ctx)
 
-	if err := network.Join(interfaceName, ssid, passphrase); err != nil {
-		self.recover(ctx, interfaceName, fmt.Sprintf("Could not join %q.", ssid))
-		return err
+	// Written into the configuration first, and the network manager asked to
+	// act on it, rather than joining by hand here.
+	//
+	// The first version did it by hand and could not work. It stopped the
+	// access point -- which is the only wpa_supplicant on the interface -- and
+	// then asked that same supplicant to join, so every attempt failed
+	// immediately with "wpa_supplicant is not running". Even had it associated
+	// there would have been no address, because nothing had asked for one.
+	//
+	// The manager already knows how to start a supplicant, join, run a DHCP
+	// client and keep all of it up across a reboot. Writing the configuration
+	// and letting it work is both shorter and the thing that has to happen
+	// anyway: a device set up over the air must come back on that network
+	// after a power cut.
+	self.remember(interfaceName, ssid, passphrase)
+	if self.manager != nil {
+		self.manager.ReconcileNow(ctx)
 	}
 
 	deadline := time.Now().Add(joinTimeout)
 	for time.Now().Before(deadline) {
 		if network.HasUsableAddress(interfaceName) {
 			log.Noticef("joined %q and has an address; setup is finished", ssid)
-			self.remember(interfaceName, ssid, passphrase)
 			self.Finish(ctx)
 			return nil
 		}
@@ -305,19 +324,46 @@ func (self *Onboarding) Join(ctx context.Context, ssid, passphrase string) error
 	}
 
 	log.Warningf("joined nothing usable on %q within %s, so the setup network is coming back", ssid, joinTimeout)
+	self.forget(interfaceName)
 	self.recover(ctx, interfaceName, fmt.Sprintf(
 		"%q did not accept that password, or did not give this device an address.", ssid))
 	return fmt.Errorf("onboarding: %q did not work", ssid)
 }
 
+// forget takes a network that did not work back out of the configuration, so
+// that the manager stops trying it and the next attempt starts clean.
+func (self *Onboarding) forget(interfaceName string) {
+	err := self.store.Update(func(configuration *config.Configuration) error {
+		kept := configuration.Network.Interfaces[:0]
+		for _, one := range configuration.Network.Interfaces {
+			if one.Name != interfaceName {
+				kept = append(kept, one)
+			}
+		}
+		configuration.Network.Interfaces = kept
+		// Management goes back off if this was the only reason it was on: it
+		// was switched on by setting this device up, and setting it up did not
+		// work.
+		if len(kept) == 0 {
+			configuration.Network.Manage = false
+		}
+		return nil
+	})
+	if err != nil {
+		log.Warningf("cannot take the network that did not work back out of the configuration: %s", err)
+	}
+}
+
 // recover brings the setup network back after a join that did not work, so
 // that the phone can reconnect and try again.
 func (self *Onboarding) recover(ctx context.Context, interfaceName, trouble string) {
-	// The network that did not work is forgotten first. Left in place,
-	// wpa_supplicant keeps trying it, which keeps the radio busy and stops the
-	// access point coming back.
+	// Whatever supplicant the manager started is told to forget the network
+	// that did not work. Left in place it is retried for ever, which keeps the
+	// radio busy and stops the access point coming back. There may be no
+	// supplicant at all -- the join may have failed before one started -- and
+	// that is not worth a warning.
 	if err := network.Forget(interfaceName); err != nil {
-		log.Warningf("cannot forget the network that did not work: %s", err)
+		log.Debugf("nothing to forget on %s: %s", interfaceName, err)
 	}
 	if err := self.Start(ctx, interfaceName); err != nil {
 		log.Errorf("cannot bring the setup network back after a failed join, so this "+
