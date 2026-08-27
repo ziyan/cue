@@ -344,3 +344,63 @@ func somethingElseOwns(interfaceName string) string {
 	}
 	return ""
 }
+
+// TakeBackAddress removes an address this daemon put on an interface.
+//
+// It is the other half of GiveAddress, and leaving it out cost a whole
+// evening. The setup network's own address stayed on the interface after the
+// access point came down, and everything downstream then believed the device
+// already had a network: the DHCP client skips an interface that has a usable
+// address, so it never asked for a real one, and the check for "have we
+// joined yet?" saw the leftover address and said yes. A device reported itself
+// set up, put its playlist back on the screen, and was sitting on an address
+// that reached nothing.
+func TakeBackAddress(interfaceName string, address net.IP) error {
+	link, err := netlink.LinkByName(interfaceName)
+	if err != nil {
+		return fmt.Errorf("network: cannot find %s: %w", interfaceName, err)
+	}
+
+	existing, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return fmt.Errorf("network: cannot read the addresses of %s: %w", interfaceName, err)
+	}
+	for index := range existing {
+		if !existing[index].IP.Equal(address) {
+			continue
+		}
+		if err := netlink.AddrDel(link, &existing[index]); err != nil {
+			return fmt.Errorf("network: cannot take %s back off %s: %w", address, interfaceName, err)
+		}
+	}
+	return nil
+}
+
+// HasUsableAddressOtherThan reports whether an interface has an address that
+// reaches something, ignoring one this daemon put there itself.
+//
+// The one to ignore is the setup network's address. Asking plainly whether the
+// interface has an address cannot tell "joined the network somebody chose"
+// from "still sitting on the address we invented for our own setup network",
+// and answering the second as though it were the first is how a device
+// declares itself set up while reaching nothing.
+func HasUsableAddressOtherThan(interfaceName string, ignore net.IP) bool {
+	link, err := netlink.LinkByName(interfaceName)
+	if err != nil {
+		return false
+	}
+	addresses, err := netlink.AddrList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return false
+	}
+	for _, address := range addresses {
+		if address.IP.Equal(ignore) {
+			continue
+		}
+		if address.IP.IsLoopback() || address.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		return true
+	}
+	return false
+}

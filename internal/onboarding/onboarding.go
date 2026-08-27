@@ -207,6 +207,7 @@ func (self *Onboarding) Stop(ctx context.Context) {
 	self.mutex.Lock()
 	point := self.point
 	stop := self.stop
+	interfaceName := self.interfaceName
 	self.running = false
 	self.point = nil
 	self.stop = nil
@@ -217,6 +218,16 @@ func (self *Onboarding) Stop(ctx context.Context) {
 	}
 	if point != nil {
 		point.Stop(ctx)
+	}
+
+	// The setup network's address goes back too. Left on the interface it
+	// makes everything downstream believe the device already has a network:
+	// the DHCP client skips an interface that has a usable address, and the
+	// check for whether a join worked sees it and says yes.
+	if interfaceName != "" {
+		if err := network.TakeBackAddress(interfaceName, onboarding.DeviceAddress); err != nil {
+			log.Warningf("cannot take the setup address back off %s: %s", interfaceName, err)
+		}
 	}
 }
 
@@ -311,7 +322,7 @@ func (self *Onboarding) Join(ctx context.Context, ssid, passphrase string) error
 
 	deadline := time.Now().Add(joinTimeout)
 	for time.Now().Before(deadline) {
-		if network.HasUsableAddress(interfaceName) {
+		if network.HasUsableAddressOtherThan(interfaceName, onboarding.DeviceAddress) {
 			log.Noticef("joined %q and has an address; setup is finished", ssid)
 			self.Finish(ctx)
 			return nil

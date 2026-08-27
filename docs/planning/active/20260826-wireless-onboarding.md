@@ -138,6 +138,36 @@ password can join.
 
 ## Surprises & Discoveries
 
+- Observation: The first apparently successful join was not one. The daemon
+  reported "joined and has an address; setup is finished" three quarters of a
+  second after taking the access point down, put the playlist back on the
+  screen, and reached nothing. The setup network's own address was still on the
+  interface, and two separate things read it as "this device has a network":
+  the DHCP client, which skips an interface that already has a usable address
+  and so never asked for a real one, and the check for whether the join had
+  worked.
+
+  Evidence: after the join, `ip -4 addr show wlp4s0` showed only
+  `192.168.216.1/24` -- the address the daemon had given itself -- while the
+  configuration said the device was on somebody else's network. Removing that
+  address by hand and letting the manager run produced the real one:
+
+      inet 192.168.255.230/24 ... wlp4s0
+      SSID: joe
+
+  GiveAddress had no counterpart. It does now, the join discounts the setup
+  address when deciding whether it worked, and so does the trigger that decides
+  whether the device needs setting up at all -- which would otherwise have
+  switched setup off one second after switching it on.
+
+- Observation: With a wireless network configured and onboarding left on
+  "always", the daemon fights itself for the radio: its own network manager
+  holds the interface on the chosen network while onboarding tries to make it
+  an access point. The log said "another program has it joined to joe and is
+  driving the radio", and the other program was itself. Onboarding now stands
+  down whenever the manager is configured to drive that interface, whatever the
+  mode says.
+
 - Observation: The captive portal never appeared, and the reason was not DNS --
   which worked -- but that nothing was listening on port 80. A phone probes its
   vendor's address on port 80, the name server correctly sends it to this

@@ -23,6 +23,7 @@ import (
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/network"
+	setupnetwork "github.com/ziyan/cue/internal/network/onboarding"
 	"github.com/ziyan/cue/internal/onboarding"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
@@ -561,6 +562,18 @@ func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
 	}
 
 	interfaceName := network.AccessPointCapableInterface()
+	if interfaceName != "" && managedWireless(configuration, interfaceName) {
+		// Whatever the mode says. Two programs cannot drive one radio, and
+		// this daemon's own network manager is already driving this one: it
+		// has been told which network to join and is keeping it there. Running
+		// an access point on the same interface makes the two fight, and what
+		// that looks like in the log is this daemon reporting that "another
+		// program" has the radio -- which is true, and the other program is
+		// itself.
+		log.Debugf("not offering to set up over the air: %s is already configured "+
+			"to join a network", interfaceName)
+		return
+	}
 	if interfaceName == "" {
 		// Said once, at debug, because on a device with no wireless hardware
 		// this is true for ever and is not news.
@@ -598,7 +611,26 @@ func (self *Daemon) hasSomewhereToBe(configuration *config.Configuration) bool {
 		if !one.Physical {
 			continue
 		}
-		if network.HasUsableAddress(one.Name) {
+		// The setup network's own address does not count. While setup is
+		// running it sits on the very interface being asked about, and
+		// counting it would mean the device deciding it already had a network
+		// the moment it started offering to be given one -- and switching
+		// setup off again a second later.
+		if network.HasUsableAddressOtherThan(one.Name, setupnetwork.DeviceAddress) {
+			return true
+		}
+	}
+	return false
+}
+
+// managedWireless reports whether the configuration tells this daemon to keep
+// a particular interface on a particular wireless network.
+func managedWireless(configuration *config.Configuration, interfaceName string) bool {
+	if !configuration.Network.Manage {
+		return false
+	}
+	for _, one := range configuration.Network.Interfaces {
+		if one.Name == interfaceName && one.Wireless != nil && one.Wireless.SSID != "" {
 			return true
 		}
 	}

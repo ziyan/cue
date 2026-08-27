@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -141,5 +142,42 @@ func TestTheSetupNetworkGoesOnTheAir(t *testing.T) {
 		}
 		t.Logf("holding it up for %d seconds so another machine can look for it", seconds)
 		time.Sleep(time.Duration(seconds) * time.Second)
+	}
+}
+
+// The setup network's own address must not count as having joined something.
+//
+// This is the check that failed on a real device. The address the daemon gives
+// itself for its own setup network stayed on the interface after the access
+// point came down, and everything downstream read it as "this device has a
+// network": the DHCP client skips an interface that already has a usable
+// address, so it never asked for a real one, and the join reported success
+// three quarters of a second after starting. The device put its playlist back
+// on the screen and reached nothing.
+func TestTheSetupAddressIsNotMistakenForHavingJoinedSomething(t *testing.T) {
+	// A machine's own loopback stands in for an interface carrying only an
+	// address this daemon put there: nothing else to find.
+	if HasUsableAddressOtherThan("lo", net.IPv4(192, 168, 216, 1)) {
+		t.Error("the loopback is reported as reaching something")
+	}
+
+	// And an interface that really is on a network still reports it.
+	interfaces, err := Interfaces()
+	if err != nil {
+		t.Skip("cannot list interfaces here")
+	}
+	found := false
+	for _, one := range interfaces {
+		if one.Physical && HasUsableAddress(one.Name) {
+			if !HasUsableAddressOtherThan(one.Name, net.IPv4(192, 168, 216, 1)) {
+				t.Errorf("%s has a real address but is reported as having none once "+
+					"the setup address is discounted", one.Name)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Skip("no interface here has an address, so there is nothing to check against")
 	}
 }
