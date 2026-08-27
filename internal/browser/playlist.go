@@ -20,14 +20,7 @@ func (self *Browser) afterReady(ctx context.Context) {
 
 	self.mutex.Lock()
 	self.ready = true
-	onEveryPage := self.OnEveryPage
 	self.mutex.Unlock()
-
-	// The control that puts this device back into setup has to be on whatever
-	// is on the screen, including pages this daemon did not write.
-	if onEveryPage != "" {
-		self.PutOnEveryPage(ctx, onEveryPage)
-	}
 
 	go func() {
 		defer deferutil.Recover()
@@ -106,6 +99,18 @@ func (self *Browser) openTabs(ctx context.Context) error {
 	}
 
 	self.fillTheScreen(ctx, session, tabs)
+
+	// Every time, not only when the browser starts. A tab opened later --
+	// because the playlist changed, or an item was added -- would otherwise
+	// never get the mark, and the way back would be missing from exactly the
+	// page somebody was looking at. That happened: of three tabs on a device,
+	// two had it.
+	self.mutex.Lock()
+	onEveryPage := self.OnEveryPage
+	self.mutex.Unlock()
+	if onEveryPage != "" {
+		self.PutOnEveryPage(ctx, onEveryPage)
+	}
 
 	log.Noticef("showing %d page(s)", len(tabs))
 	return nil
