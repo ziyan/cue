@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -81,16 +82,135 @@ func TestTheMenuAsksBeforeTheDisruptiveThings(t *testing.T) {
 	}
 }
 
-// It offers actions and no settings: changing a URL or a timezone is work for
-// a keyboard and the web interface.
-func TestTheMenuChangesNoSettings(t *testing.T) {
+// The menu changes the network and nothing else.
+//
+// The network earns its exception: the web interface is where settings belong,
+// and reaching the web interface is exactly what this is for. A screen on a
+// wired network with no DHCP server needs a fixed address, and without this
+// that means somebody with a laptop, a cable and a way in. Everything else --
+// the playlist, the timezone, the password -- stays where there is room to
+// think about it.
+func TestTheMenuChangesTheNetworkAndNothingElse(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	body := menuPage(t, server)
 
-	for _, absent := range []string{"/api/v1/configuration", "<input", "<select", "<textarea"} {
-		if strings.Contains(body, absent) {
-			t.Errorf("the menu offers %q, which makes it a settings page", absent)
+	// The whole configuration is not reachable from here.
+	if strings.Contains(body, "/api/v1/configuration") {
+		t.Error("the menu can write the whole configuration, which makes it a settings page")
+	}
+
+	// Every endpoint it does call is either an action or about the network.
+	for _, call := range endpointsIn(body) {
+		switch {
+		case strings.HasPrefix(call, "/api/v1/menu/network"):
+		case strings.HasPrefix(call, "/api/v1/menu/restart"),
+			call == "/api/v1/menu/reload",
+			call == "/api/v1/playlist/next",
+			call == "/api/v1/playlist/hold",
+			call == "/api/v1/playlist/release",
+			call == "/api/v1/wireless/reset":
+		default:
+			t.Errorf("the menu calls %q, which is neither an action nor the network", call)
 		}
+	}
+}
+
+// endpointsIn finds the API paths a page asks for.
+func endpointsIn(body string) []string {
+	var found []string
+	for _, piece := range strings.Split(body, `"`) {
+		if strings.HasPrefix(piece, "/api/v1/") {
+			found = append(found, piece)
+		}
+	}
+	return found
+}
+
+// Somebody at the screen has a keyboard and a mouse, and the two things they
+// might need are a wireless network and a fixed address on a wired one.
+func TestTheMenuCanSetUpBothKindsOfNetwork(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	body := menuPage(t, server)
+
+	for _, wanted := range []string{
+		"/api/v1/menu/network/scan",
+		"/api/v1/menu/network/wireless",
+		"/api/v1/menu/network/wired",
+		"192.0.2.10/24",
+	} {
+		if !strings.Contains(body, wanted) {
+			t.Errorf("the menu does not offer %q", wanted)
+		}
+	}
+}
+
+// Joining and configuring reach the device, and carry what was typed.
+func TestWhatIsTypedAtTheScreenReachesTheDevice(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	device := server.device.(*fakeDevice)
+	signedIn(t, server)
+
+	_, port, _ := net.SplitHostPort(server.Address())
+	ask := func(path string, body interface{}) int {
+		encoded, _ := json.Marshal(body)
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(encoded)))
+		request.RemoteAddr = "127.0.0.1:54321"
+		request.Header.Set("Origin", "http://127.0.0.1:"+port)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		server.router.ServeHTTP(response, request)
+		return response.Code
+	}
+
+	if code := ask("/api/v1/menu/network/wireless", map[string]string{
+		"ssid": "the office", "passphrase": "a test passphrase",
+	}); code != http.StatusOK {
+		t.Fatalf("joining answered %d", code)
+	}
+	if device.joinedSSID != "the office" || device.joinedPassphrase != "a test passphrase" {
+		t.Errorf("the device was asked to join %q with %q", device.joinedSSID, device.joinedPassphrase)
+	}
+
+	if code := ask("/api/v1/menu/network/wired", map[string]interface{}{
+		"interface": "eth0", "method": "static",
+		"address": "192.0.2.10/24", "gateway": "192.0.2.1",
+		"nameservers": []string{"192.0.2.53"},
+	}); code != http.StatusOK {
+		t.Fatalf("configuring answered %d", code)
+	}
+	if device.wired.Name != "eth0" || device.wired.Method != "static" ||
+		device.wired.Address != "192.0.2.10/24" || device.wired.Gateway != "192.0.2.1" {
+		t.Errorf("the device was configured as %+v", device.wired)
+	}
+	if len(device.wired.Nameservers) != 1 || device.wired.Nameservers[0] != "192.0.2.53" {
+		t.Errorf("the name servers arrived as %v", device.wired.Nameservers)
+	}
+}
+
+// And a page the screen merely displays cannot do any of it.
+func TestAPageTheScreenDisplaysCannotSetUpTheNetwork(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	device := server.device.(*fakeDevice)
+	signedIn(t, server)
+
+	for _, path := range []string{
+		"/api/v1/menu/network/scan",
+		"/api/v1/menu/network/wireless",
+		"/api/v1/menu/network/wired",
+		"/api/v1/menu/restart/browser",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("{}"))
+		request.RemoteAddr = "127.0.0.1:54321"
+		request.Header.Set("Origin", "https://dashboard.example.com")
+		response := httptest.NewRecorder()
+		server.router.ServeHTTP(response, request)
+
+		if response.Code == http.StatusOK {
+			t.Errorf("a page from elsewhere was allowed to call %s", path)
+		}
+	}
+	if device.joinedSSID != "" || device.wired.Name != "" || device.scans != 0 {
+		t.Error("a page the screen merely displays reconfigured the network")
 	}
 }
 

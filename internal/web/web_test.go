@@ -42,6 +42,9 @@ type fakeDevice struct {
 	joinedPassphrase string
 	rescans          int
 	forgotten        int
+	scans            int
+	physical         []network.Interface
+	wired            config.Interface
 }
 
 func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
@@ -74,6 +77,20 @@ func (self *fakeDevice) SetupNetworks() []network.WirelessNetwork { return self.
 func (self *fakeDevice) SetupTrouble() string                     { return self.setupTrouble }
 func (self *fakeDevice) RescanFromSetup() error                   { self.rescans++; return nil }
 func (self *fakeDevice) ForgetWireless() error                    { self.forgotten++; return nil }
+
+func (self *fakeDevice) InterfacesForSetup() []network.Interface { return self.physical }
+func (self *fakeDevice) ScanForNetworks(string) ([]network.WirelessNetwork, error) {
+	self.scans++
+	return self.setupSeen, nil
+}
+func (self *fakeDevice) JoinWireless(interfaceName, ssid, passphrase string) error {
+	self.joinedSSID, self.joinedPassphrase = ssid, passphrase
+	return nil
+}
+func (self *fakeDevice) ConfigureWired(settings config.Interface) error {
+	self.wired = settings
+	return nil
+}
 func (self *fakeDevice) JoinFromSetup(ssid, passphrase string) error {
 	self.joinedSSID, self.joinedPassphrase = ssid, passphrase
 	return nil

@@ -76,6 +76,15 @@ type Device interface {
 	// advertising on one.
 	SetupNetworks() []network.WirelessNetwork
 
+	// The network, set up from the screen itself. This is the one kind of
+	// configuration the menu offers, because it is the one that cannot be
+	// done from the web interface: reaching the web interface is what it is
+	// for.
+	InterfacesForSetup() []network.Interface
+	ScanForNetworks(interfaceName string) ([]network.WirelessNetwork, error)
+	JoinWireless(interfaceName, ssid, passphrase string) error
+	ConfigureWired(settings config.Interface) error
+
 	// ForgetWireless takes this device off the network it was told to join and
 	// starts the setup network, so that its screen shows the code again. It is
 	// what the control on the screen does.
@@ -265,6 +274,10 @@ func (self *Server) addRoutes() {
 	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuReload))
 	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuRestart))
+	api.Path("/menu/network").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menuNetwork))
+	api.Path("/menu/network/scan").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuScan))
+	api.Path("/menu/network/wireless").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuJoinWireless))
+	api.Path("/menu/network/wired").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.menuConfigureWired))
 
 	// Everything else is the interface itself.
 	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)
