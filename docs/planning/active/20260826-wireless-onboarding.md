@@ -138,6 +138,40 @@ password can join.
 
 ## Surprises & Discoveries
 
+- Observation: Marking the interface unmanaged in NetworkManager is not enough.
+  Its wpa_supplicant keeps the radio even after the device is unmanaged and
+  even after the daemon's own attempts have stopped, and while it does, the
+  radio can neither scan nor become an access point. `systemctl stop
+  wpa_supplicant.service` is what actually frees it. Ethernet does not use that
+  service, so a wired machine keeps its network.
+
+  Evidence: with the device unmanaged but the service running,
+
+      $ iw dev wlp4s0 set type __ap
+      command failed: Device or resource busy (-16)
+      $ iw dev wlp4s0 scan
+      command failed: No such file or directory (-2)
+
+  and with the service stopped and the link brought down first, both work:
+  `type AP`, and a scan finding 57 networks. The daemon's existing check only
+  notices another program when the radio is *associated*, so it did not catch
+  this case. Detecting it properly means probing directly -- asking the kernel
+  to put the interface into access point mode and seeing whether it says
+  EBUSY -- which is the next thing to do here.
+
+- Observation: Changing a wireless interface's type needs the link down first.
+  With it up the kernel answers EBUSY, which reads as "something else has this"
+  and sent me looking for a program that was not there.
+
+- Observation: I nearly talked myself out of a correct design with a bad test.
+  Checking whether the image's wpa_supplicant had access point support by
+  grepping its strings for `^AP-ENABLED$` returned nothing, and I was about to
+  conclude the whole approach was impossible and that hostapd had to be added.
+  The strings carry trailing spaces and format verbs -- `AP-ENABLED `,
+  `AP-STA-CONNECTED %s%s%s` -- so the anchored pattern could never match. The
+  observation that a second machine had already seen the network on the air was
+  the stronger evidence, and it was right.
+
 - Observation: On a machine where NetworkManager is running, the setup network
   cannot come up at all, and the failure says nothing about why. NetworkManager
   keeps its own wpa_supplicant on the radio; ours starts cleanly, fails every
