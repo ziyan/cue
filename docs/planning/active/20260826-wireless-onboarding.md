@@ -138,6 +138,24 @@ password can join.
 
 ## Surprises & Discoveries
 
+- Observation: The captive portal never appeared, and the reason was not DNS --
+  which worked -- but that nothing was listening on port 80. A phone probes its
+  vendor's address on port 80, the name server correctly sends it to this
+  device, and the connection was then refused, so the phone learned nothing and
+  showed no page. The daemon's interface is on 8080, and it had not occurred to
+  me that the portal needs a door on the port a phone actually knocks on. The
+  redirect target had the same fault: a phone following a redirect cannot be
+  told a port.
+
+  Evidence: with a listener on 192.168.216.1:80, from the device itself,
+
+      captive.apple.com                192.168.216.1
+      /hotspot-detect.html     302 -> http://192.168.216.1/portal
+      /generate_204            302 -> http://192.168.216.1/portal
+      /connecttest.txt         302 -> http://192.168.216.1/portal
+
+  A test now asserts the redirect target names no port, and says why.
+
 - Observation: Marking the interface unmanaged in NetworkManager is not enough.
   Its wpa_supplicant keeps the radio even after the device is unmanaged and
   even after the daemon's own attempts have stopped, and while it does, the

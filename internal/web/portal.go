@@ -1,11 +1,16 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The setup portal: the page a phone opens by itself after joining the
@@ -301,4 +306,44 @@ var captiveProbePaths = []string{
 	"/ncsi.txt",                  // Windows, older
 	"/canonical.html",            // some Linux desktops
 	"/success.txt",               // Firefox
+}
+
+// ServeSetupPort opens a second listener on port 80 of the setup network's
+// address, serving the same routes, until the context is cancelled.
+//
+// It is needed because of where phones look. A phone checking whether a
+// network reaches the internet fetches its vendor's address on port 80, and
+// the address it uses is whatever DNS returned -- which, on the setup network,
+// is this device. With nothing listening on port 80 the probe is refused, the
+// phone never sees the redirect that makes it open the setup page, and
+// somebody joins the network and then sits looking at a phone that does
+// nothing. The redirect itself points at port 80 for the same reason: it has
+// to be an address the phone can reach without being told a port.
+//
+// The daemon's own interface stays where it was, on its configured port. This
+// is an extra door onto the same rooms, open only while the device is being
+// set up and only on the address the setup network uses -- never on whatever
+// address the device has on a real network.
+func (self *Server) ServeSetupPort(ctx context.Context, address string) error {
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
+	if err != nil {
+		return fmt.Errorf("web: cannot listen on %s for setting this device up: %w", address, err)
+	}
+
+	server := &http.Server{
+		Handler:           self.router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		_ = server.Close()
+	}()
+
+	log.Noticef("the setup page is on http://%s/portal", address)
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) && ctx.Err() == nil {
+		return err
+	}
+	return nil
 }

@@ -27,6 +27,11 @@ var log = logging.MustGetLogger("onboarding")
 type Onboarding struct {
 	store *config.Store
 
+	// portal serves the setup page on the setup network's own address, on
+	// port 80. The web server provides it; it is a function rather than the
+	// server itself so that this package does not depend on that one.
+	portal func(ctx context.Context, address string) error
+
 	mutex         sync.Mutex
 	running       bool
 	credentials   network.Credentials
@@ -47,6 +52,14 @@ type Onboarding struct {
 
 func New(store *config.Store) *Onboarding {
 	return &Onboarding{store: store}
+}
+
+// ServePortalWith says how to serve the setup page on the setup network. The
+// daemon calls this with the web server's own method once both exist.
+func (self *Onboarding) ServePortalWith(serve func(ctx context.Context, address string) error) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.portal = serve
 }
 
 // Running reports whether the setup network is up.
@@ -149,6 +162,21 @@ func (self *Onboarding) Start(ctx context.Context, interfaceName string) error {
 			log.Errorf("the setup name server stopped: %s", err)
 		}
 	}()
+
+	// Port 80 on the setup address, because that is where a phone looks. It
+	// fetches its vendor's address on port 80 to decide whether the network
+	// reaches the internet, and the name server has just told it that address
+	// is here. With nothing listening there the probe is refused and the phone
+	// shows no page at all -- somebody joins the network and then sits looking
+	// at a phone doing nothing.
+	if self.portal != nil {
+		go func() {
+			address := onboarding.DeviceAddress.String() + ":80"
+			if err := self.portal(running, address); err != nil && running.Err() == nil {
+				log.Errorf("the setup page stopped being served: %s", err)
+			}
+		}()
+	}
 
 	self.mutex.Lock()
 	self.running = true

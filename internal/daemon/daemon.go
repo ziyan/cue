@@ -241,6 +241,9 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
 	self.web = web.New(self.store, self)
+	// The setup page has to be reachable on port 80 of the setup network,
+	// because that is the only place a phone looks.
+	self.onboarding.ServePortalWith(self.web.ServeSetupPort)
 	if err := self.web.Start(ctx); err != nil {
 		// Not fatal: a screen that shows the right thing with no interface is
 		// far better than one that shows nothing because a port was taken.
