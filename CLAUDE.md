@@ -7,6 +7,8 @@ Then, depending on what you are doing:
 
 - `CONTRIBUTING.md` — naming, comments, commits, changelog, tests
 - `docs/reference/local-development.md` — build, test, run it on your own machine
+- `docs/reference/the-host.md` — what Cue needs from the machine, and what
+  will fight it for a device
 - `docs/reference/configuration.md` — every field of cue.yaml
 - `docs/reference/api.md` — the HTTP interface
 - `docs/decisions/` — why the architecture is the way it is
