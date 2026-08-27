@@ -315,6 +315,9 @@ func (self *Browser) probe(ctx context.Context) error {
 func (self *Browser) prepare(ctx context.Context) error {
 	self.forgetSessions()
 
+	// Before the browser starts, because policy is read once at startup.
+	self.writePolicy()
+
 	for _, directory := range []string{self.profileParent(), self.profileDirectory()} {
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			return fmt.Errorf("browser: create %s: %w", directory, err)
