@@ -20,7 +20,14 @@ func (self *Browser) afterReady(ctx context.Context) {
 
 	self.mutex.Lock()
 	self.ready = true
+	onEveryPage := self.OnEveryPage
 	self.mutex.Unlock()
+
+	// The control that puts this device back into setup has to be on whatever
+	// is on the screen, including pages this daemon did not write.
+	if onEveryPage != "" {
+		self.PutOnEveryPage(ctx, onEveryPage)
+	}
 
 	go func() {
 		defer deferutil.Recover()
@@ -533,6 +540,49 @@ func (self *Browser) plannedItems() []config.Item {
 	// device in that state has no network, so whatever the playlist points at
 	// would not load anyway.
 	return []config.Item{{Identifier: holdingIdentifier, URL: self.holdingPageURL()}}
+}
+
+// PutOnEveryPage arranges for a script to run in every tab, now and in every
+// page they visit afterwards.
+//
+// It is how the control that puts this device back into setup reaches pages
+// this daemon did not write. Its own pages carry it already; a dashboard
+// somebody else runs has to be given it.
+//
+// Both halves are needed. addScriptToEvaluateOnNewDocument covers every page
+// loaded from now on, including one that reloads itself hours later, and does
+// nothing for the page already on screen; evaluating it directly covers that
+// one and nothing else.
+func (self *Browser) PutOnEveryPage(ctx context.Context, script string) {
+	session, err := self.browser(ctx)
+	if err != nil {
+		log.Debugf("cannot reach the browser to add the on-screen control: %s", err)
+		return
+	}
+
+	pages, err := self.client.Pages(ctx)
+	if err != nil {
+		log.Debugf("cannot list the tabs to add the on-screen control: %s", err)
+		return
+	}
+
+	for _, page := range pages {
+		tab, err := self.client.Attach(ctx, page)
+		if err != nil {
+			continue
+		}
+		if err := tab.Call(ctx, "Page.addScriptToEvaluateOnNewDocument",
+			map[string]interface{}{"source": script}, nil); err != nil {
+			log.Debugf("cannot arm the on-screen control for %s: %s", page.URL, err)
+		}
+		if err := tab.Call(ctx, "Runtime.evaluate", map[string]interface{}{
+			"expression": script, "returnByValue": true,
+		}, nil); err != nil {
+			log.Debugf("cannot add the on-screen control to %s: %s", page.URL, err)
+		}
+		tab.Close()
+	}
+	_ = session
 }
 
 // ShowNext moves to the item after the one on screen.

@@ -104,6 +104,9 @@ func New(store *config.Store) (*Daemon, error) {
 	// While the device is being set up over the air, the screen shows the
 	// page carrying the code to scan rather than the playlist.
 	self.browser.SetupInProgress = self.onboarding.Running
+	// Somebody standing in front of the screen can always put it back into
+	// setup, whatever page is showing.
+	self.browser.OnEveryPage = web.WayBackScript()
 	self.watchdog = watchdog.New(&configuration.Watchdog, watchdog.Remedies{
 		ReloadPage:     self.browser.ReloadCurrent,
 		RecreatePage:   self.browser.RecreateCurrent,
@@ -810,4 +813,62 @@ func (self *Daemon) reachable(configuration *config.Configuration) bool {
 		return self.canReach(configuration)
 	}
 	return self.hasSomewhereToBe(configuration)
+}
+
+// ForgetWireless takes this device off the network it was told to join and
+// offers itself for setup again.
+//
+// This is what the control on the screen does. Unlike falling back, which
+// keeps the network in the configuration so that it can be retried, this
+// forgets it: somebody standing in front of the screen has said that network
+// is not the one, and retrying it would put the device straight back where
+// they did not want it.
+//
+// The playlist, the password, the timezone and everything uploaded are left
+// alone. Losing a screen's content because its wireless changed would be a
+// poor trade.
+func (self *Daemon) ForgetWireless() error {
+	if self.onboarding == nil {
+		return fmt.Errorf("daemon: this device cannot be set up over the air")
+	}
+
+	interfaceName := network.AccessPointCapableInterface()
+	if interfaceName == "" {
+		return fmt.Errorf("daemon: no wireless hardware here can run a network of its own")
+	}
+
+	err := self.store.Update(func(configuration *config.Configuration) error {
+		kept := configuration.Network.Interfaces[:0]
+		for _, one := range configuration.Network.Interfaces {
+			if one.Wireless == nil || one.Wireless.SSID == "" {
+				kept = append(kept, one)
+			}
+		}
+		configuration.Network.Interfaces = kept
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("daemon: cannot forget the wireless network: %w", err)
+	}
+	log.Noticef("somebody at the screen asked to set the wireless up again")
+
+	// Started in the background: the request came from the page on the screen,
+	// and starting the setup network navigates that page away.
+	go func() {
+		defer deferutil.Recover()
+
+		ctx := context.Background()
+		self.network.ReconcileNow(ctx)
+
+		self.mutex.Lock()
+		self.lastReachable = time.Time{}
+		self.mutex.Unlock()
+
+		if err := self.onboarding.Start(ctx, interfaceName); err != nil {
+			log.Errorf("cannot offer to be set up again: %s", err)
+			return
+		}
+		self.browser.Refresh(ctx)
+	}()
+	return nil
 }

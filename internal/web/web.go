@@ -76,6 +76,11 @@ type Device interface {
 	// advertising on one.
 	SetupNetworks() []network.WirelessNetwork
 
+	// ForgetWireless takes this device off the network it was told to join and
+	// starts the setup network, so that its screen shows the code again. It is
+	// what the control on the screen does.
+	ForgetWireless() error
+
 	// SetupTrouble is what to tell somebody about the last attempt to join,
 	// or empty. A mistyped passphrase has to be explained on the page they
 	// come back to, or they will try the same thing again.
@@ -247,6 +252,11 @@ func (self *Server) addRoutes() {
 	// it has to be reachable by the browser on this device, which has no
 	// session.
 	api.Path("/playlist/next").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.showNext))
+
+	// The way back, for somebody standing in front of the screen. Served to
+	// this machine and refused to the network, like everything else the
+	// screen's own browser asks for.
+	api.Path("/wireless/reset").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.resetWireless))
 
 	// Everything else is the interface itself.
 	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)

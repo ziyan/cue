@@ -74,6 +74,7 @@ func (self *Server) welcome(response http.ResponseWriter, request *http.Request)
 		"NeedsSetup": !self.isSetUp(),
 		"Code":       code,
 		"Onboarding": onboarding,
+		"WayBack":    wayBack(),
 		"SetupSSID":  setup.SSID,
 	})
 	if err != nil {
@@ -244,6 +245,7 @@ var welcomeTemplate = template.Must(template.New("welcome").Parse(`<!doctype htm
     {{ end }}
     <div class="identifier">{{ .Identifier }}</div>
   </main>
+<script>{{ .WayBack }}</script>
 </body>
 </html>
 `))

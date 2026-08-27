@@ -27,6 +27,7 @@ func (self *Server) play(response http.ResponseWriter, request *http.Request) {
 			continue
 		}
 		found = &shownItem{
+			WayBack: wayBack(),
 			Source:  "/media/" + item.Media.File,
 			Name:    item.Media.Name,
 			Muted:   !item.Media.Sound,
@@ -50,6 +51,10 @@ type shownItem struct {
 	Source string
 	Name   string
 	Muted  bool
+
+	// WayBack is the control that puts this device back into setup, which
+	// every page on the screen carries.
+	WayBack template.JS
 
 	// IsVideo decides both which element draws it and what says when it is
 	// finished. A video holds the screen until it ends; a picture holds it for
@@ -205,6 +210,7 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
     if (onScreen()) start();
   }
 </script>
+<script>{{ .WayBack }}</script>
 </body>
 </html>
 `))

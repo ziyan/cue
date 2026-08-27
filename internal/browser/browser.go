@@ -31,6 +31,11 @@ var log = logging.MustGetLogger("browser")
 
 // Browser is the running Chromium and everything the daemon does with it.
 type Browser struct {
+	// OnEveryPage is a script added to every tab, now and on every page they
+	// visit afterwards. It carries the control that puts this device back into
+	// setup, which has to be reachable from whatever is on the screen.
+	OnEveryPage string
+
 	// SetupInProgress reports whether the device is being set up over the air.
 	// While it is, the screen shows the daemon's own page rather than the
 	// playlist, because that page carries the code somebody has to scan. The
