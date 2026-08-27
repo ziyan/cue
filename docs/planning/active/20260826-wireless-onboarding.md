@@ -123,6 +123,8 @@ password can join.
       control on the Network page. Remaining: none of it has run on real
       hardware yet -- see the note below.
 - [ ] Milestone 6: documentation, changelog, decision record.
+- [ ] Milestone 7: coming back when the network is lost.
+- [ ] Milestone 8: the way back that needs no network at all.
 - [x] (2026-08-26 22:55Z) Ran on a real radio: carbon advertised `cue-gbkthq`
       and a second machine's radio saw it on WPA2. The portal listed nine real
       networks from the room, the welcome page carried the join code, and a
@@ -322,6 +324,58 @@ password can join.
       dhcp server4 handler type: server4.Handler
 
 ## Decision Log
+
+- Decision: A device that has been unable to get an address for a while offers
+  itself for setup again, and keeps trying the network it was told about while
+  it does.
+
+  Rationale: as built, a device that could not join its configured network was
+  stuck for ever. `hasSomewhereToBe` counted an interface as settled if it had
+  an SSID written down, not if it could reach anything, and the check below it
+  stood onboarding down whenever an interface was configured at all. So a wifi
+  password changing left a screen that tried forever, never got an address,
+  never offered its code, and could be reached by nobody -- fixable only by
+  somebody with physical access and a shell. That is the worst failure this
+  feature can have, and it was the state it shipped in.
+
+  Retrying matters as much as falling back. Without it, a router rebooting for
+  ten minutes leaves a screen showing a setup code until a person visits; with
+  it, the device heals itself and nobody ever knows.
+
+  Date/Author: 2026-08-27, Claude (with Ziyan).
+
+- Decision: The way back is a control on the screen itself, shown when
+  somebody moves the pointer and hidden again when they stop -- not a button in
+  the web interface.
+
+  Rationale: a button in the interface is reachable exactly when it is not
+  needed. The situations that need a way back are the ones where the interface
+  cannot be reached: a device on a network nobody can route to, a device whose
+  network is gone. What such a device always has is its screen and whatever
+  input is attached to it. Somebody walks up, moves the mouse, and the way back
+  is there.
+
+  It follows the pointer for the same reason the cursor does: a wall display
+  with a button permanently on it is a wall display with a button in every
+  photograph of it.
+
+  Date/Author: 2026-08-27, Claude (with Ziyan).
+
+- Decision: That control is drawn by the browser, injected into every page,
+  rather than as a window of Cue's own.
+
+  Rationale: a window of its own would survive Chromium dying, which is the
+  honest argument for it. Against that: this repository has no font renderer
+  and no X event loop, so it would mean both, plus stacking and click handling
+  against a kiosk window -- a lot of new machinery for a button. The browser
+  gives text, layout, touch and animation for nothing.
+
+  What it costs is that the control is absent when the browser is dead. That is
+  acceptable because a dead browser is not what this feature is for -- it is
+  for a network that cannot be reached -- and because the watchdog already
+  exists to deal with a browser that is not running.
+
+  Date/Author: 2026-08-27, Claude (with Ziyan).
 
 - Decision: Run the temporary network with `wpa_supplicant` in AP mode rather
   than adding `hostapd` to the image.
@@ -727,6 +781,61 @@ end with the device back where it started, not with a radio in an unknown state.
 `TestAFailedJoinBringsTheSetupNetworkBack` drives the sequence against fakes and
 asserts the access point is started again and the message is set. Then, on real
 hardware, the end-to-end check in `Validation and Acceptance` below.
+
+### Milestone 7 — coming back when the network is lost
+
+**Scope.** A device that cannot reach anything offers itself for setup again,
+without anybody visiting it.
+
+**Work.** `Daemon.hasSomewhereToBe` currently answers "yes" when an interface
+has an SSID written down. It must answer for what is true now: whether anything
+has a usable address. Being configured is not the same as being connected, and
+conflating them is what leaves a device stuck.
+
+The daemon remembers when it last saw a usable address. Once that is more than
+`network.lostAfter` ago -- a new setting, default ten minutes -- it suspends
+management of the wireless interface, brings up the setup network and shows the
+code, exactly as a device out of its box does.
+
+While it is there it keeps trying. Every five minutes it takes the access point
+down, gives the configured network sixty seconds to work, and either goes back
+to normal quietly or brings the setup network back. Without that, a router
+rebooting for ten minutes costs somebody a visit.
+
+The configured network is not forgotten by this. It is what the retry uses, and
+a device that heals itself must end up where it started.
+
+**Acceptance.** Tests that a device with an address never falls back however
+long it runs; that one without an address for longer than the setting does;
+that a device with a cable never does, whatever its wireless is doing; and that
+the network stays in the configuration throughout. Then on hardware: change the
+passphrase on the network a device is using, wait, and watch the code appear on
+its screen.
+
+### Milestone 8 — the way back that needs no network at all
+
+**Scope.** Somebody standing in front of a screen can put it back into setup,
+without reaching it over the network and without a keyboard.
+
+**Work.** A control drawn in the corner of whatever page is on screen, hidden
+until the pointer moves and hidden again a few seconds after it stops. Pressing
+it asks for confirmation -- a screen in a lobby must not be resettable by one
+stray click -- and then forgets the wireless network and starts the setup
+network.
+
+It is injected into every tab through the debugging protocol, with
+`Page.addScriptToEvaluateOnNewDocument` so that it survives a page reloading or
+navigating, and evaluated into the tabs that are already open. Cue's own pages
+carry it natively.
+
+The endpoint behind it, `POST /api/v1/wireless/reset`, is served to this
+machine and refused to the network, like the other things the screen's own
+browser calls.
+
+**Acceptance.** A test that the injected script is on every page Cue serves and
+that the endpoint refuses a request from the network. On a device: move the
+mouse, see the control appear, leave it alone and see it go, press it and see
+the code come up.
 
 ### Milestone 6 — write it down
 
