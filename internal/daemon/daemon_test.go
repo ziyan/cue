@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ziyan/cue/internal/config"
 )
@@ -66,5 +67,150 @@ func TestTheVirtualServersSizeIsFixedWhenItStarts(t *testing.T) {
 	daemon := &Daemon{}
 	if !daemon.displayRestartWouldBeNeeded(running, updated) {
 		t.Error("resizing a virtual screen was accepted without a restart, so it would have done nothing")
+	}
+}
+
+// A device that has been told about a network but cannot join it is not
+// settled, and used to be treated as though it were.
+//
+// That is the failure this whole path exists for. A wireless passphrase
+// changed underneath a device left it configured, unable to join, without an
+// address, and -- by the old reading -- settled: it never offered its setup
+// code again and nobody could reach it to say so. Only somebody with physical
+// access and a shell could put it right.
+func TestBeingToldAboutANetworkIsNotTheSameAsBeingOnOne(t *testing.T) {
+	configuration := config.Default()
+	configuration.Network.Manage = true
+	configuration.Network.Interfaces = []config.Interface{{
+		Name:     "wlan0",
+		Method:   "dhcp",
+		Wireless: &config.Wireless{SSID: "a test network", Passphrase: "the wrong test passphrase"},
+	}}
+	configuration.Normalize()
+
+	// hasSomewhereToBe asks the machine what it can reach, so on a machine
+	// with any working interface it says yes and there is nothing to assert.
+	// What can be asserted anywhere is that the configuration alone no longer
+	// decides it: nothing in the function reads the interface list from the
+	// file.
+	if !anyConfiguredNetwork(configuration) {
+		t.Fatal("the test configuration does not name a network")
+	}
+
+	// Configured, and reaching nothing. It must be declared lost -- under the
+	// old reading it never was, because the file named a network.
+	configuration.Network.LostAfter = config.Duration(time.Minute)
+	stranded := &Daemon{canReach: neverReachable}
+	stranded.lastReachable = time.Now().Add(-time.Hour)
+	if !stranded.networkLooksLost(configuration) {
+		t.Error("a device that cannot join the network it was told about was " +
+			"treated as settled, which is how one becomes unreachable for ever")
+	}
+
+	// And a device that has never had an address must not be declared lost the
+	// moment it starts: its interfaces have not finished coming up.
+	empty := config.Default()
+	empty.Network.LostAfter = config.Duration(time.Hour)
+	empty.Normalize()
+	lonely := &Daemon{canReach: neverReachable}
+	if lonely.networkLooksLost(empty) {
+		t.Error("a device decided its network was lost before it had finished starting")
+	}
+}
+
+// A device that can reach something is never lost, however long it runs.
+func TestADeviceThatCanReachSomethingIsNeverLost(t *testing.T) {
+	configuration := config.Default()
+	configuration.Normalize()
+
+	daemon := &Daemon{canReach: alwaysReachable}
+	daemon.lastReachable = time.Now().Add(-24 * time.Hour)
+
+	if daemon.networkLooksLost(configuration) {
+		t.Error("a device that can reach something was declared lost")
+	}
+	// And seeing it reachable resets the clock, so a moment of trouble later
+	// does not count from a sighting hours ago.
+	if time.Since(daemon.lastReachable) > time.Minute {
+		t.Error("seeing the network did not reset the clock")
+	}
+}
+
+// The moment it stops reaching anything the clock starts, and it is not
+// declared lost until the configured time has passed.
+func TestADeviceIsGivenTheConfiguredTimeBeforeBeingDeclaredLost(t *testing.T) {
+	configuration := config.Default()
+	configuration.Network.LostAfter = config.Duration(30 * time.Minute)
+	configuration.Normalize()
+
+	daemon := &Daemon{canReach: neverReachable}
+
+	// Just lost: the clock starts now, and nothing is concluded yet.
+	if daemon.networkLooksLost(configuration) {
+		t.Error("a device was declared lost the moment it stopped reaching anything")
+	}
+
+	daemon.lastReachable = time.Now().Add(-20 * time.Minute)
+	if daemon.networkLooksLost(configuration) {
+		t.Error("gave up after 20 minutes when the setting says 30")
+	}
+
+	daemon.lastReachable = time.Now().Add(-40 * time.Minute)
+	if !daemon.networkLooksLost(configuration) {
+		t.Error("did not give up after 40 minutes when the setting says 30")
+	}
+}
+
+// A device with a cable is never declared lost because of its wireless: what
+// is asked is whether anything reaches anything.
+func TestReachingSomethingByAnyMeansIsEnough(t *testing.T) {
+	configuration := config.Default()
+	configuration.Network.LostAfter = config.Duration(time.Minute)
+	configuration.Network.Manage = true
+	configuration.Network.Interfaces = []config.Interface{{
+		Name:     "wlan0",
+		Method:   "dhcp",
+		Wireless: &config.Wireless{SSID: "a test network", Passphrase: "a test passphrase"},
+	}}
+	configuration.Normalize()
+
+	daemon := &Daemon{canReach: alwaysReachable}
+	daemon.lastReachable = time.Now().Add(-time.Hour)
+
+	if daemon.networkLooksLost(configuration) {
+		t.Error("a device that reaches something over one interface was declared " +
+			"lost because another was not working")
+	}
+}
+
+func alwaysReachable(*config.Configuration) bool { return true }
+func neverReachable(*config.Configuration) bool  { return false }
+
+// The network a device was told about is never forgotten by falling back:
+// it is what the retry uses, and a device that heals itself has to end up
+// where it started.
+func TestFallingBackKeepsTheNetworkItWasToldAbout(t *testing.T) {
+	configuration := config.Default()
+	configuration.Network.Manage = true
+	configuration.Network.Interfaces = []config.Interface{{
+		Name:     "wlan0",
+		Method:   "dhcp",
+		Wireless: &config.Wireless{SSID: "a test network", Passphrase: "a test passphrase"},
+	}}
+	configuration.Normalize()
+
+	if !anyConfiguredNetwork(configuration) {
+		t.Fatal("the network is not in the configuration to begin with")
+	}
+
+	daemon := &Daemon{canReach: neverReachable}
+	daemon.lastReachable = time.Now().Add(-time.Hour)
+	if !daemon.networkLooksLost(configuration) {
+		t.Fatal("the device did not decide its network was lost")
+	}
+
+	if !anyConfiguredNetwork(configuration) {
+		t.Error("deciding the network was lost removed it from the configuration, " +
+			"so there is nothing left to go back to")
 	}
 }

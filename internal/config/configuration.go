@@ -565,6 +565,15 @@ type Network struct {
 	// thing out on a device that already has a network. "off" never does it.
 	Onboarding OnboardingMode `yaml:"onboarding" json:"onboarding"`
 
+	// LostAfter is how long a device may have no usable address before it
+	// decides its network is gone and offers itself for setup again.
+	//
+	// It is a compromise between healing quickly and reacting to a router
+	// being rebooted. It can be short because falling back is not final: while
+	// the setup network is up the device keeps trying the one it was told
+	// about, and goes quietly back to it the moment that works.
+	LostAfter Duration `yaml:"lostAfter" json:"lostAfter"`
+
 	Interfaces []Interface `yaml:"interfaces,omitempty" json:"interfaces"`
 }
 

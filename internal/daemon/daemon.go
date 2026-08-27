@@ -50,7 +50,19 @@ type Daemon struct {
 	network    *network.Manager
 	onboarding *onboarding.Onboarding
 	uploads    *media.Store
-	watchdog   *watchdog.Watchdog
+
+	// When this device last had an address that reached something, and when
+	// it last stopped offering setup to try the real network again. Both are
+	// about deciding that a network is gone rather than merely slow.
+	lastReachable time.Time
+	lastRetry     time.Time
+
+	// canReach answers "does this device reach anything". It is a field so
+	// that the deciding-a-network-is-gone logic can be tested for what it
+	// does with an answer, rather than only on a machine that happens to give
+	// the right one. Nil means ask the machine, which is what a daemon does.
+	canReach func(*config.Configuration) bool
+	watchdog *watchdog.Watchdog
 
 	web *web.Server
 
@@ -577,35 +589,22 @@ func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
 			log.Noticef("this device has a network now; taking the setup network down")
 			self.onboarding.Finish(ctx)
 			self.browser.Refresh(ctx)
+			return
 		}
+		self.retryTheRealNetwork(ctx, configuration)
 		return
 	}
 
-	if wanted == config.OnboardingAuto && self.hasSomewhereToBe(configuration) {
+	if wanted == config.OnboardingAuto && !self.networkLooksLost(configuration) {
 		return
 	}
 
 	interfaceName := network.AccessPointCapableInterface()
-	if interfaceName != "" && managedWireless(configuration, interfaceName) {
-		// Whatever the mode says. Two programs cannot drive one radio, and
-		// this daemon's own network manager is already driving this one: it
-		// has been told which network to join and is keeping it there. Running
-		// an access point on the same interface makes the two fight, and what
-		// that looks like in the log is this daemon reporting that "another
-		// program" has the radio -- which is true, and the other program is
-		// itself.
-		log.Debugf("not offering to set up over the air: %s is already configured "+
-			"to join a network", interfaceName)
-		return
-	}
 	if interfaceName == "" {
-		// Said once, at debug, because on a device with no wireless hardware
-		// this is true for ever and is not news.
 		log.Debugf("no wireless hardware here can run a network of its own, so this " +
 			"device cannot be set up over the air")
 		return
 	}
-
 	if err := self.onboarding.Start(ctx, interfaceName); err != nil {
 		log.Warningf("cannot offer to be set up over the air: %s", err)
 		return
@@ -615,15 +614,15 @@ func (self *Daemon) reconsiderOnboarding(ctx context.Context) {
 	self.browser.Refresh(ctx)
 }
 
-// hasSomewhereToBe reports whether this device is already on a network, or has
-// been told which one to join.
+// hasSomewhereToBe reports whether this device can reach anything.
+//
+// It used to answer "yes" when an interface merely had a network written down
+// for it, which is a different question and the wrong one. A device whose
+// wireless passphrase had been changed underneath it was configured, could
+// join nothing, had no address, and was therefore -- by that reading --
+// settled: it never offered its setup code again and nobody could reach it to
+// say so. Being told about a network is not the same as being on one.
 func (self *Daemon) hasSomewhereToBe(configuration *config.Configuration) bool {
-	for _, one := range configuration.Network.Interfaces {
-		if one.Wireless != nil && one.Wireless.SSID != "" {
-			return true
-		}
-	}
-
 	interfaces, err := network.Interfaces()
 	if err != nil {
 		// Unable to tell, so assume it is fine. Guessing the other way turns
@@ -689,4 +688,126 @@ func (self *Daemon) sweepUploads() {
 	if len(removed) > 0 {
 		log.Noticef("removed %d upload(s) nothing refers to any more", len(removed))
 	}
+}
+
+// networkLooksLost reports whether this device has been unable to reach
+// anything for long enough to give up and offer itself for setup again.
+//
+// "Long enough" matters in both directions. Too short and a router being
+// rebooted takes a wall display off its dashboards; too long and a device
+// whose network has really gone is unreachable for that whole time. It can be
+// on the short side because falling back is not final: while the setup network
+// is up the device keeps trying the one it was told about.
+func (self *Daemon) networkLooksLost(configuration *config.Configuration) bool {
+	if self.reachable(configuration) {
+		self.mutex.Lock()
+		self.lastReachable = time.Now()
+		self.mutex.Unlock()
+		return false
+	}
+
+	self.mutex.Lock()
+	since := self.lastReachable
+	if since.IsZero() {
+		// Nothing has ever been reachable, and the clock starts now rather
+		// than at the epoch -- otherwise a device that boots with no network
+		// decides it is lost before its interfaces have finished coming up.
+		self.lastReachable = time.Now()
+		since = self.lastReachable
+	}
+	self.mutex.Unlock()
+
+	lost := configuration.Network.LostAfter.Duration()
+	if lost <= 0 {
+		lost = 10 * time.Minute
+	}
+	if time.Since(since) < lost {
+		return false
+	}
+
+	log.Noticef("nothing has been reachable for %s, so this device is offering "+
+		"itself for setup again", time.Since(since).Round(time.Second))
+	return true
+}
+
+// retryTheRealNetwork puts the setup network down for a minute now and then to
+// see whether the network this device was told about has come back.
+//
+// Without this a device that fell back because a router was rebooting would
+// show a setup code until somebody visited it, which is most of the cost this
+// feature is meant to save. The configured network is never forgotten by
+// falling back, precisely so that there is something to retry.
+func (self *Daemon) retryTheRealNetwork(ctx context.Context, configuration *config.Configuration) {
+	self.mutex.Lock()
+	last := self.lastRetry
+	if time.Since(last) < retryTheNetworkEvery {
+		self.mutex.Unlock()
+		return
+	}
+	self.lastRetry = time.Now()
+	self.mutex.Unlock()
+
+	if !anyConfiguredNetwork(configuration) {
+		// Nothing was ever configured, so there is nothing to go back to and
+		// this device is simply waiting to be set up.
+		return
+	}
+
+	log.Noticef("putting the setup network down for a moment to see whether the " +
+		"network this device was told about has come back")
+	self.onboarding.Stop(ctx)
+
+	self.network.ReconcileNow(ctx)
+
+	deadline := time.Now().Add(retryTheNetworkFor)
+	for time.Now().Before(deadline) {
+		if self.hasSomewhereToBe(self.store.Current()) {
+			log.Noticef("it has; going back to normal")
+			self.onboarding.Finish(ctx)
+			self.browser.Refresh(ctx)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+
+	log.Noticef("it has not; the setup code is coming back")
+	interfaceName := network.AccessPointCapableInterface()
+	if interfaceName == "" {
+		return
+	}
+	if err := self.onboarding.Start(ctx, interfaceName); err != nil {
+		log.Warningf("cannot bring the setup network back: %s", err)
+		return
+	}
+	self.browser.Refresh(ctx)
+}
+
+// How often to stop offering setup and try the real network again, and how
+// long to give it.
+const (
+	retryTheNetworkEvery = 5 * time.Minute
+	retryTheNetworkFor   = 60 * time.Second
+)
+
+// anyConfiguredNetwork reports whether this device has been told about a
+// wireless network at all.
+func anyConfiguredNetwork(configuration *config.Configuration) bool {
+	for _, one := range configuration.Network.Interfaces {
+		if one.Wireless != nil && one.Wireless.SSID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// reachable is hasSomewhereToBe, or whatever a test has put in its place.
+func (self *Daemon) reachable(configuration *config.Configuration) bool {
+	if self.canReach != nil {
+		return self.canReach(configuration)
+	}
+	return self.hasSomewhereToBe(configuration)
 }

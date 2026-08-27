@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -154,6 +155,9 @@ func (self *Configuration) Normalize() {
 	// value must not read as "never offer to be set up".
 	if self.Network.Onboarding == "" {
 		self.Network.Onboarding = OnboardingAuto
+	}
+	if self.Network.LostAfter <= 0 {
+		self.Network.LostAfter = Duration(10 * time.Minute)
 	}
 
 	if self.Display.ModeName == "" {

@@ -78,6 +78,7 @@ func Default() *Configuration {
 			// network at all and has not been told about one -- which is a
 			// device nobody has set up yet.
 			Onboarding: OnboardingAuto,
+			LostAfter:  Duration(10 * time.Minute),
 		},
 		Audio: Audio{
 			Enabled: true,

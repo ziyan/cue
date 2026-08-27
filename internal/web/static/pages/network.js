@@ -6,7 +6,7 @@
 
 import { h, clear, bytes } from "../dom.js";
 import { api } from "../api.js";
-import { field, checkbox, choice } from "./content.js";
+import { field, checkbox, choice, secondsOf } from "./content.js";
 
 export function network(main) {
   const body = h("div");
@@ -69,7 +69,12 @@ export function network(main) {
         draw();
       }, configuration.network.onboarding === "always"
         ? "Anybody who can see this screen can reconfigure it. Meant for trying the feature out."
-        : null)));
+        : null),
+      field("Give up on the network after, in minutes", "number",
+        Math.round(secondsOf(configuration.network.lostAfter) / 60), (value) => {
+          const minutes = Math.max(1, parseInt(value, 10) || 0);
+          configuration.network.lostAfter = `${minutes * 60}s`;
+        }, "With nothing reachable for this long, the screen shows its setup code again. It keeps trying the real network meanwhile, so a router rebooting costs nothing.")));
 
     // Only the interfaces with hardware behind them. A machine running
     // containers has a Docker bridge, a veth for every running container and
