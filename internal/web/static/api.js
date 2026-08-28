@@ -39,6 +39,7 @@ export const api = {
 
   status: () => request("GET", "/api/v1/status"),
   upgrade: () => request("GET", "/api/v1/upgrade"),
+  applyUpgrade: () => request("POST", "/api/v1/upgrade"),
   configuration: () => request("GET", "/api/v1/configuration"),
   saveConfiguration: (configuration) => request("PUT", "/api/v1/configuration", configuration),
 

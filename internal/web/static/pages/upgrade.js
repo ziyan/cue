@@ -63,17 +63,61 @@ export function upgrade(main) {
       state.notes ? h("div", { class: "notes" }, ...notes(state.notes)) : null,
       state.url ? link(state.url) : null));
 
-    // Until the button exists, and on any device not set up for it, the page
-    // says exactly what to run instead of leaving somebody to work it out.
-    body.append(h("div", { class: "card" },
-      h("h2", { text: "Taking it" }),
-      state.canApply
-        ? h("p", { class: "lead", text: "This device is set up to upgrade itself." })
-        : h("p", { class: "lead", text: state.whyNot }),
-      h("p", { class: "dim", text: "On the machine itself:" }),
-      h("pre", { class: "commands", text: `docker pull ${state.image}` }),
-      h("p", { class: "dim", text: "then start it again with the same flags as before, using the new image." })));
+    body.append(state.canApply ? theButton(state) : byHand(state));
   };
+
+  // The button, on a device set up to allow it. Asking first, because this
+  // takes the screen away for about a minute and the person pressing it may
+  // not be the person standing in front of it.
+  const theButton = (state) => {
+    const card = h("div", { class: "card" });
+
+    const start = async () => {
+      clear(card);
+      card.append(
+        h("h2", { text: "Updating" }),
+        h("p", { class: "lead", text: `Fetching ${state.image}. This takes a few minutes.` }),
+        h("p", { class: "dim", text: "The screen will go blank and come back on its own. This page will stop answering while the daemon restarts; reload it in a minute." }));
+      try {
+        await api.applyUpgrade();
+      } catch (error) {
+        clear(card);
+        card.append(
+          h("h2", { text: "It did not start" }),
+          h("div", { class: "notice bad", text: String(error.message || error) }),
+          h("p", { class: "dim", text: "Nothing has changed: the container is still the one it was." }),
+          h("button", { class: "primary", onClick: load }, "Try again"));
+      }
+    };
+
+    const ask = () => {
+      clear(card);
+      card.append(
+        h("h2", { text: `Update to ${state.latest}?` }),
+        h("p", { class: "lead", text: "The screen goes blank for about a minute and comes back on its own. The playlist, the password and the network settings are kept." }),
+        h("p", { class: "dim", text: "If the new version does not start, this device puts the old one back by itself." }),
+        h("div", { class: "row" },
+          h("button", { class: "primary", onClick: start }, `Update to ${state.latest}`),
+          h("button", { onClick: () => { clear(card); card.append(offer()); } }, "Not now")));
+    };
+
+    const offer = () => h("div", {},
+      h("h2", { text: "Taking it" }),
+      h("p", { class: "lead", text: "This device is set up to update itself." }),
+      h("button", { class: "primary", onClick: ask }, `Update to ${state.latest}`));
+
+    card.append(offer());
+    return card;
+  };
+
+  // On any device not set up for it, the page says exactly what to run rather
+  // than leaving somebody to work it out.
+  const byHand = (state) => h("div", { class: "card" },
+    h("h2", { text: "Taking it" }),
+    h("p", { class: "lead", text: state.whyNot }),
+    h("p", { class: "dim", text: "On the machine itself:" }),
+    h("pre", { class: "commands", text: `docker pull ${state.image}` }),
+    h("p", { class: "dim", text: "then start it again with the same flags as before, using the new image." }));
 
   const link = (url) => h("p", {},
     h("a", { href: url, target: "_blank", rel: "noreferrer noopener", text: "Read it on GitHub" }));

@@ -151,8 +151,16 @@ standing in front of it wondering why the lobby display just died.
   behind the session, an Upgrade page, and `upgrade.allowApply` in the
   configuration so the page can say whether the button will be possible before
   the button exists.
-- [ ] 3. Pressing the button replaces the container
-- [ ] 4. It says so on the screen it is about to interrupt
+- [x] 3. Pressing the button replaces the container — 2026-08-28. A minimal
+  Docker client over the socket, a helper container built from the new image,
+  and a rollback that puts the old container back under its own name if the new
+  one does not answer. Tested against a fake daemon on a real Unix socket, and
+  the ordering was checked by breaking it on purpose. **Not yet run against a
+  real Docker daemon on hardware.**
+- [x] 4. It says so on the screen it is about to interrupt — 2026-08-28. The
+  browser is sent to `/upgrading` before anything is touched, and the playlist
+  is held so the message is not rotated away. The page fetches nothing, because
+  the daemon serving it is about to stop.
 
 ## Decision log
 

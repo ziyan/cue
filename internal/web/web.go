@@ -272,6 +272,7 @@ func (self *Server) addRoutes() {
 	guarded := api.NewRoute().Subrouter()
 	guarded.Use(self.requireSession)
 	guarded.Path("/upgrade").Methods(http.MethodGet).HandlerFunc(self.upgradeState)
+	guarded.Path("/upgrade").Methods(http.MethodPost).HandlerFunc(self.applyUpgrade)
 
 	guarded.Path("/status").Methods(http.MethodGet).HandlerFunc(self.status)
 	guarded.Path("/timezones").Methods(http.MethodGet).HandlerFunc(self.timezones)
@@ -301,6 +302,7 @@ func (self *Server) addRoutes() {
 	// The menu somebody at the screen can open, and the few things it does.
 	// All of them are actions; none of them changes a setting.
 	self.router.Path("/menu").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menu))
+	self.router.Path("/upgrading").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.upgrading))
 	api.Path("/playlist/hold").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuReload))
