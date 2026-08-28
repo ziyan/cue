@@ -68,7 +68,7 @@ function settingsPage(wanted) {
     const cards = {
       identity: identityCard, connectors: connectorsCard, display: displayCard,
       browser: browserCard, watchdog: watchdogCard, input: inputCard,
-      soundAndClock: soundAndClockCard, remote: remoteCard,
+      sound: soundCard, clock: clockCard, remote: remoteCard,
       actions: actionsCard, log: logCard,
     };
     body.append(...wanted.map((name) => cards[name]()));
@@ -86,9 +86,6 @@ function settingsPage(wanted) {
       h("div", { class: "row" },
         field("Name", "text", configuration.device.name, (value) => { configuration.device.name = value; }),
         field("Where it is", "text", configuration.device.location, (value) => { configuration.device.location = value; }),
-        searchable("Timezone", timezones, configuration.device.timezone, (value) => {
-          configuration.device.timezone = value;
-        }, "What the screen and these logs call the time. It does not change the machine's own setting, which lives outside the container."),
         choice("Language on the screen", [
           { value: "", label: "English" },
           { value: "zh", label: "中文" },
@@ -376,29 +373,19 @@ function settingsPage(wanted) {
         h("span", { class: "value dim", text: describe(one) }))));
   }
 
-  function soundAndClockCard() {
-    const clock = status.clock || {};
+  function soundCard() {
     const devices = status.sound || [];
 
     return h("div", { class: "card" },
-      h("h2", { text: "Sound and the clock" }),
+      h("h2", { text: "Sound" }),
       h("div", { class: "row" },
         h("div", {},
           checkbox("Play sound", configuration.audio.enabled, (value) => { configuration.audio.enabled = value; })),
         field("Sound card", "text", configuration.audio.sink, (value) => { configuration.audio.sink = value; },
           devices.length ? `Empty lets ALSA choose. Available: ${devices.map((one) => one.alsaName || `plughw:${one.identifier}`).join(", ")}` : "This machine reports no sound cards"),
-        h("div", {},
-          checkbox("Keep this device's clock", configuration.time.enabled, (value) => {
-            configuration.time.enabled = value;
-            draw();
-          }),
-          h("span", { class: "dim", text: "On by default: a clock wrong by minutes makes every HTTPS dashboard refuse to load. Turn it off where the machine already runs chrony or systemd-timesyncd — two time daemons correcting one clock against each other is worse than neither." })),
         field("Volume", "number", configuration.audio.volume, (value) => {
           configuration.audio.volume = Math.min(100, Math.max(0, parseInt(value, 10) || 0));
-        }, "0 to 100"),
-        field("Time servers", "text", (configuration.time.servers || []).join(", "), (value) => {
-          configuration.time.servers = value.split(",").map((one) => one.trim()).filter(Boolean);
-        })),
+        }, "0 to 100")),
       devices.length
         ? devices.map((one) => h("div", { class: "readout" },
             h("span", { class: "label", text: one.name || one.identifier }),
@@ -407,6 +394,33 @@ function settingsPage(wanted) {
               " ",
               one.playback ? "out" : "",
               one.capture ? " in" : "")))
+        : null);
+  }
+
+  // Time was three fields interleaved with three about sound, in one card
+  // called "Sound and the clock" on a page called Access. The time servers
+  // were in there and nobody could find them, which is a fair test of whether
+  // a place is the right one.
+  function clockCard() {
+    const clock = status.clock || {};
+
+    return h("div", { class: "card" },
+      h("h2", { text: "Time" }),
+      h("div", { class: "row" },
+        searchable("Timezone", timezones, configuration.device.timezone, (value) => {
+          configuration.device.timezone = value;
+        }, "What the screen and these logs call the time. It does not change the machine's own setting, which lives outside the container."),
+        h("div", {},
+          checkbox("Keep this device's clock", configuration.time.enabled, (value) => {
+            configuration.time.enabled = value;
+            draw();
+          }),
+          h("span", { class: "dim", text: "On by default: a clock wrong by minutes makes every HTTPS dashboard refuse to load. Turn it off where the machine already runs chrony or systemd-timesyncd — two time daemons correcting one clock against each other is worse than neither." }))),
+      configuration.time.enabled
+        ? h("div", { class: "row" },
+            field("Time servers", "text", (configuration.time.servers || []).join(", "), (value) => {
+              configuration.time.servers = value.split(",").map((one) => one.trim()).filter(Boolean);
+            }, "Separated by commas. Empty uses pool.ntp.org."))
         : null,
       h("div", { class: "readout" },
         h("span", { class: "label", text: "Clock" }),
@@ -418,8 +432,7 @@ function settingsPage(wanted) {
         ? h("div", { class: "readout" },
             h("span", { class: "label", text: "Off by" }),
             h("span", { class: "value", text: `${(clock.offsetSeconds * 1000).toFixed(0)} ms` }))
-        : null,
-      clock.problem ? h("div", { class: "notice bad", text: clock.problem }) : null);
+        : null);
   }
 
   function remoteCard() {
@@ -566,5 +579,6 @@ export const device = settingsPage(["identity"]);
 export const display = settingsPage(["connectors", "display"]);
 export const browserPage = settingsPage(["browser"]);
 export const health = settingsPage(["watchdog", "actions"]);
-export const access = settingsPage(["input", "soundAndClock", "remote"]);
+export const access = settingsPage(["input", "sound", "remote"]);
+export const time = settingsPage(["clock"]);
 export const logs = settingsPage(["log"]);

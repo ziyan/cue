@@ -7,7 +7,7 @@ import { api, whenSignedOut } from "./api.js";
 import { overview } from "./pages/overview.js";
 import { content } from "./pages/content.js";
 import { screen } from "./pages/screen.js";
-import { device, display, browserPage, health, access, logs } from "./pages/device.js";
+import { device, display, browserPage, health, access, time, logs } from "./pages/device.js";
 import { network } from "./pages/network.js";
 import { upgrade } from "./pages/upgrade.js";
 
@@ -29,6 +29,7 @@ const pages = [
   { path: "browser", title: "Browser", render: browserPage },
   { path: "health", title: "Health", render: health },
   { path: "access", title: "Access", render: access },
+  { path: "time", title: "Time", render: time },
 
   { divider: true },
   { path: "logs", title: "Logs", render: logs },
@@ -136,6 +137,7 @@ const icons = {
   health: () => svg("M3 12h4l2-5 3 10 2.5-5H21"),
   access: () => svg("M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
     "M6.5 6.5a7.8 7.8 0 0 0 0 11", "M17.5 6.5a7.8 7.8 0 0 1 0 11"),
+  time: () => svg("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M12 7v5l3.5 2"),
   logs: () => svg("M5 4h11l3 3v13H5z", "M9 11h6", "M9 15h6"),
   upgrade: () => svg("M12 20V6", "M6 12l6-6 6 6"),
   default: () => svg("M12 12h.01"),
