@@ -264,6 +264,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// whatever page is showing. It has to be set after the web server exists,
 	// because only the server knows which port the menu answers on.
 	self.browser.OnEveryPage = self.web.WayBackScript()
+	// So that the tab the control opens is not swept up as a window nobody
+	// asked for. Same reason the script is set here: only the server knows
+	// which port it answers on.
+	self.browser.OwnMenu = self.web.MenuAddress()
 	// The wireless configurations used to sit loose in the state directory.
 	// wpa_supplicant saves the networks it has joined into them, so leaving
 	// them behind is a device that forgets every network it knew.

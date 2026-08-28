@@ -62,8 +62,21 @@ func TestTheMarkItselfCanDoNothing(t *testing.T) {
 	if !strings.Contains(script, "/menu") {
 		t.Error("the mark does not open the menu")
 	}
-	if !strings.Contains(script, "iframe") {
-		t.Error("the menu is not opened as a page of its own")
+	if !strings.Contains(script, "window.open") {
+		t.Error("the menu is not opened as a tab of its own")
+	}
+
+	// Not a frame, and this is the interesting half.
+	//
+	// As a frame the menu was a subresource of whatever page the screen was
+	// showing, fetched from an address on the local network -- so Chrome asked
+	// the viewer to approve "do you want to allow <that site> to access local
+	// network". On a wall display there is nobody to answer it, and the menu
+	// never appeared. It also sat inside a tab the playlist rotates, so it
+	// could be moved out from under somebody reading it.
+	if strings.Contains(script, "iframe") {
+		t.Error("the menu is opened in a frame again, which asks the viewer of a wall display " +
+			"for permission to reach the local network and puts the menu inside a rotating tab")
 	}
 }
 
@@ -113,6 +126,12 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			// Which language the screen speaks: a preference of the person
 			// standing there, and the only other thing they may write.
 			call == "/api/v1/menu/language",
+			// Replacing the software on the machine. Offered here because the
+			// menu asks for this device's password before it offers anything,
+			// so the person pressing it has proved what they would have proved
+			// by signing in to the web interface. Proximity alone still does
+			// not authorise it -- see the pass, which has to be elevated.
+			call == "/api/v1/menu/upgrade",
 			// Proving who they are, and giving that proof up again. Not
 			// /api/v1/session: signing in sets a cookie, and a cookie in the
 			// browser bolted to the wall outlives the person who typed it.

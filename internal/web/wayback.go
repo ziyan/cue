@@ -61,7 +61,7 @@ const wayBackScriptTemplate = `
   var MENU = "__MENU__";
   var MARK = "__MARK__";
 
-  var mark = null, frame = null, idle = null;
+  var mark = null, idle = null;
 
   function make() {
     if (mark) return;
@@ -102,7 +102,6 @@ const wayBackScriptTemplate = `
 
   function show() {
     make();
-    if (frame) return;
     mark.style.opacity = "1";
     mark.style.pointerEvents = "auto";
     if (idle) clearTimeout(idle);
@@ -110,39 +109,36 @@ const wayBackScriptTemplate = `
   }
 
   function hide() {
-    if (!mark || frame) return;
+    if (!mark) return;
     mark.style.opacity = "0";
     mark.style.pointerEvents = "none";
   }
 
   function open() {
-    if (frame) return;
     if (idle) clearTimeout(idle);
     hide();
 
-    frame = document.createElement("iframe");
-    frame.src = MENU;
-    frame.style.cssText = [
-      "position:fixed", "inset:0", "z-index:2147483647",
-      "width:100%", "height:100%", "border:0", "background:transparent",
-    ].join(";");
-    document.documentElement.appendChild(frame);
+    // A tab of its own, not a frame in this page. Two things were wrong with
+    // the frame, and both were only visible on a real screen.
+    //
+    // A frame made the menu a subresource of whatever page the screen happens
+    // to be showing, fetched from an address on the local network. Chrome asks
+    // the viewer to approve that -- so a display on a wall put up "do you want
+    // to allow https://example.com to access local network", which is a
+    // question with nobody there to answer it, in front of a menu that then
+    // never appeared.
+    //
+    // And it lived inside a tab the playlist rotates. Holding the playlist
+    // stops the rotation, but the hold is asked for by the menu once it has
+    // loaded, and the tab could change under it before then -- leaving the
+    // menu drawn over a page that had moved on, on a tab nobody was looking
+    // at.
+    //
+    // A top-level tab is neither. Opening one is a navigation rather than a
+    // subresource request, so no permission is involved, and everything inside
+    // it is same-origin with the daemon that served it.
+    window.open(MENU, "_blank");
   }
-
-  function close() {
-    if (!frame) return;
-    frame.remove();
-    frame = null;
-    show();
-  }
-
-  // The menu is a page of its own and cannot reach into this one, so closing
-  // is a message rather than a call. Nothing but closing is accepted, and the
-  // message carries no authority: a page could send it, and all that happens
-  // is that a frame it did not open goes away.
-  window.addEventListener("message", function (event) {
-    if (event.data === "cue:close-menu") close();
-  });
 
   ["mousemove", "mousedown", "touchstart", "keydown"].forEach(function (name) {
     window.addEventListener(name, show, { passive: true, capture: true });
@@ -150,15 +146,21 @@ const wayBackScriptTemplate = `
 })();
 `
 
+// MenuAddress is where the on-screen menu answers. The browser needs it to
+// recognise the tab the control opens as one of its own rather than a stray
+// window to be closed.
+func (self *Server) MenuAddress() string {
+	if _, port, err := net.SplitHostPort(self.Address()); err == nil && port != "" {
+		return "http://127.0.0.1:" + port + "/menu"
+	}
+	return "http://127.0.0.1:8080/menu"
+}
+
 // WayBackScript is the control, for the browser to put on pages this daemon
 // did not write. The address of the menu is filled in here because only the
 // server knows which port it answers on.
 func (self *Server) WayBackScript() string {
-	menu := "http://127.0.0.1:8080/menu"
-	if _, port, err := net.SplitHostPort(self.Address()); err == nil && port != "" {
-		menu = "http://127.0.0.1:" + port + "/menu"
-	}
-	script := strings.ReplaceAll(wayBackScriptTemplate, "__MENU__", menu)
+	script := strings.ReplaceAll(wayBackScriptTemplate, "__MENU__", self.MenuAddress())
 	return strings.ReplaceAll(script, "__MARK__", "data:image/png;base64,"+smallMark())
 }
 

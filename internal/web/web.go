@@ -312,6 +312,7 @@ func (self *Server) addRoutes() {
 	api.Path("/menu/network/wireless").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuJoinWireless))
 	api.Path("/menu/network/wired").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuConfigureWired))
 	api.Path("/menu/language").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuLanguage))
+	api.Path("/menu/upgrade").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuUpgrade))
 	api.Path("/menu/display").Methods(http.MethodGet).HandlerFunc(self.screenAction(self.menuDisplay))
 	api.Path("/menu/display").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuSetDisplay))
 

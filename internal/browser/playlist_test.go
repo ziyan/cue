@@ -165,3 +165,42 @@ func TestAPictureRotatesOnTheOrdinaryClock(t *testing.T) {
 		t.Errorf("a picture is given %s on screen, so it would never move on", got)
 	}
 }
+
+// The menu is opened by the control on whatever page the screen is showing,
+// so it is not one of the tabs this daemon opened and the sweep would close
+// it -- taking the menu away from somebody in the middle of using it.
+func TestTheOnScreenMenuIsNotSweptUpAsAStrayWindow(t *testing.T) {
+	browser := newTestBrowser(t, nil)
+	browser.OwnMenu = "http://127.0.0.1:8080/menu"
+
+	for _, one := range []struct {
+		address string
+		ours    bool
+	}{
+		{"http://127.0.0.1:8080/menu", true},
+		{"http://127.0.0.1:8080/menu?from=screen", true},
+		{"https://example.com/", false},
+		{"http://127.0.0.1:8080/", false},
+		{"http://127.0.0.1:9999/menu", false},
+	} {
+		if got := browser.isOwnMenu(one.address); got != one.ours {
+			t.Errorf("isOwnMenu(%q) = %v, want %v", one.address, got, one.ours)
+		}
+	}
+}
+
+// A daemon that has not been told its own address must not decide that every
+// window is the menu. strings.HasPrefix of an empty prefix is true of
+// everything, so without the guard this sweep would close nothing at all --
+// and the tab it exists to close is a login popup that keeps a dashboard off
+// the screen.
+func TestAnUnsetMenuAddressDoesNotMatchEveryWindow(t *testing.T) {
+	browser := newTestBrowser(t, nil)
+	browser.OwnMenu = ""
+
+	for _, address := range []string{"https://example.com/", "http://127.0.0.1:8080/menu", ""} {
+		if browser.isOwnMenu(address) {
+			t.Errorf("with no menu address set, %q was taken for the menu", address)
+		}
+	}
+}

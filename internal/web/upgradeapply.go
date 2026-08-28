@@ -23,28 +23,10 @@ import (
 // screen authorises changing what it shows and how it reaches the network. It
 // does not authorise replacing the software on the machine.
 func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Request) {
-	if self.upgrades == nil {
-		writeError(response, http.StatusServiceUnavailable, "this daemon is not checking for releases")
+	image, state, ok := self.readyToUpgrade(response)
+	if !ok {
 		return
 	}
-
-	canApply, whyNot := upgrade.CanApply(self.store.Current().Upgrade.AllowApply)
-	if !canApply {
-		writeError(response, http.StatusForbidden, whyNot)
-		return
-	}
-
-	state := self.upgrades.State()
-	if state.Latest == "" {
-		writeError(response, http.StatusConflict, "nothing is known about newer releases yet")
-		return
-	}
-	if !state.Newer {
-		writeError(response, http.StatusConflict, "this device is already running the newest release")
-		return
-	}
-
-	image := upgrade.ImageFor(state.Latest)
 
 	// Say so on the screen before anything happens to it. An upgrade blanks a
 	// wall display for the better part of a minute, and whoever is standing in
@@ -73,6 +55,44 @@ func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Req
 		"status": "started",
 		"image":  image,
 	})
+}
+
+// menuUpgrade is the same thing from the screen's own menu.
+//
+// It sits behind screenAction, which means an elevated pass: somebody standing
+// at the screen who has typed this device's password. That is a different
+// thing from proximity, and it is the reason this is offered here at all --
+// the menu asks for the password before it offers anything, so the person
+// pressing this has proved the same thing they would have proved by signing
+// in to the web interface.
+func (self *Server) menuUpgrade(response http.ResponseWriter, request *http.Request) {
+	self.applyUpgrade(response, request)
+}
+
+// readyToUpgrade answers the four questions both callers have to ask, and
+// writes the refusal itself when the answer is no.
+func (self *Server) readyToUpgrade(response http.ResponseWriter) (string, upgrade.State, bool) {
+	if self.upgrades == nil {
+		writeError(response, http.StatusServiceUnavailable, "this daemon is not checking for releases")
+		return "", upgrade.State{}, false
+	}
+
+	canApply, whyNot := upgrade.CanApply(self.store.Current().Upgrade.AllowApply)
+	if !canApply {
+		writeError(response, http.StatusForbidden, whyNot)
+		return "", upgrade.State{}, false
+	}
+
+	state := self.upgrades.State()
+	if state.Latest == "" {
+		writeError(response, http.StatusConflict, "nothing is known about newer releases yet")
+		return "", upgrade.State{}, false
+	}
+	if !state.Newer {
+		writeError(response, http.StatusConflict, "this device is already running the newest release")
+		return "", upgrade.State{}, false
+	}
+	return upgrade.ImageFor(state.Latest), state, true
 }
 
 // sayOnScreen puts a page on the display explaining that it is about to go

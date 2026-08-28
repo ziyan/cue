@@ -187,6 +187,16 @@ person, because the release workflow copies them out of `CHANGELOG.md`.
 screen authorises changing what it shows and how it reaches the network. It
 does not authorise replacing the software on the machine.
 
+**2026-08-28 — Reversed: the menu does offer it, behind the password.** Asked
+for, and right. The objection above was to *proximity* authorising an upgrade,
+and proximity stopped being the authorisation when the menu started asking for
+this device's password — see
+`docs/planning/active/20260827-screen-passes.md`. Somebody who has typed the
+password into the menu has proved exactly what they would have proved by
+signing in to the web interface, and the interface is not always reachable,
+which is the situation the menu exists for. It is offered only when the device
+could actually do it, and only through a pass that has been through the gate.
+
 ## Surprises and discoveries
 
 **2026-08-28 — teanode's updater does not transfer.** The request pointed at
@@ -220,6 +230,25 @@ setting, and this is the one that has to be argued out of it rather than given
 one: the interface is the thing the setting grants power over. Anybody who
 reached the web interface could otherwise turn on its own access to the Docker
 socket. It takes two deliberate acts from somebody with a shell on the machine.
+
+**2026-08-28 — The menu could not be opened on a real screen at all.** Found by
+running it on carbon, not by any test here. The menu was an iframe laid over
+whatever page the screen was showing, which made it a subresource request from
+that page's origin to an address on the local network — and Chrome asks the
+viewer to approve those. A wall display put up "do you want to allow
+https://example.com to access local network", a question with nobody in front
+of it to answer, and the menu never appeared.
+
+The same design had a second fault visible at the same time: the frame lived
+inside a tab the playlist rotates, so opening the menu and then having the
+rotation move on left the menu drawn over a page that had gone.
+
+Both are gone now that the mark opens the menu as a tab of its own. A top-level
+navigation is not a subresource request, so no permission is involved, and
+everything inside the tab is same-origin with the daemon. It also turned up a
+third thing: the browser closes any window this daemon did not open, so the
+first version of that tab was swept away a cycle after it appeared. The sweep
+now knows the menu's own address.
 
 ## Outcomes and retrospective
 

@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ziyan/cue/internal/config"
@@ -491,6 +492,12 @@ func (self *Browser) closeUnexpectedTabs(ctx context.Context) {
 		if ours[page.Identifier] {
 			continue
 		}
+		// The menu opens itself, from the control on whatever page is showing,
+		// so it is not among the tabs this daemon opened. Closing it would take
+		// the menu away from somebody in the middle of using it.
+		if self.isOwnMenu(page.URL) {
+			continue
+		}
 		seenNow[page.Identifier] = true
 		if !seenBefore[page.Identifier] {
 			// First sighting. Give it one cycle to close itself.
@@ -509,6 +516,18 @@ func (self *Browser) closeUnexpectedTabs(ctx context.Context) {
 
 // describeTarget names a window in a way that is useful in a log line without
 // being a page's whole URL, which can be several kilobytes of query string.
+// isOwnMenu reports whether an address is the on-screen menu this daemon
+// serves.
+//
+// The empty check is not defensive clutter. An unset OwnMenu is the ordinary
+// state in tests and tools, and strings.HasPrefix of an empty prefix is true
+// of everything -- so without it, a daemon that had not been told its own
+// address would treat every window as the menu and close none of them, which
+// is this whole sweep quietly doing nothing.
+func (self *Browser) isOwnMenu(address string) bool {
+	return self.OwnMenu != "" && strings.HasPrefix(address, self.OwnMenu)
+}
+
 func describeTarget(target cdp.Target) string {
 	address := target.URL
 	const maximum = 200

@@ -10,22 +10,42 @@ import (
 	"github.com/ziyan/cue/internal/upgrade"
 )
 
-// The upgrade button is management, not proximity. Standing in front of a
-// screen authorises changing what it shows and how it reaches the network; it
-// does not authorise replacing the software on the machine.
-func TestUpgradingNeedsThePasswordAndNotJustTheScreen(t *testing.T) {
+// Upgrading from the screen needs this device's password, not merely somebody
+// standing at it.
+//
+// The menu asks for the password before it offers anything, so a pass that has
+// been through that gate has proved what signing in to the web interface would
+// have proved. A pass that has not is worth nothing here, and neither is a
+// request from the network with no session.
+func TestUpgradingFromTheScreenNeedsThePasswordFirst(t *testing.T) {
 	server := newTestServer(t, config.Default())
+	server = server.WithUpgrades(upgrade.NewChecker(upgrade.Repository, "0.1.0"))
 	signedIn(t, server)
 	_, pass := openMenu(t, server)
 
-	for _, method := range []string{http.MethodGet, http.MethodPost} {
-		if code := passRequest(t, server, method, "/api/v1/upgrade", nil, pass); code == http.StatusOK ||
-			code == http.StatusAccepted {
-			t.Errorf("%s /api/v1/upgrade was allowed from the screen's own pass: %d", method, code)
-		}
-		if code := do(server, method, "/api/v1/upgrade", nil, nil).Code; code != http.StatusUnauthorized {
-			t.Errorf("%s /api/v1/upgrade from the network answered %d, want 401", method, code)
-		}
+	// Before the password: refused, and refused as unauthorised rather than
+	// for any reason about this device's settings.
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/menu/upgrade", nil, pass); code != http.StatusUnauthorized {
+		t.Errorf("an unopened pass could upgrade: %d", code)
+	}
+	// From the network with nothing at all: likewise.
+	if code := do(server, "POST", "/api/v1/menu/upgrade", nil, nil).Code; code != http.StatusUnauthorized {
+		t.Errorf("the network could upgrade without signing in: %d", code)
+	}
+
+	// After the password it gets past the gate, and is then refused on the
+	// merits -- this device has no Docker socket, which is the next question
+	// and a different answer.
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/screen/unlock",
+		map[string]string{"password": testPassword}, pass); code != http.StatusOK {
+		t.Fatal("the password did not open the menu")
+	}
+	code := passRequest(t, server, http.MethodPost, "/api/v1/menu/upgrade", nil, pass)
+	if code == http.StatusUnauthorized {
+		t.Error("the password was proved and it still says who are you")
+	}
+	if code != http.StatusForbidden {
+		t.Errorf("expected it to be refused for want of the socket, got %d", code)
 	}
 }
 

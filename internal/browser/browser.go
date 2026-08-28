@@ -40,6 +40,12 @@ type Browser struct {
 	// setup, which has to be reachable from whatever is on the screen.
 	OnEveryPage string
 
+	// OwnMenu is the address of the on-screen menu, which the control above
+	// opens in a tab of its own. That tab is not one this daemon opened, so
+	// without this it would be swept up as a window nobody asked for and
+	// closed while somebody was reading it.
+	OwnMenu string
+
 	// SetupInProgress reports whether the device is being set up over the air.
 	// While it is, the screen shows the daemon's own page rather than the
 	// playlist, because that page carries the code somebody has to scan. The
