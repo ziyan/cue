@@ -20,6 +20,12 @@
   --good: #15803d;
   --warn: #b45309;
   --bad: #b91c1c;
+  /* A switch is drawn from these rather than from the surface colours. The
+     thumb was --surface, which is white on a light page and nearly black on a
+     dark one -- so in the dark an unchecked switch was a dark thumb on a dark
+     track, invisible, and read as a control that had not been themed. */
+  --switch-track: rgba(0, 0, 0, 0.28);
+  --switch-thumb: #ffffff;
   --radius: 10px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
 }
@@ -46,6 +52,8 @@
        is a button" the same shade on a screen nobody is standing at. */
     --accent: #f57915;
     --accent-text: #1a0a02;
+    --switch-track: rgba(255, 255, 255, 0.32);
+    --switch-thumb: #c6cedb;
     --good: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
@@ -68,6 +76,8 @@
        is a button" the same shade on a screen nobody is standing at. */
     --accent: #f57915;
     --accent-text: #1a0a02;
+    --switch-track: rgba(255, 255, 255, 0.32);
+    --switch-thumb: #c6cedb;
     --good: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
@@ -330,13 +340,13 @@ label.inline input[type=checkbox] {
   appearance: none; -webkit-appearance: none; margin: 0;
   position: relative; flex: none; cursor: pointer;
   width: 34px; height: 14px; border-radius: 999px;
-  background: var(--border); border: 0;
+  background: var(--switch-track); border: 0;
   transition: background 0.15s ease;
 }
 label.inline input[type=checkbox]::before {
   content: ""; position: absolute; top: -3px; left: -1px;
   width: 20px; height: 20px; border-radius: 50%;
-  background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  background: var(--switch-thumb); box-shadow: 0 1px 3px rgba(0,0,0,0.4);
   transition: transform 0.15s ease, background 0.15s ease;
 }
 /* The track is the accent at about half strength and the thumb is the accent
@@ -466,6 +476,34 @@ label.inline input { width: auto; }
   border-top: 1px solid var(--border); }
 .subsection h3 { font-size: 0.8rem; text-transform: uppercase;
   letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 0.7rem; }
+
+/* A list of wireless networks to choose from. The same shape as the one in
+   the menu on the screen itself, so the two places somebody joins a network
+   look alike. */
+.list { border: 1px solid var(--border); border-radius: 8px;
+  max-height: 17rem; overflow-y: auto; overflow-x: hidden; }
+.list button { display: flex; align-items: center; gap: 0.6rem;
+  width: 100%; min-height: 44px; padding: 0.5rem 0.7rem;
+  border: 0; border-radius: 0; background: var(--background);
+  color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.list button + button { border-top: 1px solid var(--border); }
+.list button:hover { background: var(--surface-sunken); }
+.list button.on { background: var(--surface-sunken);
+  box-shadow: inset 3px 0 0 var(--accent); }
+.list .ssid { flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.list .lock { color: var(--text-dim); font-size: 0.78rem; flex: none; }
+
+/* Drawn rather than written: block characters render at widths the font
+   decides, and the strongest network had its last bar clipped. */
+.list .bars { display: inline-flex; align-items: flex-end; gap: 2px;
+  height: 15px; flex: none; }
+.list .bars i { width: 3px; background: var(--border); border-radius: 1px; }
+.list .bars i:nth-child(1) { height: 5px; }
+.list .bars i:nth-child(2) { height: 8px; }
+.list .bars i:nth-child(3) { height: 11px; }
+.list .bars i:nth-child(4) { height: 15px; }
+.list .bars i.on { background: var(--accent); }
 
 /* --- tables --------------------------------------------------------------- */
 

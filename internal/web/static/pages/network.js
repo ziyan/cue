@@ -6,6 +6,7 @@
 
 import { h, clear, bytes } from "../dom.js";
 import { api } from "../api.js";
+import { warnBeforeLeaving } from "../leaving.js";
 import { field, checkbox, choice, secondsOf } from "./content.js";
 
 export function network(main) {
@@ -16,11 +17,21 @@ export function network(main) {
   let state = null;
   let scans = {};
 
+  // As the configuration arrived, or as it was last saved. See device.js: the
+  // same three buttons behave the same way, and this page had none of it --
+  // Discard changes was always on show and reloaded the page whether anything
+  // had been typed or not.
+  let asItArrived = "";
+  const changed = () => configuration !== null && JSON.stringify(configuration) !== asItArrived;
+
+  warnBeforeLeaving(() => changed());
+
   const load = async () => {
     clear(body);
     body.append(h("p", { class: "dim", text: "Loading…" }));
     try {
       [configuration, state] = await Promise.all([api.configuration(), api.network()]);
+      asItArrived = JSON.stringify(configuration);
       draw();
     } catch (error) {
       clear(body);
@@ -31,12 +42,19 @@ export function network(main) {
   const save = async () => {
     try {
       configuration = await api.saveConfiguration(configuration);
+      asItArrived = JSON.stringify(configuration);
       state = await api.network();
       draw("Saved. Changes are applied within half a minute.");
     } catch (error) {
       draw(null, String(error.message || error));
     }
   };
+
+  // A switch that reveals or hides other fields still has to finish moving
+  // before the page is rebuilt under it. Rebuilding immediately replaces the
+  // switch with a new element already in its new position, so it jumps rather
+  // than slides -- the transition is defined and never runs.
+  const drawAfterTheSwitch = () => setTimeout(() => draw(), 180);
 
   function draw(good, bad) {
     clear(body);
@@ -54,7 +72,7 @@ export function network(main) {
       h("p", { class: "dim", text: "Off, and the machine keeps whatever network setup it already has — which for a screen plugged into a wired network is an address it was given without being asked, and nothing to do here. On, and this daemon sets the interfaces you name below: what a screen on a wireless network needs, and what a screen that has to sit at a fixed address needs." }),
       checkbox("Set the network from here", configuration.network.manage, (value) => {
         configuration.network.manage = value;
-        draw();
+        drawAfterTheSwitch();
       })));
 
     body.append(h("div", { class: "card" },
@@ -98,9 +116,18 @@ export function network(main) {
           : "The kernel reports no network interfaces at all." })));
     }
 
-    body.append(h("div", { class: "actions" },
-      h("button", { class: "primary", onClick: save }, "Save"),
-      h("button", { onClick: load }, "Discard changes")));
+    const saveButton = h("button", { class: "primary", onClick: save }, "Save");
+    const discardButton = h("button", { onClick: load }, "Discard changes");
+    const followTheForm = () => {
+      const anything = changed();
+      saveButton.disabled = !anything;
+      discardButton.hidden = !anything;
+    };
+    followTheForm();
+    body.addEventListener("input", followTheForm);
+    body.addEventListener("change", followTheForm);
+
+    body.append(h("div", { class: "actions" }, saveButton, discardButton));
   }
 
   // settingsFor finds this interface's entry in the configuration, creating
@@ -207,27 +234,49 @@ export function network(main) {
   function wirelessForm(one, settings) {
     settings.wireless = settings.wireless || { ssid: "", passphrase: "" };
 
+    // Look as soon as the form is opened, rather than waiting to be asked.
+    // Choosing from what is in the room is the ordinary way to join a wireless
+    // network; typing the name is the exception, for a network that does not
+    // broadcast one. This had it the other way round -- a text field first and
+    // a "Look for networks" button under it -- so the ordinary way was the one
+    // you had to go looking for.
+    if (scans[one.name] === undefined) {
+      scans[one.name] = null; // asked for, not yet answered
+      api.scanWireless(one.name)
+        .then((answer) => { scans[one.name] = answer.networks || []; draw(); })
+        .catch(() => { scans[one.name] = []; draw(); });
+    }
+
     const found = scans[one.name];
-    const list = found
-      ? (found.length
-          ? h("div", {}, found.map((candidate) => h("div", { class: "readout" },
-              h("span", { class: "label" },
-                h("button", {
-                  onClick: () => {
-                    settings.wireless.ssid = candidate.ssid;
-                    draw();
-                  },
-                }, candidate.ssid)),
-              h("span", { class: "value dim", text: `${candidate.signalStrength} dBm · ${candidate.security}` }))))
-          : h("p", { class: "dim", text: "Nothing was found. The radio may be off, or there may be nothing in range." }))
-      : null;
+    const chosen = settings.wireless.ssid;
+
+    const strengthBars = (dBm) => {
+      // -50 and better is full; -90 and worse is one. Between them, evenly.
+      const bars = Math.max(1, Math.min(4, Math.round(((dBm + 90) / 40) * 4)));
+      return h("span", { class: "bars" },
+        [1, 2, 3, 4].map((step) => h("i", { class: step <= bars ? "on" : "" })));
+    };
+
+    const list = found === null
+      ? h("p", { class: "dim", text: "Looking for networks…" })
+      : found.length
+        ? h("div", { class: "list" }, found.map((candidate) => h("button", {
+            class: candidate.ssid === chosen ? "on" : "",
+            onClick: () => {
+              settings.wireless.ssid = candidate.ssid;
+              draw();
+            },
+          },
+          h("span", { class: "ssid", text: candidate.ssid }),
+          candidate.security && candidate.security !== "open"
+            ? h("span", { class: "lock", text: "locked" }) : null,
+          strengthBars(candidate.signalStrength))))
+        : h("p", { class: "dim", text: "Nothing was found. The radio may be off, or there may be nothing in range." });
 
     return h("div", {},
-      h("div", { class: "row" },
-        field("Network name", "text", settings.wireless.ssid, (value) => { settings.wireless.ssid = value; }),
-        field("Password", "password", settings.wireless.passphrase, (value) => { settings.wireless.passphrase = value; },
-          "Empty for an open network")),
-      h("div", { class: "actions" },
+      h("label", {}, h("span", { text: "Network" })),
+      list,
+      h("div", { class: "actions", style: "margin:0.6rem 0" },
         h("button", {
           onClick: async (event) => {
             const button = event.target;
@@ -241,11 +290,14 @@ export function network(main) {
               draw(null, String(error.message || error));
             }
           },
-        }, "Look for networks")),
-      list ? h("div", { class: "card", style: "margin-top:0.75rem" },
-        h("h2", { text: "Within reach" }), list) : null);
+        }, "Look again")),
+      h("div", { class: "row" },
+        field("Password", "password", settings.wireless.passphrase, (value) => { settings.wireless.passphrase = value; },
+          chosen ? `For ${chosen}. Empty for an open network.` : "Empty for an open network"),
+        // Still typeable, for a network that does not broadcast its name.
+        field("Or type a name", "text", settings.wireless.ssid, (value) => { settings.wireless.ssid = value; },
+          "For a network that does not announce itself")));
   }
-
   function selector(options, value, onChange) {
     const element = h("select", {});
     for (const option of options) {

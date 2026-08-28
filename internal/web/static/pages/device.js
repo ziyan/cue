@@ -31,7 +31,10 @@ function settingsPage(wanted) {
   // and then typed back is not a change, and offering to discard nothing is a
   // button that does nothing.
   let asItArrived = "";
-  const changed = () => JSON.stringify(configuration) !== asItArrived;
+  // Nothing loaded is not unsaved work. Without the first test this said yes
+  // while the page was still fetching, so moving to another page during the
+  // half second it takes asked whether to throw away changes nobody had made.
+  const changed = () => configuration !== null && JSON.stringify(configuration) !== asItArrived;
 
   warnBeforeLeaving(() => changed());
 
@@ -64,6 +67,12 @@ function settingsPage(wanted) {
       draw(null, String(error.message || error));
     }
   };
+
+  // A switch that reveals or hides other fields still has to finish moving
+  // before the page is rebuilt under it. Rebuilding immediately replaces the
+  // switch with a new element already in its new position, so it jumps rather
+  // than slides -- the transition is defined and never runs.
+  const drawAfterTheSwitch = () => setTimeout(() => draw(), 180);
 
   function draw(good, bad) {
     clear(body);
@@ -266,7 +275,7 @@ function settingsPage(wanted) {
         h("div", {},
           checkbox("Ask pages for their dark version", configuration.browser.darkMode, (value) => {
             configuration.browser.darkMode = value;
-            draw();
+            drawAfterTheSwitch();
           }),
           h("span", { class: "dim", text: "A dashboard on a wall in a dark room at full brightness is what people complain about first. Pages that offer a dark theme are asked for it." }),
           configuration.browser.darkMode
@@ -335,7 +344,7 @@ function settingsPage(wanted) {
         h("div", {},
           checkbox("Watch for a frozen screen", watchdog.enabled, (value) => {
             watchdog.enabled = value;
-            draw();
+            drawAfterTheSwitch();
           })),
         field("Check every", "number", secondsOf(watchdog.interval), (value) => {
           watchdog.interval = `${Math.max(1, parseInt(value, 10) || 1)}s`;
@@ -439,7 +448,7 @@ function settingsPage(wanted) {
         h("div", {},
           checkbox("Keep this device's clock", configuration.time.enabled, (value) => {
             configuration.time.enabled = value;
-            draw();
+            drawAfterTheSwitch();
           }),
           h("span", { class: "dim", text: "On by default: a clock wrong by minutes makes every HTTPS dashboard refuse to load. Turn it off where the machine already runs chrony or systemd-timesyncd — two time daemons correcting one clock against each other is worse than neither." }))),
       configuration.time.enabled
