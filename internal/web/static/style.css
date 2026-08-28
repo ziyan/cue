@@ -146,7 +146,11 @@ header.bar {
   min-width: 0; margin-right: auto; }
 .breadcrumb .here { color: var(--text-dim); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
-.breadcrumb .sep { color: var(--border); }
+/* A chevron rather than a slash. A slash between two words at this size reads
+   as punctuation in the sentence rather than as a step between two places. */
+.breadcrumb .sep { color: var(--text-dim); opacity: 0.55; display: grid;
+  place-items: center; flex: none; }
+.breadcrumb .sep svg { width: 0.9rem; height: 0.9rem; }
 .breadcrumb .page { font-weight: 600; white-space: nowrap; }
 
 .bar-right { display: flex; align-items: center; gap: 0.25rem; flex: none; }
@@ -171,11 +175,14 @@ header.bar {
   margin-bottom: 0.35rem; }
 .menu-name { font-weight: 600; }
 .menu-dim { color: var(--text-dim); font-size: 0.8rem; }
-.menu-item { display: flex; align-items: center; width: 100%; min-height: 44px;
-  padding: 0 0.6rem; border: 0; border-radius: 8px; background: none;
-  color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.menu-item { display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  min-height: 44px; padding: 0 0.6rem; border: 0; border-radius: 8px;
+  background: none; color: inherit; font: inherit; text-align: left;
+  cursor: pointer; }
 .menu-item:hover { background: var(--surface-sunken); }
-.menu-item.on { color: var(--accent); font-weight: 600; }
+.menu-item.on { color: var(--accent); }
+.menu-label { margin-right: auto; }
+.icon.tick svg { width: 1rem; height: 1rem; }
 
 .sheet { grid-area: sheet; min-width: 0; }
 main { padding: 1.25rem; max-width: 1100px; width: 100%; margin: 0 auto; }
@@ -370,19 +377,6 @@ label.inline input { width: auto; }
   border-radius: 8px; padding: 0.6rem 0.85rem; margin: 0.35rem 0 0.75rem;
   overflow-x: auto; white-space: pre; font-size: 0.85rem; }
 
-/* A bar that says something is happening without claiming to know how far
-   along it is. The daemon reports stages, not percentages: Docker's pull
-   progress is per layer and adding up to a number that goes backwards is
-   worse than not having one. */
-.bar { margin: 0.75rem 0; height: 4px; width: 100%; max-width: 22rem;
-  background: var(--surface-sunken); border-radius: 2px; overflow: hidden; }
-.bar i { display: block; height: 100%; width: 35%; background: var(--accent);
-  border-radius: 2px; animation: cue-sweep 1.8s ease-in-out infinite; }
-@keyframes cue-sweep {
-  0%   { transform: translateX(-100%); }
-  100% { transform: translateX(320%); }
-}
-
 /* --- tables --------------------------------------------------------------- */
 
 table { width: 100%; border-collapse: collapse; }
@@ -443,4 +437,16 @@ td.right, th.right { text-align: right; padding-right: 0; }
 .progress .bar {
   height: 100%; width: 0; background: var(--accent);
   transition: width 0.2s ease;
+}
+
+/* Working, length unknown. The daemon reports stages rather than percentages:
+   a pull's progress is per layer, and adding those into one number that goes
+   backwards is worse than having no number. */
+.progress.working .bar {
+  width: 35%; transition: none;
+  animation: cue-sweep 1.8s ease-in-out infinite;
+}
+@keyframes cue-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
 }

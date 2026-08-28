@@ -48,7 +48,7 @@ export function upgrade(main) {
         h("h2", { text: `Updating to ${progress.version || state.latest}` }),
         h("p", { class: "lead", text: progress.stage || "Working" }),
         h("p", { class: "dim", text: progress.startedAt ? `Started ${when(progress.startedAt)}` : "" }),
-        h("div", { class: "bar" }, h("i")),
+        h("div", { class: "progress working" }, h("div", { class: "bar" })),
         h("p", { class: "dim", text: "The screen goes blank and comes back on its own. This page stops answering while the daemon restarts — it will come back too." })));
       return;
     }

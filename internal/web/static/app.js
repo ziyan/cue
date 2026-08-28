@@ -119,6 +119,8 @@ const icons = {
   default: () => svg("M12 12h.01"),
 
   menu: () => svg("M4 7h16", "M4 12h16", "M4 17h16"),
+  chevron: () => svg("M9 6l6 6-6 6"),
+  tick: () => svg("M5 12.5l4.5 4.5L19 7.5"),
   user: () => svg("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"),
   globe: () => svg("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M3 12h18",
     "M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"),
@@ -168,7 +170,7 @@ function topBar(active) {
     // often the one off the end of it.
     h("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" },
       h("span", { class: "here", text: state.device.name || "Cue" }),
-      h("span", { class: "sep", text: "/" }),
+      h("span", { class: "sep" }, icons.chevron()),
       h("span", { class: "page", text: active ? active.title : "" })),
 
     h("div", { class: "bar-right" },
@@ -180,22 +182,42 @@ function topBar(active) {
 // --- the three on the right -------------------------------------------------
 
 function themeButton() {
+  // A menu with the three named, rather than a button that cycles through
+  // them. A cycling button never says what the next press will do, and
+  // "follow the system" is not a state anybody guesses is in there.
+  const choices = [
+    { key: "light", name: "Light" },
+    { key: "dark", name: "Dark" },
+    { key: "system", name: "Same as this device" },
+  ];
+
+  const menu = h("div", { class: "menu" },
+    choices.map((choice) => h("button", {
+      class: "menu-item" + (currentTheme() === choice.key ? " on" : ""),
+      onClick: () => {
+        menu.hidden = true;
+        setTheme(choice.key);
+        render();
+      },
+    },
+      h("span", { class: "icon" }, icons[choice.key]()),
+      h("span", { class: "menu-label", text: choice.name }),
+      currentTheme() === choice.key ? h("span", { class: "icon tick" }, icons.tick()) : null)));
+  menu.hidden = true;
+
   const button = h("button", {
     class: "icon-button",
     "aria-label": "Light or dark",
-    title: themeTitle(),
+    "aria-haspopup": "true",
+    title: "Light or dark",
+    onClick: (event) => {
+      event.stopPropagation();
+      menu.hidden = !menu.hidden;
+    },
   }, h("span", { class: "icon" }, (icons[currentTheme()] || icons.system)()));
 
-  button.addEventListener("click", () => {
-    // Three states, in the order somebody discovers them: whatever the system
-    // says, then light, then dark, then back. A two-state toggle cannot say
-    // "follow the system", and a device set up in a room that darkens should
-    // be able to.
-    const order = ["system", "light", "dark"];
-    setTheme(order[(order.indexOf(currentTheme()) + 1) % order.length]);
-    render();
-  });
-  return button;
+  document.addEventListener("click", () => { menu.hidden = true; });
+  return h("div", { class: "menu-holder" }, button, menu);
 }
 
 function userMenu() {
@@ -284,13 +306,6 @@ export function applyTheme() {
   else document.documentElement.setAttribute("data-theme", theme);
 }
 
-function themeTitle() {
-  return {
-    system: "Following the system. Click for light.",
-    light: "Light. Click for dark.",
-    dark: "Dark. Click to follow the system.",
-  }[currentTheme()];
-}
 
 // --- language ---------------------------------------------------------------
 
@@ -324,7 +339,9 @@ function languageButton() {
         }
         render();
       },
-    }, language.name)));
+    },
+      h("span", { class: "menu-label", text: language.name }),
+      state.device.language === language.tag ? h("span", { class: "icon tick" }, icons.tick()) : null)));
   menu.hidden = true;
 
   const button = h("button", {
