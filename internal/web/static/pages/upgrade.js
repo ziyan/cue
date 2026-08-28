@@ -119,7 +119,7 @@ export function upgrade(main) {
       } catch (error) {
         clear(card);
         card.append(
-          h("h2", { text: "It did not start" }),
+          h("h2", { text: "The update could not start" }),
           h("div", { class: "notice bad", text: String(error.message || error) }),
           h("p", { class: "dim", text: "Nothing has changed: the container is still the one it was." }),
           h("button", { class: "primary", onClick: load }, "Try again"));
@@ -138,8 +138,8 @@ export function upgrade(main) {
     };
 
     const offer = () => h("div", {},
-      h("h2", { text: "Taking it" }),
-      h("p", { class: "lead", text: "This device is set up to update itself." }),
+      h("h2", { text: "Install it" }),
+      h("p", { class: "lead", text: "This device can update itself." }),
       h("button", { class: "primary", onClick: ask }, `Update to ${state.latest}`));
 
     card.append(offer());
@@ -149,7 +149,7 @@ export function upgrade(main) {
   // On any device not set up for it, the page says exactly what to run rather
   // than leaving somebody to work it out.
   const byHand = (state) => h("div", { class: "card" },
-    h("h2", { text: "Taking it" }),
+    h("h2", { text: "Install it yourself" }),
     h("p", { class: "lead", text: state.whyNot }),
     h("p", { class: "dim", text: "On the machine itself:" }),
     h("pre", { class: "commands", text: `docker pull ${state.image}` }),

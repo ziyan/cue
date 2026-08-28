@@ -2,7 +2,7 @@
 // modules with no build step: see internal/web/static/novnc/README.md for why
 // this project has no JavaScript toolchain.
 
-import { h, clear } from "./dom.js";
+import { h, clear, svg } from "./dom.js";
 import { api, whenSignedOut } from "./api.js";
 import { overview } from "./pages/overview.js";
 import { content } from "./pages/content.js";
@@ -35,6 +35,14 @@ whenSignedOut(() => {
 });
 
 async function start() {
+  applyTheme();
+  // Remembered from last time, on anything wider than a phone.
+  try {
+    if (localStorage.getItem("cue.sidebar") === "collapsed" && window.innerWidth > 720) {
+      document.body.classList.add("sidebar-collapsed");
+    }
+  } catch (error) { /* private window */ }
+
   try {
     state = { ...state, ...(await api.setupState()) };
   } catch (error) {
@@ -89,40 +97,248 @@ function render() {
   const page = pages.find((candidate) => candidate.path === path) || pages[0];
 
   const main = h("main", { class: page.path === "screen" ? "wide" : "" });
-  root.append(h("div", { class: "shell" }, chrome(page), main));
+  // The sidebar covers the page on a phone, so pressing the page behind it
+  // should put it away -- which is what everybody expects of a panel like it.
+  main.addEventListener("click", closeSidebarOnAPhone);
+  root.append(h("div", { class: "shell" }, chrome(page),
+    h("div", { class: "sheet" }, main)));
 
   nameTheDocument(page);
-
-  // On a narrow screen the tabs scroll sideways, and the one you are on is
-  // often the one off the end of it — so the page gives no sign of which page
-  // it is. Bring it into view.
-  const active = root.querySelector("nav.tabs a.active");
-  if (active && active.scrollIntoView) {
-    active.scrollIntoView({ block: "nearest", inline: "center" });
-  }
 
   stopCurrentPage = page.render(main) || null;
 }
 
+// The icons. One line each, drawn with svg() so that nothing here is markup.
+const icons = {
+  "": () => svg("M3 10.5 12 3l9 7.5", "M5 9.5V21h14V9.5"),
+  content: () => svg("M4 5h16v14H4z", "M4 9h16", "M10 13.5l4 2-4 2z"),
+  screen: () => svg("M3 4h18v12H3z", "M8 20h8", "M12 16v4"),
+  network: () => svg("M12 19h.01", "M5 12.5a9 9 0 0 1 14 0", "M8.5 15.5a5 5 0 0 1 7 0"),
+  device: () => svg("M5 4h14v16H5z", "M9 8h6", "M9 12h6", "M9 16h3"),
+  upgrade: () => svg("M12 20V6", "M6 12l6-6 6 6"),
+  default: () => svg("M12 12h.01"),
+
+  menu: () => svg("M4 7h16", "M4 12h16", "M4 17h16"),
+  user: () => svg("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"),
+  globe: () => svg("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M3 12h18",
+    "M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"),
+  light: () => svg("M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z", "M12 2v2", "M12 20v2",
+    "M2 12h2", "M20 12h2", "M5 5l1.5 1.5", "M17.5 17.5L19 19", "M19 5l-1.5 1.5", "M6.5 17.5L5 19"),
+  dark: () => svg("M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"),
+  system: () => svg("M3 5h18v11H3z", "M8 20h8", "M12 5v11"),
+};
+
+// The shell: a sidebar of pages, and a bar across the top carrying where you
+// are on the left and the three things about you on the right.
+//
+// It was a row of tabs. A row does not have room: at six pages it was 167
+// pixels wider than a phone, so Device and Upgrade sat off the right-hand edge
+// with nothing to say they were there. render() used to scroll the current tab
+// into view to make up for it, which treated the symptom. A column has room
+// for as many pages as this program grows to.
 function chrome(active) {
-  return h("header", { class: "bar" },
+  return [sidebar(active), topBar(active)];
+}
+
+function sidebar(active) {
+  return h("aside", { class: "sidebar", id: "sidebar" },
     h("div", { class: "brand" },
       h("img", { class: "mark", src: "/favicon.svg", alt: "" }),
-      h("strong", { text: state.device.name || "Cue" }),
-      h("span", { class: "mono", text: state.device.identifier || "" })),
-    h("nav", { class: "tabs" },
+      h("span", { class: "name", text: state.device.name || "Cue" })),
+    h("nav", {},
       pages.map((page) => h("a", {
         href: `#/${page.path}`,
         class: page === active ? "active" : "",
-        text: page.title,
-      }))),
+        title: page.title,
+        onClick: closeSidebarOnAPhone,
+      },
+        h("span", { class: "icon" }, (icons[page.path] || icons.default)()),
+        h("span", { class: "label", text: page.title }))))); 
+}
+
+function topBar(active) {
+  return h("header", { class: "bar" },
     h("button", {
+      class: "icon-button",
+      "aria-label": "Menu",
+      onClick: toggleSidebar,
+    }, h("span", { class: "icon" }, icons.menu())),
+
+    // Where you are. The tab row was doing this badly: the tab you were on was
+    // often the one off the end of it.
+    h("nav", { class: "breadcrumb", "aria-label": "Breadcrumb" },
+      h("span", { class: "here", text: state.device.name || "Cue" }),
+      h("span", { class: "sep", text: "/" }),
+      h("span", { class: "page", text: active ? active.title : "" })),
+
+    h("div", { class: "bar-right" },
+      languageButton(),
+      themeButton(),
+      userMenu()));
+}
+
+// --- the three on the right -------------------------------------------------
+
+function themeButton() {
+  const button = h("button", {
+    class: "icon-button",
+    "aria-label": "Light or dark",
+    title: themeTitle(),
+  }, h("span", { class: "icon" }, (icons[currentTheme()] || icons.system)()));
+
+  button.addEventListener("click", () => {
+    // Three states, in the order somebody discovers them: whatever the system
+    // says, then light, then dark, then back. A two-state toggle cannot say
+    // "follow the system", and a device set up in a room that darkens should
+    // be able to.
+    const order = ["system", "light", "dark"];
+    setTheme(order[(order.indexOf(currentTheme()) + 1) % order.length]);
+    render();
+  });
+  return button;
+}
+
+function userMenu() {
+  const menu = h("div", { class: "menu" },
+    h("div", { class: "menu-head" },
+      h("div", { class: "menu-name", text: state.device.name || "Cue" }),
+      h("div", { class: "menu-dim mono", text: state.device.identifier || "" })),
+    h("button", {
+      class: "menu-item",
       onClick: async () => {
         await api.signOut();
         state.signedIn = false;
         render();
       },
     }, "Sign out"));
+  menu.hidden = true;
+
+  const button = h("button", {
+    class: "icon-button",
+    "aria-label": "Account",
+    "aria-haspopup": "true",
+    onClick: (event) => {
+      event.stopPropagation();
+      menu.hidden = !menu.hidden;
+    },
+  }, h("span", { class: "icon" }, icons.user()));
+
+  // Anywhere else closes it, which is what everybody expects of a menu.
+  document.addEventListener("click", () => { menu.hidden = true; });
+
+  return h("div", { class: "menu-holder" }, button, menu);
+}
+
+// --- the sidebar on a phone -------------------------------------------------
+
+function toggleSidebar(event) {
+  if (event) event.stopPropagation();
+  document.body.classList.toggle("sidebar-open");
+  // On anything wider than a phone the button collapses the sidebar to its
+  // icons instead of hiding it, and that choice is worth remembering.
+  if (window.innerWidth > 720) {
+    const collapsed = document.body.classList.toggle("sidebar-collapsed");
+    document.body.classList.remove("sidebar-open");
+    try { localStorage.setItem("cue.sidebar", collapsed ? "collapsed" : "open"); } catch (error) { /* private window */ }
+  }
+}
+
+function closeSidebarOnAPhone() {
+  document.body.classList.remove("sidebar-open");
+}
+
+// --- light and dark ---------------------------------------------------------
+//
+// Three states, not two. A toggle can only say light or dark, and a screen set
+// up in a room that darkens in the evening should be able to say "whatever the
+// machine says" -- which is what it did before there was a control at all, and
+// must go on being able to do.
+//
+// Remembered in the browser it was set in rather than on the device: this is
+// about the person looking, and two people looking after the same screen from
+// different laptops need not agree.
+
+function currentTheme() {
+  try {
+    const chosen = localStorage.getItem("cue.theme");
+    if (chosen === "light" || chosen === "dark") return chosen;
+  } catch (error) {
+    // A private window refuses storage. Follow the system, as before.
+  }
+  return "system";
+}
+
+function setTheme(theme) {
+  try {
+    if (theme === "system") localStorage.removeItem("cue.theme");
+    else localStorage.setItem("cue.theme", theme);
+  } catch (error) { /* nothing to remember it in */ }
+  applyTheme();
+}
+
+// applyTheme puts the choice where the stylesheet can see it. Exported through
+// the module's own start, and called again whenever it changes.
+export function applyTheme() {
+  const theme = currentTheme();
+  if (theme === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", theme);
+}
+
+function themeTitle() {
+  return {
+    system: "Following the system. Click for light.",
+    light: "Light. Click for dark.",
+    dark: "Dark. Click to follow the system.",
+  }[currentTheme()];
+}
+
+// --- language ---------------------------------------------------------------
+
+// The language this screen speaks -- the one it shows on its own display, in
+// the menu somebody standing at it opens. This interface is written in English
+// only, so the control says what it changes rather than pretending to change
+// this page.
+function languageButton() {
+  const languages = [
+    { tag: "en", name: "English" },
+    { tag: "zh", name: "\u4e2d\u6587" },
+    { tag: "ja", name: "\u65e5\u672c\u8a9e" },
+  ];
+
+  const menu = h("div", { class: "menu" },
+    h("div", { class: "menu-head" },
+      h("div", { class: "menu-name", text: "Screen language" }),
+      h("div", { class: "menu-dim", text: "What the menu on the screen itself speaks" })),
+    languages.map((language) => h("button", {
+      class: "menu-item" + (state.device.language === language.tag ? " on" : ""),
+      onClick: async () => {
+        menu.hidden = true;
+        try {
+          const configuration = await api.configuration();
+          configuration.device.language = language.tag;
+          await api.saveConfiguration(configuration);
+          state.device.language = language.tag;
+        } catch (error) {
+          // Saying nothing here would be worse than saying it plainly.
+          window.alert(String(error.message || error));
+        }
+        render();
+      },
+    }, language.name)));
+  menu.hidden = true;
+
+  const button = h("button", {
+    class: "icon-button",
+    "aria-label": "Screen language",
+    "aria-haspopup": "true",
+    onClick: (event) => {
+      event.stopPropagation();
+      menu.hidden = !menu.hidden;
+    },
+  }, h("span", { class: "icon" }, icons.globe()));
+
+  document.addEventListener("click", () => { menu.hidden = true; });
+  return h("div", { class: "menu-holder" }, button, menu);
 }
 
 // --- the gate ---------------------------------------------------------------

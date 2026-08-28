@@ -23,6 +23,33 @@ export function h(tag, attributes, ...children) {
   return element;
 }
 
+// svg builds an icon out of path data.
+//
+// Built rather than pasted in as markup, for the reason at the top of this
+// file: there is no innerHTML in this interface and an icon is not a good
+// enough reason to introduce one.
+export function svg(...paths) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const node = document.createElementNS(namespace, "svg");
+  for (const [name, value] of Object.entries({
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.7",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  })) {
+    node.setAttribute(name, value);
+  }
+  for (const data of paths) {
+    const path = document.createElementNS(namespace, "path");
+    path.setAttribute("d", data);
+    node.append(path);
+  }
+  return node;
+}
+
 export function clear(element) {
   while (element.firstChild) element.removeChild(element.firstChild);
 }
