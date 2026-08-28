@@ -140,6 +140,9 @@ open: an entry written here can say more than a line in a description, and
 sometimes a change deserves that.
 
 Both are collected when a release is cut, and the hand-written ones come first.
+Write each entry in one place or the other, never both: they are concatenated,
+not deduplicated, so the same words in a description and in the file appear
+twice in the release notes.
 Internal work an operator cannot observe -- a refactor, a test, a comment --
 needs no entry either way.
 
