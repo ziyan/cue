@@ -1,12 +1,22 @@
-// Everything about the device itself rather than about what it is showing:
-// the screens attached to it, the settings that need a restart, and the two
-// logs worth reading from a distance.
+// The device's own settings, as several pages rather than one.
+//
+// They were one page: forty-two fields in ten cards, three and a half thousand
+// pixels tall, with six of the cards hiding further settings inside collapsed
+// boxes labelled "Less often needed" and "Difficult hardware" -- and one
+// labelled nothing at all. Finding a setting meant opening every box to see
+// whether it was in there.
+//
+// Every page here shares one load and one save, because they are all views of
+// the same configuration document: saving on any of them sends the whole thing,
+// as it always did.
 
 import { h, clear } from "../dom.js";
 import { api } from "../api.js";
 import { field, checkbox, secondsOf, choice, searchable } from "./content.js";
 
-export function device(main) {
+// settingsPage builds one of these pages from the cards it should carry.
+function settingsPage(wanted) {
+  return function (main) {
   const body = h("div");
   main.append(body);
 
@@ -55,11 +65,19 @@ export function device(main) {
         h("div", { class: "dim", style: "margin-top:0.4rem", text: "If one of these is a key you meant to set, it is mistyped — from in front of the screen a mistyped key and a setting that does nothing look exactly the same." })));
     }
 
-    body.append(identityCard(), connectorsCard(), displayCard(), browserCard(), watchdogCard(), inputCard(), soundAndClockCard(), remoteCard(), actionsCard(), logCard());
+    const cards = {
+      identity: identityCard, connectors: connectorsCard, display: displayCard,
+      browser: browserCard, watchdog: watchdogCard, input: inputCard,
+      soundAndClock: soundAndClockCard, remote: remoteCard,
+      actions: actionsCard, log: logCard,
+    };
+    body.append(...wanted.map((name) => cards[name]()));
 
-    body.append(h("div", { class: "actions" },
-      h("button", { class: "primary", onClick: save }, "Save"),
-      h("button", { onClick: load }, "Discard changes")));
+    if (wanted.some((name) => name !== "log" && name !== "actions")) {
+      body.append(h("div", { class: "actions" },
+        h("button", { class: "primary", onClick: save }, "Save"),
+        h("button", { onClick: load }, "Discard changes")));
+    }
   }
 
   function identityCard() {
@@ -131,7 +149,7 @@ export function device(main) {
       : null;
 
     return h("details", {},
-      h("summary", {}, connector.name, h("span", { class: "dim", text: ` · what the monitor reports` })),
+      h("summary", {}, connector.name, h("span", { class: "dim", text: ` · what the monitor reports about itself` })),
       h("div", {},
         row("Maker", monitor.manufacturer),
         row("Model", monitor.model),
@@ -172,8 +190,8 @@ export function device(main) {
           configuration.display.blankAfter = `${seconds}s`;
         }, "Seconds of no input. 0 never blanks, which is what a wall display wants")),
 
-      h("details", {},
-        h("summary", { text: "Less often needed" }),
+      h("div", { class: "subsection" },
+        h("h3", { text: "Colour, size and the console" }),
         h("div", {},
           outputs.map((output) => h("div", { class: "row" },
             field(`Where ${output.name} sits`, "text", output.position, (value) => { output.position = value; },
@@ -197,8 +215,8 @@ export function device(main) {
               checkbox("Show the Cue mark before the browser has drawn", configuration.display.wallpaper, (value) => { configuration.display.wallpaper = value; }),
               h("span", { class: "dim", text: "What the screen shows while it is starting, and if the browser goes away. Off leaves whatever the X server does, which on a wall is indistinguishable from a machine that failed to boot." }))))),
 
-      h("details", {},
-        h("summary", { text: "Difficult hardware" }),
+      h("div", { class: "subsection" },
+        h("h3", { text: "Graphics driver and screen size" }),
         h("div", {},
           field("Custom modeline", "text", configuration.display.modeline, (value) => { configuration.display.modeline = value; }, "For a television with a broken EDID, in xrandr --newmode format"),
           h("label", {},
@@ -220,7 +238,7 @@ export function device(main) {
 
   function browserCard() {
     return h("div", { class: "card" },
-      h("h2", { text: "The browser" }),
+      h("h2", { text: "Browser" }),
       h("div", { class: "row" },
         h("div", {},
           checkbox("Dark", configuration.browser.darkMode, (value) => {
@@ -288,7 +306,7 @@ export function device(main) {
     }, hint);
 
     return h("div", { class: "card" },
-      h("h2", { text: "When the screen stops changing" }),
+      h("h2", { text: "Watchdog" }),
       h("p", { class: "dim", text: "The daemon asks the page to prove it is still running — that the X server answers, that the page runs a line of JavaScript, and that it is still being drawn. A page can look perfect and be dead, so the last of those is the one that matters." }),
       h("div", { class: "row" },
         h("div", {},
@@ -302,8 +320,8 @@ export function device(main) {
         field("Give up on an answer after", "number", secondsOf(watchdog.timeout), (value) => {
           watchdog.timeout = `${Math.max(1, parseInt(value, 10) || 1)}s`;
         }, "Seconds")),
-      watchdog.enabled ? h("details", {},
-        h("summary", { text: "What it does, in order" }),
+      watchdog.enabled ? h("div", { class: "subsection" },
+        h("h3", { text: "What it tries, in order" }),
         h("div", { class: "row" },
           rung("Reload the page after", "failuresBeforeReload", "consecutive failures"),
           rung("Open a fresh tab after", "failuresBeforeRecreate", "consecutive failures"),
@@ -338,7 +356,7 @@ export function device(main) {
     const devices = (status.input || []).filter((one) => one.keyboard || one.pointer || one.touch);
     if (!devices.length) {
       return h("div", { class: "card" },
-        h("h2", { text: "Things people touch" }),
+        h("h2", { text: "Keyboard, mouse and touch" }),
         h("p", { class: "dim", text: "The kernel reports no keyboard, pointer or touchscreen. Inside a container that usually means /dev/input was not passed through." }));
     }
 
@@ -352,7 +370,7 @@ export function device(main) {
     };
 
     return h("div", { class: "card" },
-      h("h2", { text: "Things people touch" }),
+      h("h2", { text: "Keyboard, mouse and touch" }),
       devices.map((one) => h("div", { class: "readout" },
         h("span", { class: "label truncate", text: one.name }),
         h("span", { class: "value dim", text: describe(one) }))));
@@ -363,7 +381,7 @@ export function device(main) {
     const devices = status.sound || [];
 
     return h("div", { class: "card" },
-      h("h2", { text: "Sound and time" }),
+      h("h2", { text: "Sound and the clock" }),
       h("div", { class: "row" },
         h("div", {},
           checkbox("Play sound", configuration.audio.enabled, (value) => { configuration.audio.enabled = value; })),
@@ -437,7 +455,7 @@ export function device(main) {
     const address = h("input", { type: "url", placeholder: "https://example.com/" });
 
     return h("div", { class: "card" },
-      h("h2", { text: "Do something now" }),
+      h("h2", { text: "Restart something" }),
       h("div", { class: "actions", style: "margin-bottom:0.75rem" },
         h("button", { onClick: () => restart("chromium") }, "Restart the browser"),
         h("button", { onClick: () => restart("display") }, "Restart the X server"),
@@ -509,11 +527,17 @@ export function device(main) {
       }
     };
 
+    // Read straight away. This was behind a button when the log was one card
+    // among ten on a page about everything; on a page whose only subject is the
+    // log, asking somebody to press "read the log" after they have opened the
+    // log is a step that does nothing but delay.
+    load();
+
     return h("div", { class: "card" },
       h("h2", { text: "X server log" }),
       h("p", { class: "dim", text: "When a screen stays black, the reason is in here. The server's own timestamps are seconds since the machine booted; these are the real times." }),
       h("div", { class: "actions", style: "margin-bottom:0.75rem" },
-        h("button", { onClick: load }, "Read the end of it"),
+        h("button", { onClick: load }, "Refresh"),
         h("button", {
           onClick: () => {
             onlyProblems = !onlyProblems;
@@ -531,4 +555,16 @@ export function device(main) {
   }
 
   load();
+  };
 }
+
+// The pages, and what each one carries. Split by what somebody is trying to do
+// rather than by which part of the daemon owns the setting: "the screen looks
+// wrong" is one errand, "the browser will not load our dashboard" is another,
+// and they used to be sixteen hundred pixels apart on the same page.
+export const device = settingsPage(["identity"]);
+export const display = settingsPage(["connectors", "display"]);
+export const browserPage = settingsPage(["browser"]);
+export const health = settingsPage(["watchdog", "actions"]);
+export const access = settingsPage(["input", "soundAndClock", "remote"]);
+export const logs = settingsPage(["log"]);

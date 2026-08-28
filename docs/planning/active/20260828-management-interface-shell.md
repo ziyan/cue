@@ -115,9 +115,11 @@ yet settled.
 - [ ] 4. Language — the control is built and sets `device.language`. Whether
   this interface should itself be translated is the open question below.
 
-Still to do: the Device page is seven screens on a phone. That is not a bug
-and not a layout fault -- it is one page carrying every setting the device
-has, and shortening it means deciding what an operator needs at a glance.
+- [x] 5. The Device page becomes six — 2026-08-28. Forty-two fields in ten
+  cards on one page became Device, Display, Browser, Health, Access and Logs,
+  four to eleven fields each. Seven screens on a phone became one to 2.2. The
+  three collapsed boxes that hid settings are plain headed sections; the
+  headings say what they hold.
 
 ## Decision log
 
@@ -158,6 +160,20 @@ scrolled the active tab into view on every render, with a comment explaining
 that the current tab was often off the end of the row. The symptom was
 described accurately and treated; the cause was left. A row of tabs cannot
 hold six items on a phone and would not hold seven.
+
+**2026-08-28 — What the Device page was.** Forty-two fields, ten cards, 3621
+pixels, seven screens on a phone. Six collapsed boxes, three of them hiding
+settings behind labels that said how often you might want them rather than
+what was in them -- "Less often needed" (five fields), "Difficult hardware"
+(two), "What it does, in order" (five) -- and one with no label at all.
+Finding a setting meant opening every box to see whether it was in there.
+
+The headings were evocative rather than descriptive: "Things people touch",
+"When the screen stops changing", "Do something now". Good phrases, and not
+findable by anybody scanning for the watchdog.
+
+Splitting it is what the sidebar was for. A row of tabs could not have carried
+eleven entries -- it could not carry six, which is how this began.
 
 ## Outcomes and retrospective
 

@@ -118,6 +118,17 @@ body.sidebar-collapsed .sidebar nav a { justify-content: center; padding-inline:
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .sidebar nav { display: flex; flex-direction: column; gap: 0.15rem; }
+
+/* A rule between groups of pages, with a small heading over each. Eleven rows
+   in one undivided list is a wall. */
+.sidebar .group { border-top: 1px solid var(--border);
+  margin: 0.6rem 0.15rem 0.15rem; padding-top: 0.6rem; }
+.sidebar .group-name { display: block; padding: 0 0.5rem 0.15rem;
+  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim); }
+/* Collapsed to icons, the rule stays and the words go: a heading in a sixty
+   pixel column is a smear. */
+body.sidebar-collapsed .sidebar .group-name { display: none; }
 .sidebar nav a {
   display: flex; align-items: center; gap: 0.7rem;
   /* At least 44px, because this is pressed with a thumb. The tab row it
@@ -376,6 +387,15 @@ label.inline input { width: auto; }
 .commands { background: var(--surface-sunken); border: 1px solid var(--border);
   border-radius: 8px; padding: 0.6rem 0.85rem; margin: 0.35rem 0 0.75rem;
   overflow-x: auto; white-space: pre; font-size: 0.85rem; }
+
+/* A run of settings inside a card, with a heading that says what they are.
+   These were collapsed boxes labelled "Less often needed" and "Difficult
+   hardware" -- labels about how often you might want them rather than what
+   was in them, so finding a setting meant opening every box to look. */
+.subsection { margin-top: 1.1rem; padding-top: 0.9rem;
+  border-top: 1px solid var(--border); }
+.subsection h3 { font-size: 0.8rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 0.7rem; }
 
 /* --- tables --------------------------------------------------------------- */
 

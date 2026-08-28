@@ -7,16 +7,28 @@ import { api, whenSignedOut } from "./api.js";
 import { overview } from "./pages/overview.js";
 import { content } from "./pages/content.js";
 import { screen } from "./pages/screen.js";
-import { device } from "./pages/device.js";
+import { device, display, browserPage, health, access, logs } from "./pages/device.js";
 import { network } from "./pages/network.js";
 import { upgrade } from "./pages/upgrade.js";
 
+// The pages, in groups. Eleven entries in one undivided list is a wall; the
+// groups say which errand each row belongs to, so somebody looking for the
+// watchdog knows to look under the settings rather than reading all eleven.
 const pages = [
   { path: "", title: "Overview", render: overview },
   { path: "content", title: "Content", render: content },
   { path: "screen", title: "Screen", render: screen },
   { path: "network", title: "Network", render: network },
+
+  { group: "Settings" },
   { path: "device", title: "Device", render: device },
+  { path: "display", title: "Display", render: display },
+  { path: "browser", title: "Browser", render: browserPage },
+  { path: "health", title: "Health", render: health },
+  { path: "access", title: "Access", render: access },
+
+  { group: "This machine" },
+  { path: "logs", title: "Logs", render: logs },
   { path: "upgrade", title: "Upgrade", render: upgrade },
 ];
 
@@ -115,6 +127,13 @@ const icons = {
   screen: () => svg("M3 4h18v12H3z", "M8 20h8", "M12 16v4"),
   network: () => svg("M12 19h.01", "M5 12.5a9 9 0 0 1 14 0", "M8.5 15.5a5 5 0 0 1 7 0"),
   device: () => svg("M5 4h14v16H5z", "M9 8h6", "M9 12h6", "M9 16h3"),
+  display: () => svg("M4 5h16v11H4z", "M9 20h6", "M12 16v4"),
+  browser: () => svg("M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z", "M3.5 9h17", "M3.5 15h17",
+    "M12 3c2.2 2.6 3.4 5.6 3.4 9s-1.2 6.4-3.4 9c-2.2-2.6-3.4-5.6-3.4-9S9.8 5.6 12 3z"),
+  health: () => svg("M3 12h4l2-5 3 10 2.5-5H21"),
+  access: () => svg("M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+    "M6.5 6.5a7.8 7.8 0 0 0 0 11", "M17.5 6.5a7.8 7.8 0 0 1 0 11"),
+  logs: () => svg("M5 4h11l3 3v13H5z", "M9 11h6", "M9 15h6"),
   upgrade: () => svg("M12 20V6", "M6 12l6-6 6 6"),
   default: () => svg("M12 12h.01"),
 
@@ -148,14 +167,20 @@ function sidebar(active) {
       h("img", { class: "mark", src: "/favicon.svg", alt: "" }),
       h("span", { class: "name", text: state.device.name || "Cue" })),
     h("nav", {},
-      pages.map((page) => h("a", {
-        href: `#/${page.path}`,
-        class: page === active ? "active" : "",
-        title: page.title,
-        onClick: closeSidebarOnAPhone,
-      },
-        h("span", { class: "icon" }, (icons[page.path] || icons.default)()),
-        h("span", { class: "label", text: page.title }))))); 
+      pages.map((page) => page.group
+        // A rule and a small heading, the way the portal does it. The rule
+        // stays when the sidebar is collapsed to its icons and the heading
+        // goes: a heading in a 60 pixel column is a smear.
+        ? h("div", { class: "group" }, h("span", { class: "group-name", text: page.group }))
+        : h("a", {
+            href: `#/${page.path}`,
+            class: page === active ? "active" : "",
+            title: page.title,
+            onClick: closeSidebarOnAPhone,
+          },
+            h("span", { class: "icon" }, (icons[page.path] || icons.default)()),
+            h("span", { class: "label", text: page.title })))));
+
 }
 
 function topBar(active) {
