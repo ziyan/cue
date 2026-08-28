@@ -6,6 +6,11 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-28
+
+### Added
+
+The image says where it came from. It carried no metadata at all, so a registry had nothing to tie it back to this repository and a person holding it had no way to find the source. It now carries the standard OCI labels, including `org.opencontainers.image.source`, which is the one a registry reads to link the package to its repository — and a linked package can take the repository's visibility instead of being published private, which is how the first release ended up with an image nobody following the README could pull. (#1)
 ## [0.1.0] - 2026-08-28
 
 ### Added
