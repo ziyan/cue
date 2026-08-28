@@ -287,8 +287,17 @@ const longestHold = 90 * time.Second
 // on a wall ever since.
 func (self *Browser) RefreshAll(ctx context.Context) {
 	self.mutex.Lock()
+	// Not the one on screen. This is called as the menu closes, and the tab
+	// showing the menu is the one on screen -- it is already loading the page
+	// it came from, by its own navigation. Reloading it as well is a race
+	// between that navigation and this one, and the prize for winning it is
+	// the menu loading again.
+	current := self.tabs[self.current]
 	targets := make([]string, 0, len(self.tabs))
 	for _, target := range self.tabs {
+		if target == current && current != "" {
+			continue
+		}
 		targets = append(targets, target)
 	}
 	self.mutex.Unlock()

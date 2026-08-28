@@ -250,6 +250,38 @@ third thing: the browser closes any window this daemon did not open, so the
 first version of that tab was swept away a cycle after it appeared. The sweep
 now knows the menu's own address.
 
+**2026-08-28 — What a review round found that the tests did not.** Six things,
+and two of them would have taken a screen down.
+
+*Two upgrades at once was a dead device.* Starting a second helper
+force-removes the first, and the first may be between stopping the old
+container and starting the new one — so what is left is a machine with no cue
+on it. Pressing the button twice, or pressing it on the page and then in the
+on-screen menu, is an ordinary thing to do. There is now one claim on the
+upgrade at a time, and it is given up again if nothing comes of it.
+
+*The hold expires and an upgrade takes longer than a hold.* The screen is told
+it is updating and the playlist is held so the message stays — but the hold
+lapses after ninety seconds without a heartbeat, and the page shown during an
+upgrade deliberately fetches nothing. The daemon renews it, and goes on
+renewing past the point where the helper takes over.
+
+*Reloading the playlist raced the tab going back.* Closing the menu asks the
+daemon to reload the pages and navigates this tab back to its own page in the
+same breath. The tab showing the menu was in that list, so a reload could win
+the race and load the menu again. It is skipped: it is already loading the page
+it came from.
+
+*A ten-minute HTTP timeout on the Docker client.* Fine for an inspect, not
+enough for a gigabyte and a half over the connection some buildings have, and
+it silently overrode the caller's thirty minutes. The deadline belongs to the
+caller.
+
+*Two comments that had stopped being true* — one saying the upgrade is
+deliberately not reachable from the on-screen menu, written before that was
+reversed, and one saying the page refreshes a day-old answer where the code
+says an hour. And `/api/v1/playlist/release` answered `{"held": true}`.
+
 ## Outcomes and retrospective
 
 To be written at each milestone.

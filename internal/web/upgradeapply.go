@@ -18,13 +18,22 @@ import (
 // page says the screen is about to go dark and comes back when the new one
 // answers.
 //
-// Behind the session, like the rest of the management interface, and
-// deliberately not reachable from the on-screen menu. Standing in front of a
-// screen authorises changing what it shows and how it reaches the network. It
-// does not authorise replacing the software on the machine.
+// Reachable two ways, and both prove the same thing. From the web interface it
+// is behind the session; from the screen's own menu it is behind a pass that
+// has been through the password gate. Proximity alone does not reach it.
+//
+// One at a time. Two of these running together is not a slow upgrade, it is a
+// dead device: starting a second helper force-removes the first, and the first
+// may be between stopping the old container and starting the new one, so what
+// is left is a machine with no cue on it and a dark screen on a wall.
 func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Request) {
 	image, state, ok := self.readyToUpgrade(response)
 	if !ok {
+		return
+	}
+
+	if !self.upgradeRunning.CompareAndSwap(false, true) {
+		writeError(response, http.StatusConflict, "an upgrade is already under way on this device")
 		return
 	}
 
@@ -40,11 +49,45 @@ func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Req
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	go func() {
 		defer cancel()
+
+		// The hold on the playlist expires if nobody renews it, which is what
+		// stops a lost request freezing a screen for ever -- and an upgrade
+		// takes minutes, which is longer than that. So it is renewed here for
+		// as long as this goes on. The page on the screen cannot do it: it is
+		// deliberately a page that fetches nothing, because the daemon serving
+		// it is about to stop.
+		// Renewed until this container stops, which is how the upgrade ends.
+		// Not stopped when Begin returns: Begin returns as soon as the helper
+		// is running, and the helper still has to stop this container. If the
+		// renewal stopped there, a slow handover would let the hold lapse and
+		// the playlist would rotate the "updating" page off the screen while
+		// the upgrade was still going on.
+		stopHolding := self.keepHolding(ctx)
+
+		// If the helper starts and then fails, it puts the old container back
+		// and this process carries on running -- with the flag above still
+		// set, refusing every further attempt until somebody restarts the
+		// daemon. So the claim is given up after long enough that a real
+		// upgrade would have stopped this process instead.
+		go func() {
+			select {
+			case <-ctx.Done():
+			case <-time.After(15 * time.Minute):
+			}
+			if self.upgradeRunning.Swap(false) {
+				log.Warningf("the upgrade to %s did not replace this container; "+
+					"letting somebody try again", state.Latest)
+			}
+		}()
+
 		if err := upgrade.Begin(ctx, upgrade.SocketPath, image); err != nil {
 			log.Errorf("the upgrade to %s did not start: %s", state.Latest, err)
-			// Put the screen back to what it was showing: nothing is going to
-			// happen, and a display stuck on "upgrading" for ever is worse
-			// than one that never said anything.
+			// Nothing is going to happen now, so let the screen go back to
+			// what it was showing: a display stuck on "updating" for ever is
+			// worse than one that never said anything. And let somebody try
+			// again.
+			self.upgradeRunning.Store(false)
+			stopHolding()
 			if browser := self.device.Browser(); browser != nil {
 				browser.Release()
 			}
@@ -67,6 +110,32 @@ func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Req
 // in to the web interface.
 func (self *Server) menuUpgrade(response http.ResponseWriter, request *http.Request) {
 	self.applyUpgrade(response, request)
+}
+
+// keepHolding renews the hold on the playlist until the returned function is
+// called or the context ends.
+func (self *Server) keepHolding(ctx context.Context) func() {
+	browser := self.device.Browser()
+	if browser == nil {
+		return func() {}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				browser.KeepHolding()
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 // readyToUpgrade answers the four questions both callers have to ask, and

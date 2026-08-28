@@ -58,6 +58,11 @@ type State struct {
 // Checker keeps the answer to "is there a newer one", refreshing it in the
 // background and on demand.
 type Checker struct {
+	// API is where releases are asked about. Empty means GitHub, which is
+	// what every device uses; it is here so that this can be pointed at a
+	// stand-in rather than tested against somebody else's real releases.
+	API string
+
 	repository string
 	running    string
 	client     *http.Client
@@ -99,7 +104,7 @@ func (self *Checker) Run(ctx context.Context) {
 // 0.2.0 yesterday and cannot reach GitHub today still knows 0.2.0 exists, and
 // saying so with the date of the answer is more use than saying nothing.
 func (self *Checker) Check(ctx context.Context) (State, error) {
-	release, err := Latest(ctx, self.client, self.repository)
+	release, err := latestFrom(ctx, self.client, self.repository, self.API)
 
 	self.mutex.Lock()
 	defer self.mutex.Unlock()

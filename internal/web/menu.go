@@ -109,8 +109,11 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "there is no browser to hold")
 		return
 	}
+	held := true
 	switch {
 	case strings.HasSuffix(request.URL.Path, "/refresh"):
+		// Not waited for: this is asked for as the menu closes, and the caller
+		// is a page that is navigating away in the same breath.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		go func() {
 			defer cancel()
@@ -118,12 +121,15 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 		}()
 	case strings.HasSuffix(request.URL.Path, "/release"):
 		browser.Release()
+		held = false
 	case strings.HasSuffix(request.URL.Path, "/keep"):
 		browser.KeepHolding()
 	default:
 		browser.Hold()
 	}
-	writeJSON(response, http.StatusOK, map[string]interface{}{"held": true})
+	// Reported rather than assumed: this used to answer "held" to the call
+	// that let the playlist go.
+	writeJSON(response, http.StatusOK, map[string]interface{}{"held": held})
 }
 
 // smallMark is this project's mark, shrunk to something a button wants and

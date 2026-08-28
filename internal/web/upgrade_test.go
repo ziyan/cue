@@ -1,8 +1,11 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -127,5 +130,82 @@ func TestTheScreenIsToldItIsBeingUpgraded(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the page uses %q, which will not work once the daemon stops", forbidden)
 		}
+	}
+}
+
+// Two upgrades at once is not a slow upgrade, it is a dead device.
+//
+// Starting a second helper force-removes the first, and the first may be
+// between stopping the old container and starting the new one -- so what is
+// left is a machine with no cue on it and a dark screen on a wall. Pressing
+// the button twice, or pressing it on the page and then in the on-screen
+// menu, is an ordinary thing for somebody to do.
+func TestOnlyOneUpgradeRunsAtATime(t *testing.T) {
+	server := readyToUpgradeServer(t)
+	session := signedIn(t, server)
+
+	// As if one were already under way. Starting a real one here would need a
+	// Docker daemon and would try to replace this test's own container.
+	server.upgradeRunning.Store(true)
+
+	response := do(server, "POST", "/api/v1/upgrade", nil, session)
+	if response.Code != http.StatusConflict {
+		t.Errorf("a second upgrade answered %d, want %d", response.Code, http.StatusConflict)
+	}
+	if !strings.Contains(response.Body.String(), "already under way") {
+		t.Errorf("it does not say why: %s", response.Body)
+	}
+}
+
+// readyToUpgradeServer is a server that would actually upgrade if asked: it
+// has the setting, something that looks like the Docker socket, and a checker
+// that has heard of a newer release.
+func readyToUpgradeServer(t *testing.T) *Server {
+	t.Helper()
+
+	configuration := config.Default()
+	configuration.Upgrade.AllowApply = true
+	server := newTestServer(t, configuration)
+
+	socket := filepath.Join(t.TempDir(), "docker.sock")
+	if err := os.WriteFile(socket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previous := upgrade.SocketPath
+	upgrade.SocketPath = socket
+	t.Cleanup(func() { upgrade.SocketPath = previous })
+
+	// A stand-in for GitHub, so this says nothing about the real releases.
+	releases := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte(`{"tag_name":"v9.9.9","body":"### Fixed\n\n- Something.",` +
+			`"published_at":"2026-08-28T00:00:00Z"}`))
+	}))
+	t.Cleanup(releases.Close)
+
+	checker := upgrade.NewChecker(upgrade.Repository, "0.1.0")
+	checker.API = releases.URL
+	if _, err := checker.Check(context.Background()); err != nil {
+		t.Fatalf("the stand-in release check failed: %s", err)
+	}
+	return server.WithUpgrades(checker)
+}
+
+// And the guard must be the *last* question, not the first: a device that
+// cannot upgrade at all should be told that, rather than being told something
+// is already running when nothing is.
+func TestTheReasonGivenIsTheRealOne(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	server = server.WithUpgrades(upgrade.NewChecker(upgrade.Repository, "0.1.0"))
+	session := signedIn(t, server)
+	server.upgradeRunning.Store(true)
+
+	// This device has no socket and no allowApply, which is the more useful
+	// thing to say.
+	response := do(server, "POST", "/api/v1/upgrade", nil, session)
+	if response.Code == http.StatusConflict {
+		t.Error("it complained about a running upgrade when the device cannot upgrade at all")
+	}
+	if response.Code != http.StatusForbidden {
+		t.Errorf("answered %d, want %d", response.Code, http.StatusForbidden)
 	}
 }

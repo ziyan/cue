@@ -47,6 +47,13 @@ func NewUpgradeSwapCommand() *cli.Command {
 }
 
 func runSwap(ctx context.Context, command *cli.Command) error {
+	// A bound on the whole thing. The Docker client has no timeout of its own
+	// -- the caller sets the deadline, and this is the caller -- so without
+	// one a single call that never answers would leave this helper running
+	// for ever, holding a container that nothing will clean up.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+
 	docker := upgrade.NewDocker(command.String("socket"))
 	if err := docker.Ping(ctx); err != nil {
 		return err

@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -126,6 +127,10 @@ type Server struct {
 	// What is known about newer releases. Nil on a daemon built without one,
 	// and the Upgrade page says so rather than pretending to be up to date.
 	upgrades *upgrade.Checker
+
+	// Whether an upgrade is already under way. Two at once is not a slow
+	// upgrade but a dead device: see applyUpgrade.
+	upgradeRunning atomic.Bool
 
 	router   *mux.Router
 	listener net.Listener

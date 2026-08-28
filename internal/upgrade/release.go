@@ -46,11 +46,21 @@ type Release struct {
 // the right behaviour rather than a limitation -- a screen on a wall should not
 // be offered a release its author has not finished.
 func Latest(ctx context.Context, client *http.Client, repository string) (Release, error) {
+	return latestFrom(ctx, client, repository, "")
+}
+
+// latestFrom is Latest against a named API, so that a Checker can be pointed
+// at a stand-in and this can be tested without reaching the real internet or
+// depending on somebody else's release.
+func latestFrom(ctx context.Context, client *http.Client, repository, api string) (Release, error) {
 	if client == nil {
 		client = &http.Client{Timeout: howLongToWait}
 	}
+	if api == "" {
+		api = gitHubAPI
+	}
 
-	url := fmt.Sprintf("%s/repos/%s/releases/latest", gitHubAPI, repository)
+	url := fmt.Sprintf("%s/repos/%s/releases/latest", api, repository)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return Release{}, err

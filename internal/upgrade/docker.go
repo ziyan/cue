@@ -43,7 +43,13 @@ func NewDocker(socket string) *Docker {
 					return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 				},
 			},
-			Timeout: 10 * time.Minute, // a pull of a gigabyte and a half
+			// No blanket timeout. Every call here is made with a context and
+			// the caller sets the deadline, which is the only place that
+			// knows what is reasonable: ten minutes is generous for an
+			// inspect and not enough for a gigabyte and a half over the
+			// connection some buildings have. A timeout here would override
+			// the caller's and fail a pull that was still making progress.
+			Timeout: 0,
 		},
 	}
 }

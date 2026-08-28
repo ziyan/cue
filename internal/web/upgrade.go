@@ -24,9 +24,11 @@ type upgradeAnswer struct {
 
 // upgradeState answers what is known about newer releases.
 //
-// A GET does not ask GitHub unless nothing is known yet or what is known is a
-// day old. Opening this page repeatedly must not spend a public API's rate
-// limit, and the answer changes every few weeks at most.
+// A GET does not ask GitHub unless nothing is known yet or what is known is
+// more than an hour old -- the background check runs daily, and opening the
+// page is a reason to be a little fresher than that. Opening it repeatedly
+// must not spend a public API's rate limit, and the answer changes every few
+// weeks at most.
 func (self *Server) upgradeState(response http.ResponseWriter, request *http.Request) {
 	if self.upgrades == nil {
 		writeError(response, http.StatusServiceUnavailable, "this daemon is not checking for releases")
