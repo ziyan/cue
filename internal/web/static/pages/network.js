@@ -51,8 +51,8 @@ export function network(main) {
 
     body.append(h("div", { class: "card" },
       h("h2", { text: "Managing the network" }),
-      h("p", { class: "dim", text: "Off by default. A screen plugged into a wired network gets an address without being asked, and there is nothing here to do. Turn it on to join a wireless network or to set a fixed address." }),
-      checkbox("Let this device configure its own network", configuration.network.manage, (value) => {
+      h("p", { class: "dim", text: "Off, and the machine keeps whatever network setup it already has — which for a screen plugged into a wired network is an address it was given without being asked, and nothing to do here. On, and this daemon sets the interfaces you name below: what a screen on a wireless network needs, and what a screen that has to sit at a fixed address needs." }),
+      checkbox("Set the network from here", configuration.network.manage, (value) => {
         configuration.network.manage = value;
         draw();
       })));
@@ -146,10 +146,10 @@ export function network(main) {
       one.wireless ? wirelessStatus(one) : null,
       (state.errors || {})[one.name] ? h("div", { class: "notice bad", text: state.errors[one.name] }) : null,
 
-      h("details", { open: managed },
-        h("summary", { text: managed ? "Configured here" : "Left as the machine set it up" }),
+      h("div", { class: "subsection" },
+        h("h3", { text: managed ? "Set from here" : "Left as the machine set it up" }),
         h("div", {},
-          checkbox("Configure this interface", managed, (value) => {
+          checkbox("Set this interface from here", managed, (value) => {
             if (value) {
               settingsFor(one.name, true);
             } else {

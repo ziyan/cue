@@ -238,7 +238,7 @@ function settingsPage(wanted) {
       h("h2", { text: "Browser" }),
       h("div", { class: "row" },
         h("div", {},
-          checkbox("Dark", configuration.browser.darkMode, (value) => {
+          checkbox("Ask pages for their dark version", configuration.browser.darkMode, (value) => {
             configuration.browser.darkMode = value;
             draw();
           }),
@@ -249,7 +249,7 @@ function settingsPage(wanted) {
                 h("span", { class: "dim", text: "Some pages have a theme of their own, set in an account somewhere and defaulting to light, and take no notice of what the browser prefers. This inverts their colours anyway. It is not as good as a page's own dark theme, so leave it off unless the screen is still bright." }))
             : null),
         h("div", {},
-          checkbox("Sandbox", configuration.browser.sandbox, (value) => { configuration.browser.sandbox = value; }),
+          checkbox("Keep the browser sandbox on", configuration.browser.sandbox, (value) => { configuration.browser.sandbox = value; }),
           h("span", { class: "dim", text: "Leave on. Off removes the boundary between a page and this machine, and is only for a container that cannot be given the privileges the sandbox needs." }))),
       h("div", { class: "row" },
         h("div", {},
