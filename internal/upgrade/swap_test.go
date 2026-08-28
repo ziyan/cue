@@ -170,3 +170,29 @@ func howLongToProveItselfForTest(t *testing.T, seconds int) func() {
 	howLongToProveItself = time.Duration(seconds) * time.Second
 	return func() { howLongToProveItself = previous }
 }
+
+// The helper is kept when it exits, so that a failed upgrade can be asked why.
+// Something has to clear them away afterwards or a device collects one dead
+// container per upgrade for the rest of its life.
+func TestFinishedHelpersAreSweptAway(t *testing.T) {
+	fake, docker := newFakeDocker(t)
+	fake.add("cue", oldImage, true)
+	finished := fake.add("cue-abc123-upgrade", newImage, false)
+	working := fake.add("cue-def456-upgrade", newImage, true)
+	other := fake.add("somebody-elses-container", "other:latest", false)
+
+	sweepHelpersWith(context.Background(), docker)
+
+	if fake.find(finished.id) != nil {
+		t.Error("the helper that had finished was left behind")
+	}
+	if fake.find(working.id) == nil {
+		t.Error("a helper still working was removed, which is an upgrade interrupted")
+	}
+	if fake.find(other.id) == nil {
+		t.Error("a container belonging to somebody else was removed")
+	}
+	if fake.find("cue") == nil {
+		t.Error("the screen's own container was removed")
+	}
+}

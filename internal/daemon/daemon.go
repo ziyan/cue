@@ -291,6 +291,12 @@ func (self *Daemon) Run(ctx context.Context) error {
 	self.upgrades = upgrade.NewChecker(upgrade.Repository, version.Version())
 	self.web = self.web.WithUpgrades(self.upgrades)
 	go self.upgrades.Run(ctx)
+
+	// Clear away the container that replaced this one, if that is how this
+	// daemon came to be running. The helper is left behind on purpose so that
+	// a failed upgrade can be asked why; after a successful one, the daemon it
+	// installed is the thing that tidies up.
+	go upgrade.SweepHelpers(ctx, upgrade.SocketPath)
 	// The setup page has to be reachable on port 80 of the setup network,
 	// because that is the only place a phone looks.
 	self.onboarding.ServePortalWith(self.web.ServeSetupPort)

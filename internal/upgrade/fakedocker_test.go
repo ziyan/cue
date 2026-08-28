@@ -131,6 +131,23 @@ func (self *fakeDocker) ServeHTTP(response http.ResponseWriter, request *http.Re
 		self.record("pull " + request.URL.Query().Get("fromImage") + ":" + request.URL.Query().Get("tag"))
 		_, _ = response.Write([]byte(`{"status":"Downloaded"}`))
 
+	// Before the /json case below, which would otherwise take "json" for the
+	// name of a container.
+	case path == "/containers/json":
+		listing := make([]map[string]interface{}, 0, len(self.containers))
+		for _, container := range self.containers {
+			state := "exited"
+			if container.running {
+				state = "running"
+			}
+			listing = append(listing, map[string]interface{}{
+				"Id":    container.id,
+				"Names": []string{"/" + container.name},
+				"State": state,
+			})
+		}
+		_ = json.NewEncoder(response).Encode(listing)
+
 	case strings.HasPrefix(path, "/containers/create"):
 		if self.failCreate {
 			response.WriteHeader(http.StatusInternalServerError)

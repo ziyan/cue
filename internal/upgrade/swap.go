@@ -3,6 +3,7 @@ package upgrade
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -292,4 +293,46 @@ func watchHelper(ctx context.Context, docker *Docker, helper string) error {
 		return fmt.Errorf("the upgrade did not happen: %s", reason)
 	}
 	return nil
+}
+
+// SweepHelpers removes the helper containers of upgrades that have finished.
+//
+// The helper is deliberately not removed when it exits: one that fails takes
+// its reason with it, and the first one to fail did exactly that. So the
+// daemon that comes up afterwards clears them away instead -- which on a
+// successful upgrade is the new daemon, tidying up after the container it
+// replaced. Without this a device collects one dead container per upgrade for
+// the rest of its life.
+func SweepHelpers(ctx context.Context, socket string) {
+	docker := NewDocker(socket)
+	if err := docker.Ping(ctx); err != nil {
+		return
+	}
+	sweepHelpersWith(ctx, docker)
+}
+
+func sweepHelpersWith(ctx context.Context, docker *Docker) {
+	containers, err := docker.Containers(ctx)
+	if err != nil {
+		log.Debugf("cannot look for finished upgrade helpers: %s", err)
+		return
+	}
+
+	for _, container := range containers {
+		if container.State == "running" {
+			// One still working is one replacing something right now.
+			continue
+		}
+		for _, name := range container.Names {
+			if !strings.HasSuffix(strings.TrimPrefix(name, "/"), helperSuffix) {
+				continue
+			}
+			if err := docker.Remove(ctx, container.ID, true); err != nil {
+				log.Debugf("cannot remove a finished upgrade helper: %s", err)
+			} else {
+				log.Noticef("removed the container left behind by an upgrade")
+			}
+			break
+		}
+	}
 }

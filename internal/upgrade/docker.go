@@ -312,6 +312,28 @@ func OwnContainerID() (string, error) {
 	return "", fmt.Errorf("cannot tell which container this is; is this running in Docker?")
 }
 
+// Containers lists what exists, running or not.
+func (self *Docker) Containers(ctx context.Context) ([]ContainerSummary, error) {
+	response, err := self.do(ctx, http.MethodGet, "/containers/json?all=true", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	var summaries []ContainerSummary
+	if err := json.NewDecoder(response.Body).Decode(&summaries); err != nil {
+		return nil, fmt.Errorf("cannot read the list of containers: %w", err)
+	}
+	return summaries, nil
+}
+
+// ContainerSummary is one line of that list.
+type ContainerSummary struct {
+	ID    string   `json:"Id"`
+	Names []string `json:"Names"`
+	State string   `json:"State"`
+}
+
 // LastWords is the tail of a container's output, for saying why it failed.
 //
 // A helper that exits immediately takes its reason with it unless somebody
