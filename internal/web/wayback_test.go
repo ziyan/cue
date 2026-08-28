@@ -62,8 +62,19 @@ func TestTheMarkItselfCanDoNothing(t *testing.T) {
 	if !strings.Contains(script, "/menu") {
 		t.Error("the mark does not open the menu")
 	}
-	if !strings.Contains(script, "window.open") {
-		t.Error("the menu is not opened as a tab of its own")
+	if !strings.Contains(script, "location.href = MENU") {
+		t.Error("the mark does not send this tab to the menu")
+	}
+	// Not a tab of its own either, which was the second attempt.
+	//
+	// The daemon knows the tabs it opened and nothing about one a page opens
+	// for itself. It swept that tab up as a stray window; and when the tab
+	// closed itself, the browser stopped answering the daemon at all --
+	// Runtime.evaluate timing out, the watchdog escalating, and a display
+	// frozen on a wall. Navigating a tab the daemon already owns creates and
+	// destroys nothing, so its idea of its own tabs never stops being true.
+	if strings.Contains(script, "window.open") {
+		t.Error("the menu opens a tab the daemon does not own again, which wedged the browser")
 	}
 
 	// Not a frame, and this is the interesting half.
@@ -76,7 +87,7 @@ func TestTheMarkItselfCanDoNothing(t *testing.T) {
 	// could be moved out from under somebody reading it.
 	if strings.Contains(script, "iframe") {
 		t.Error("the menu is opened in a frame again, which asks the viewer of a wall display " +
-			"for permission to reach the local network and puts the menu inside a rotating tab")
+			"for permission to reach the local network")
 	}
 }
 
@@ -144,6 +155,10 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			// Said every twenty seconds while the menu is open, so that a menu
 			// that dies without closing cannot leave the screen still for ever.
 			call == "/api/v1/playlist/keep",
+			// Reloading the pages on the way out: somebody who has just
+			// changed the network or the screen leaves dashboards behind that
+			// loaded before any of it.
+			call == "/api/v1/playlist/refresh",
 			call == "/api/v1/wireless/reset":
 		default:
 			t.Errorf("the menu calls %q, which is neither an action nor the network", call)

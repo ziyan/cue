@@ -278,6 +278,33 @@ func (self *Browser) Release() {
 // more than this long by accident.
 const longestHold = 90 * time.Second
 
+// RefreshAll reloads every page the playlist is showing.
+//
+// Somebody who has just been in the on-screen menu may have changed the
+// network, the screen or the language, and a dashboard that loaded before any
+// of that is showing an answer from the old world -- at its worst, a page that
+// failed to load when the device had no network and has been an error message
+// on a wall ever since.
+func (self *Browser) RefreshAll(ctx context.Context) {
+	self.mutex.Lock()
+	targets := make([]string, 0, len(self.tabs))
+	for _, target := range self.tabs {
+		targets = append(targets, target)
+	}
+	self.mutex.Unlock()
+
+	for _, target := range targets {
+		tab, err := self.session(ctx, target)
+		if err != nil {
+			log.Debugf("cannot reach a tab to reload it: %s", err)
+			continue
+		}
+		if err := tab.Reload(ctx, false); err != nil {
+			log.Debugf("cannot reload a tab: %s", err)
+		}
+	}
+}
+
 // held reports whether the playlist is being kept still.
 //
 // A hold that has not been renewed within longestHold is dropped, whatever the

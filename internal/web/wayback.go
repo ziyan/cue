@@ -130,26 +130,28 @@ const wayBackScriptTemplate = `
     if (idle) clearTimeout(idle);
     hide();
 
-    // A tab of its own, not a frame in this page. Two things were wrong with
-    // the frame, and both were only visible on a real screen.
+    // This tab goes to the menu. Not a frame over the page, and not a tab of
+    // its own: both were tried on a real screen and both were wrong.
     //
-    // A frame made the menu a subresource of whatever page the screen happens
-    // to be showing, fetched from an address on the local network. Chrome asks
-    // the viewer to approve that -- so a display on a wall put up "do you want
-    // to allow https://example.com to access local network", which is a
-    // question with nobody there to answer it, in front of a menu that then
-    // never appeared.
+    // A frame made the menu a subresource of whatever page was showing,
+    // fetched from an address on the local network -- so Chrome asked the
+    // viewer to approve it, on a wall, where there is nobody to ask.
     //
-    // And it lived inside a tab the playlist rotates. Holding the playlist
-    // stops the rotation, but the hold is asked for by the menu once it has
-    // loaded, and the tab could change under it before then -- leaving the
-    // menu drawn over a page that had moved on, on a tab nobody was looking
-    // at.
+    // A tab of its own solved that and broke something worse. The daemon knows
+    // the tabs it opened and nothing about one a page opens for itself: it
+    // swept it up as a stray window, and when the tab closed itself the
+    // browser stopped answering the daemon at all -- Runtime.evaluate timing
+    // out, the watchdog escalating, and a frozen display on the wall.
     //
-    // A top-level tab is neither. Opening one is a navigation rather than a
-    // subresource request, so no permission is involved, and everything inside
-    // it is same-origin with the daemon that served it.
-    window.open(MENU, "_blank");
+    // Navigating this tab is neither. It is a top-level navigation, so no
+    // permission is involved and the menu is same-origin with the daemon that
+    // serves it. And no tab is created or destroyed, so the daemon's idea of
+    // its own tabs never stops being true -- which is the property that was
+    // actually load-bearing.
+    // Where to come back to, so that closing the menu does not depend on the
+    // browser's history having survived. The menu checks it is an ordinary web
+    // address before going anywhere near it.
+    location.href = MENU + "?from=" + encodeURIComponent(location.href);
   }
 
   ["mousemove", "mousedown", "touchstart", "keydown"].forEach(function (name) {

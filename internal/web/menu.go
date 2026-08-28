@@ -110,6 +110,12 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 		return
 	}
 	switch {
+	case strings.HasSuffix(request.URL.Path, "/refresh"):
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		go func() {
+			defer cancel()
+			browser.RefreshAll(ctx)
+		}()
 	case strings.HasSuffix(request.URL.Path, "/release"):
 		browser.Release()
 	case strings.HasSuffix(request.URL.Path, "/keep"):
@@ -733,9 +739,26 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     // accepting it for another quarter of an hour, which is the backstop for
     // a menu nobody closes -- not the ordinary way out.
     send("/api/v1/screen/close", { method: "POST", keepalive: true }).catch(() => {});
-    // This is a tab of its own now, opened by the mark on the page behind it,
-    // so it can close itself and the screen goes back to what it was showing.
-    window.close();
+    // Back to whatever this tab was showing before. The daemon is told to
+    // freshen the playlist first: somebody who has just been in here may have
+    // changed the network or the screen, and a page that loaded before those
+    // changed is showing an answer from the old world.
+    send("/api/v1/playlist/refresh", { method: "POST", keepalive: true }).catch(() => {});
+
+    // Back to the page this tab was showing. The address came in on the query
+    // string from the page itself, so it is checked before it is used: an
+    // http or https address and nothing else. Without that check a page could
+    // send the menu to a javascript: address, and the menu is served by the
+    // daemon -- which would be a page on the screen running its own code with
+    // the daemon's origin.
+    const from = new URLSearchParams(location.search).get("from") || "";
+    if (/^https?:\/\//i.test(from)) {
+      location.replace(from);
+    } else if (history.length > 1) {
+      history.back();
+    } else {
+      location.replace("/");
+    }
   }
 
   function openNetwork() {
