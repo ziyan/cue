@@ -117,7 +117,7 @@ func TestAnAuthorisedAttemptStoresTheCredential(t *testing.T) {
 		}
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(exchangeResponse{
-			Secret:   "a-signed-secret",
+			Secret:   "an-example-secret",
 			Account:  "somebody@example.com",
 			DeviceID: "device-1",
 		})
@@ -149,7 +149,7 @@ func TestAnAuthorisedAttemptStoresTheCredential(t *testing.T) {
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
 
 	configuration := store.Current()
-	if secret := configuration.Service.Secret.Reveal(); secret != "a-signed-secret" {
+	if secret := configuration.Service.Secret.Reveal(); secret != "an-example-secret" {
 		t.Errorf("the stored credential is %q", secret)
 	}
 	if configuration.Service.Account != "somebody@example.com" {
@@ -182,7 +182,7 @@ func TestANetworkFailureDoesNotEndTheAttempt(t *testing.T) {
 		}
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(exchangeResponse{
-			Secret: "arrived-late", Account: "somebody@example.com",
+			Secret: "an-example-secret-that-arrived-late", Account: "somebody@example.com",
 		})
 	}))
 	defer service.Close()
@@ -203,7 +203,7 @@ func TestANetworkFailureDoesNotEndTheAttempt(t *testing.T) {
 
 	reachable.Store(true)
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
-	if secret := store.Current().Service.Secret.Reveal(); secret != "arrived-late" {
+	if secret := store.Current().Service.Secret.Reveal(); secret != "an-example-secret-that-arrived-late" {
 		t.Errorf("the stored credential is %q", secret)
 	}
 }
@@ -292,7 +292,7 @@ func TestUnlinkingForgetsOnlyTheCredential(t *testing.T) {
 	store := newStore(t, "https://example.com")
 	if err := store.Update(func(configuration *config.Configuration) error {
 		configuration.Device.Name = "the lobby screen"
-		configuration.Service.Secret = "a-signed-secret"
+		configuration.Service.Secret = "an-example-secret"
 		configuration.Service.Account = "somebody@example.com"
 		return nil
 	}); err != nil {
