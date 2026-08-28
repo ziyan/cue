@@ -55,6 +55,24 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Changed
 
+- The on-screen menu and the setup portal ask for a password to be set on a
+  device that has none, before they will do anything else. A device with no
+  password used to let whoever was standing at it change the network, the
+  resolution and the wireless credentials, on the reasoning that there was
+  nobody to ask. That is right for a device still in its box and wrong for one
+  that has been hung on a wall and never finished setting up — which is the
+  state a device stays in for as long as nobody visits its web interface.
+
+  Refusing them would leave somebody with a screen they cannot configure and
+  no way to fix it but the interface they could not reach in the first place,
+  which is what the on-screen menu exists to rescue. So they are asked to
+  choose one, twice, and the device ends up in the state it should have been
+  in already.
+
+- The way out of the menu is an X in its top corner rather than a button at
+  the foot of the panel. The panel scrolls when the network form is open, so
+  the old one sat below the fold exactly when somebody most wanted it.
+
 - The Network page no longer lists the interfaces with no hardware behind
   them. Bridges, container interfaces and tunnels were shown in a collapsed
   list on the grounds that they might explain a routing problem; on a machine
@@ -62,6 +80,32 @@ All notable changes to this project are recorded here, in the categories of
   and none of them is something anybody can plug a cable into.
 
 ### Fixed
+
+- Unlocking the on-screen menu no longer signs the screen's own browser in.
+  Typing the password into the menu posted it to the ordinary sign-in
+  endpoint, which sets a session cookie valid for twelve hours by default. The
+  menu closed and the cookie did not, so the second person to walk up to that
+  screen was already inside — on a screen in a lobby or a shop window, that is
+  every passer-by for the rest of the day.
+
+  Authority at the screen is now a pass: minted when the daemon serves the
+  menu, held only in that page, and destroyed when the menu closes. Nothing is
+  written to the browser at all. The setup portal works the same way, so a
+  phone that joined a setup network to fix a screen does not walk away signed
+  in to it.
+
+- Cutting a release no longer fails its own tests. One test asserted that the
+  changelog's Unreleased section was not empty — and cutting a release is
+  precisely what empties it, by moving everything into a section named for the
+  version. Since the release commit is written by the release itself, every
+  release was guaranteed a red tick for a reason that had nothing to do with
+  the release.
+
+- A watchdog test no longer fails on a busy machine. It slept for a fixed
+  sixty milliseconds and then asserted that a watchdog running on a ten
+  millisecond interval had got round to something; on a shared runner it
+  sometimes had not. It waits for the thing to happen instead, which is also
+  faster when it happens quickly.
 
 - The image is built for arm64 again. Every leg of a multi-architecture build
   read its architecture as `amd64`, so the arm64 build asked for the two X

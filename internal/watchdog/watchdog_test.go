@@ -45,6 +45,34 @@ func (self *recorder) remedy(name string) func(context.Context) error {
 	}
 }
 
+// count reads one remedy's tally under the lock. The test used to read the map
+// directly while the watchdog's own goroutine was writing to it.
+func (self *recorder) count(name string) int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.counts[name]
+}
+
+// waitFor polls until something is true, and fails the test if it never is.
+//
+// This exists because the timing tests slept for a fixed sixty milliseconds
+// and then asserted that a watchdog running on a ten millisecond interval had
+// got round to something. On this machine it always had. On a shared CI runner
+// it sometimes had not, and the test failed on work that was merely late.
+// Waiting for the condition is both faster in the ordinary case and immune to
+// a slow machine.
+func waitFor(t *testing.T, what string, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
 func (self *recorder) applied() []string {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
@@ -178,20 +206,19 @@ func TestAnEpisodeEndsWhenTheDisplayAnswersAgain(t *testing.T) {
 
 	setBroken(true)
 	watchdog.Start(ctx)
-	time.Sleep(60 * time.Millisecond)
-	first := applied.counts["reload"]
+	waitFor(t, "the first remedy", func() bool { return applied.count("reload") > 0 })
+	first := applied.count("reload")
 
 	setBroken(false)
-	time.Sleep(60 * time.Millisecond)
-	if failures := watchdog.State().ConsecutiveFailures; failures != 0 {
-		t.Fatalf("the display is answering but %d failures are still counted", failures)
-	}
+	waitFor(t, "the failure count to clear once the display answers",
+		func() bool { return watchdog.State().ConsecutiveFailures == 0 })
 
 	setBroken(true)
-	time.Sleep(60 * time.Millisecond)
+	waitFor(t, "a remedy after recovering and breaking again",
+		func() bool { return applied.count("reload") > first })
 	cancel()
 
-	if applied.counts["reload"] <= first {
+	if applied.count("reload") <= first {
 		t.Error("after recovering and breaking again, the cheapest remedy was not available")
 	}
 }

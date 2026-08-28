@@ -114,12 +114,27 @@ func TestTheSeveralWaysPeopleWriteAHeadingAreAccepted(t *testing.T) {
 
 // The project's own changelog has to work with this, since a release depends
 // on it.
-func TestThisProjectsChangelogYieldsItsUnreleasedSection(t *testing.T) {
-	section, err := extract(filepath.Join("..", "..", "CHANGELOG.md"), "Unreleased")
+// The heading must be there. Its contents must not be checked for being
+// non-empty, and that is the point of this comment.
+//
+// Cutting a release moves everything out of Unreleased into a section named
+// for the version, which leaves Unreleased empty until the next change lands.
+// An empty Unreleased is therefore the correct state of this file on exactly
+// one commit: the release commit. This test used to call extract(), which
+// refuses an empty section because releasing nothing is a mistake -- so it
+// failed on every release commit, on a repository where the release commit is
+// written by the release itself. Both of the first two releases went out with
+// a red tick beside them for that reason and no other.
+//
+// What extract() does with a section that has contents is checked on written
+// examples above, where an empty Unreleased cannot come along and break it.
+func TestThisProjectsChangelogHasSomewhereForTheNextChangeToGo(t *testing.T) {
+	path := filepath.Join("..", "..", "CHANGELOG.md")
+	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("this project's own changelog: %s", err)
 	}
-	if len(strings.TrimSpace(section)) == 0 {
-		t.Error("the Unreleased section is empty")
+	if !strings.Contains(string(content), "## [Unreleased]") {
+		t.Error("there is no Unreleased heading; the next change has nowhere to go")
 	}
 }

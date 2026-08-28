@@ -202,21 +202,24 @@ func (self *Server) fromOurOwnPage(request *http.Request) bool {
 // once somebody has set a password on it, that password is what says who may
 // change it -- not proximity to the mouse.
 //
-// So: a device with no password lets the screen act, because there is nobody
-// to ask. A device with a password asks for it, from the screen exactly as
-// from anywhere else.
+// There is now no third case. A device with no password is not let through on
+// the grounds that there is nobody to ask; the menu and the portal ask for a
+// password to be set before they offer anything, so by the time anything
+// reaches here there is always somebody to ask.
+//
+// What proves it is a pass rather than the Origin header. Origin can say that
+// a request came from a page this daemon served, which is worth knowing, but
+// not that the person in front of the screen typed the password -- and a
+// session cookie says only that somebody typed it once, hours ago, possibly
+// somebody who has since walked away from a menu left open. A pass says both,
+// and stops saying it the moment the menu closes.
 func (self *Server) screenAction(next http.HandlerFunc) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !fromThisMachine(request) || !self.fromOurOwnPage(request) {
-			// Not the screen at all. The ordinary rules apply.
-			self.requireSession(next).ServeHTTP(response, request)
+		if self.hasElevatedPass(request) {
+			next(response, request)
 			return
 		}
-		if self.isSetUp() && !self.hasSession(request) {
-			writeError(response, http.StatusUnauthorized, "sign in first")
-			return
-		}
-		next(response, request)
+		self.requireSession(next).ServeHTTP(response, request)
 	}
 }
 
@@ -228,6 +231,14 @@ func (self *Server) screenAction(next http.HandlerFunc) http.HandlerFunc {
 // Anything that changes the device goes through screenAction instead.
 func (self *Server) localOrSession(next http.HandlerFunc) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
+		// A page holding a pass is one this daemon served to this screen and
+		// has not yet been told is closed, which is a better answer than the
+		// Origin header can give. The Origin check stays for the player pages,
+		// which hold no pass and change nothing.
+		if self.hasLivePass(request) {
+			next(response, request)
+			return
+		}
 		if fromThisMachine(request) && (request.Method == http.MethodGet ||
 			request.Method == http.MethodHead || self.fromOurOwnPage(request)) {
 			next(response, request)

@@ -56,6 +56,16 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 
 	_, setUp := self.device.SetupNetwork()
 
+	// The authority this page will carry for as long as it is open. It is
+	// minted here, before the page exists, so that there is no moment where a
+	// menu is on the screen with no way to prove who is in front of it.
+	pass, err := self.passes.mint()
+	if err != nil {
+		log.Errorf("cannot mint a pass for the menu: %s", err)
+		writeError(response, http.StatusInternalServerError, "cannot open the menu")
+		return
+	}
+
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
 	if err := menuTemplate.Execute(response, map[string]interface{}{
@@ -68,6 +78,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		"Machine":    runtime.GOARCH,
 		"SettingUp":  setUp,
 		"NeedsWord":  self.isSetUp(),
+		"Pass":       pass,
 		"Language":   configuration.Device.Language,
 		"Mark":       template.URL("data:image/png;base64," + smallMark()),
 	}); err != nil {
@@ -224,6 +235,16 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     border-radius: var(--step); }
   input:focus, select:focus { outline: none; border-color: var(--accent); }
 
+  /* The way out is an X in the corner of the panel, where a window's close
+     control lives. It was a full-width button at the foot of the panel, which
+     is the one place it cannot be relied on: the panel scrolls when the
+     network form is open, so on a short screen the way out sat below the fold
+     exactly when somebody most wanted it. */
+  #dismiss { padding: calc(var(--step) * 0.7); color: #9fb0c5; background: #131920;
+    display: grid; place-items: center; flex: none; }
+  #dismiss:hover { color: #ffc9d1; border-color: #ffc9d1; }
+  #dismiss svg { width: 2.6vmin; height: 2.6vmin; display: block; }
+
   #working { color: #9fb0c5; margin: 0; }
 </style>
 </head>
@@ -245,6 +266,12 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
            edit rather than one edit and a forgotten second one. -->
       <ul id="languages" role="listbox" hidden></ul>
     </div>
+    <button id="dismiss" data-t-label="close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18"></path>
+      </svg>
+    </button>
   </header>
 
   <p class="facts">
@@ -254,9 +281,13 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   </p>
 
   <div id="gate" hidden>
-    <p class="facts" data-t="locked-explain"></p>
-    <label for="word" data-t="word-label"></label>
+    <p class="facts" id="gate-why" data-t="locked-explain"></p>
+    <label for="word" id="word-label" data-t="word-label"></label>
     <input id="word" type="password" autocomplete="current-password" autocapitalize="none">
+    <div id="again" hidden>
+      <label for="word-again" data-t="word-again-label"></label>
+      <input id="word-again" type="password" autocomplete="new-password" autocapitalize="none">
+    </div>
     <p class="facts" id="wrong" hidden style="color:#ffc9d1" data-t="word-wrong"></p>
     <div class="actions"><button id="unlock"><span class="what" data-t="continue"></span></button></div>
   </div>
@@ -345,9 +376,20 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   </div>
 
   <p id="working" hidden></p>
-  <div class="actions"><button id="dismiss" class="quiet"><span class="what" data-t="close"></span></button></div>
 </div>
 <script>
+  // The authority this page carries, minted when the daemon served it and
+  // forgotten when the page says it is closing. Every request below sends it.
+  // Nothing else identifies this page: there is no cookie, on purpose, because
+  // a cookie in the browser bolted to the wall outlives the person who typed
+  // the password into it.
+  const pass = "{{ .Pass }}";
+  const send = (path, options) => {
+    const settings = Object.assign({}, options || {});
+    settings.headers = Object.assign({ "X-Cue-Pass": pass }, settings.headers || {});
+    return fetch(path, settings);
+  };
+
   // The three languages this menu speaks.
   //
   // They are here rather than fetched because this page has to work on a
@@ -359,7 +401,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
       "next": "Show the next item", "next-why": "Move the screen on now",
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
@@ -392,7 +434,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
       "next": "显示下一项", "next-why": "立即切换到下一个内容",
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
@@ -425,7 +467,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
       "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
@@ -485,7 +527,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       language = chosen;
       try { localStorage.setItem("cue.language", chosen); } catch (error) {}
       // And on the device, so it outlives this browser profile.
-      fetch("/api/v1/menu/language", {
+      send("/api/v1/menu/language", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ language: chosen }),
@@ -496,6 +538,11 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     document.documentElement.lang = language;
     document.querySelectorAll("[data-t]").forEach((node) => {
       node.textContent = say(node.dataset.t);
+    });
+    // An icon button has no text to replace, so its label is an attribute.
+    document.querySelectorAll("[data-t-label]").forEach((node) => {
+      node.setAttribute("aria-label", say(node.dataset.tLabel));
+      node.setAttribute("title", say(node.dataset.tLabel));
     });
     document.querySelectorAll("#languages button").forEach((button) => {
       const chosen = button.dataset.language === language;
@@ -567,47 +614,90 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   const panelWired = document.getElementById("wired");
   let chosenNetwork = null, chosenSecured = false, scanned = false;
 
-  fetch("/api/v1/playlist/hold", { method: "POST" }).catch(() => {});
+  send("/api/v1/playlist/hold", { method: "POST" }).catch(() => {});
 
   // A device that has been set up asks for its password before it will do
   // anything. Being in the room was enough when there was nobody to ask; it is
   // not once somebody has said this screen is theirs.
+  // The gate has two faces and is never absent. A device with a password asks
+  // for it. A device without one asks for a new one, because a screen that has
+  // been hung on a wall with no password is not a device nobody owns -- it is
+  // a device somebody never finished setting up, and letting the next passer-by
+  // change its network on that basis is the hole this closes.
   const gate = document.getElementById("gate");
-  const locked = {{ if .NeedsWord }}true{{ else }}false{{ end }};
-  if (locked) {
+  const hasWord = {{ if .NeedsWord }}true{{ else }}false{{ end }};
+  {
     gate.hidden = false;
     actions.hidden = true;
 
     const word = document.getElementById("word");
+    const again = document.getElementById("again");
+    const wordAgain = document.getElementById("word-again");
     const wrong = document.getElementById("wrong");
+    const why = document.getElementById("gate-why");
+
+    // Which face this is. The dictionary keys are set before the first
+    // translation pass runs, so the right words appear without a second one.
+    why.dataset.t = hasWord ? "locked-explain" : "choose-explain";
+    if (!hasWord) {
+      again.hidden = false;
+      word.autocomplete = "new-password";
+    }
+
+    const complain = (key) => {
+      wrong.dataset.t = key;
+      wrong.textContent = say(key);
+      wrong.hidden = false;
+    };
 
     const tryWord = () => {
       wrong.hidden = true;
-      fetch("/api/v1/session", {
+
+      // Said here as well as by the daemon, because a person who has mistyped
+      // the same password twice should hear about it before a round trip and
+      // without the first attempt being stored anywhere.
+      if (!hasWord) {
+        if (word.value.length < 8) { complain("word-short"); return; }
+        if (word.value !== wordAgain.value) {
+          complain("word-mismatch");
+          wordAgain.value = "";
+          wordAgain.focus();
+          return;
+        }
+      }
+
+      send(hasWord ? "/api/v1/screen/unlock" : "/api/v1/screen/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: word.value }),
       }).then((answer) => {
         if (!answer.ok) {
-          wrong.hidden = false;
+          complain(hasWord ? "word-wrong" : "word-refused");
           word.value = "";
+          wordAgain.value = "";
           word.focus();
           return;
         }
         gate.hidden = true;
         actions.hidden = false;
-      }).catch(() => { wrong.hidden = false; });
+      }).catch(() => { complain(hasWord ? "word-wrong" : "word-refused"); });
     };
 
     document.getElementById("unlock").addEventListener("click", tryWord);
-    word.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") tryWord();
+    [word, wordAgain].forEach((box) => {
+      box.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") tryWord();
+      });
     });
     setTimeout(() => word.focus(), 50);
   }
 
   function close() {
-    fetch("/api/v1/playlist/release", { method: "POST" }).catch(() => {});
+    send("/api/v1/playlist/release", { method: "POST" }).catch(() => {});
+    // The pass dies with the menu. Until this call the daemon would go on
+    // accepting it for another quarter of an hour, which is the backstop for
+    // a menu nobody closes -- not the ordinary way out.
+    send("/api/v1/screen/close", { method: "POST", keepalive: true }).catch(() => {});
     parent.postMessage("cue:close-menu", "*");
   }
 
@@ -647,7 +737,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     scanned = false;
     showScanning();
     const list = document.getElementById("networks");
-    fetch("/api/v1/menu/network/scan", { method: "POST" })
+    send("/api/v1/menu/network/scan", { method: "POST" })
       .then((answer) => answer.json())
       .then((found) => {
         scanned = true;
@@ -713,7 +803,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   document.getElementById("join").addEventListener("click", () => {
     if (!chosenNetwork) return;
     working_(say("doing-join", chosenNetwork));
-    fetch("/api/v1/menu/network/wireless", {
+    send("/api/v1/menu/network/wireless", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -724,7 +814,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   });
 
   function loadInterfaces() {
-    fetch("/api/v1/menu/network")
+    send("/api/v1/menu/network")
       .then((answer) => answer.json())
       .then((state) => {
         const chooser = document.getElementById("wired-interface");
@@ -750,7 +840,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     if (!name) return;
     const dns = document.getElementById("wired-dns").value.trim();
     working_(say("doing-wired", name));
-    fetch("/api/v1/menu/network/wired", {
+    send("/api/v1/menu/network/wired", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -778,7 +868,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   function openScreen() {
     actions.hidden = true;
     screen.hidden = false;
-    fetch("/api/v1/menu/display")
+    send("/api/v1/menu/display")
       .then((answer) => answer.json())
       .then((state) => {
         screens = state.outputs || [];
@@ -827,7 +917,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     const name = document.getElementById("screen-output").value;
     if (!name) return;
     working_(say("doing-screen"));
-    fetch("/api/v1/menu/display", {
+    send("/api/v1/menu/display", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -871,7 +961,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
   function run(what) {
     working_(say(what.said));
-    fetch(what.call, { method: "POST" })
+    send(what.call, { method: "POST" })
       .catch(() => {})
       .finally(() => setTimeout(close, 1200));
   }

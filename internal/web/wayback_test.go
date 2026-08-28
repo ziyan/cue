@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -112,8 +113,12 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			// Which language the screen speaks: a preference of the person
 			// standing there, and the only other thing they may write.
 			call == "/api/v1/menu/language",
-			// Proving who they are, on a device that has an owner.
-			call == "/api/v1/session",
+			// Proving who they are, and giving that proof up again. Not
+			// /api/v1/session: signing in sets a cookie, and a cookie in the
+			// browser bolted to the wall outlives the person who typed it.
+			call == "/api/v1/screen/unlock",
+			call == "/api/v1/screen/password",
+			call == "/api/v1/screen/close",
 			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
@@ -510,21 +515,76 @@ func screenRequest(t *testing.T, server *Server, method, path, body string, sess
 	return response.Code
 }
 
-// A device out of its box has nobody to ask, so being in the room is enough.
-// The passphrase for its setup network is on its screen anyway: being able to
-// set it up is already the same as being able to see it.
-func TestABrandNewDeviceLetsWhoeverIsThereSetItUp(t *testing.T) {
+// Being in the room used to be enough on a device with no password, on the
+// reasoning that there was nobody to ask. Now there always is: the menu asks
+// for a password to be set before it offers anything, so nothing reaches an
+// action without one.
+//
+// The old test for this checked only that the answer was not 401. It is 403 on
+// a device with no password, so it went on passing after the behaviour had
+// changed completely. This one checks that the action does not happen.
+func TestABrandNewDeviceDoesNothingUntilAPasswordIsChosen(t *testing.T) {
 	server := newTestServer(t, config.Default())
+	_, pass := openMenu(t, server)
 
 	for _, path := range []string{
 		"/api/v1/wireless/reset",
 		"/api/v1/menu/network/scan",
 		"/api/v1/menu/restart/browser",
 	} {
-		if code := screenRequest(t, server, http.MethodPost, path, "{}", nil); code == http.StatusUnauthorized {
-			t.Errorf("%s asked a brand new device for a password it does not have", path)
+		code := passRequest(t, server, http.MethodPost, path, nil, pass)
+		if code == http.StatusOK {
+			t.Errorf("%s acted on a device that has no password yet", path)
 		}
 	}
+
+	// Choosing one through the same pass is what opens them.
+	code := passRequest(t, server, http.MethodPost, "/api/v1/screen/password",
+		map[string]string{"password": "a good long test password"}, pass)
+	if code != http.StatusOK {
+		t.Fatalf("choosing the first password answered %d", code)
+	}
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/menu/restart/browser", nil, pass); code != http.StatusOK {
+		t.Errorf("after choosing a password the screen still cannot act: %d", code)
+	}
+	if !server.isSetUp() {
+		t.Error("the password was not kept")
+	}
+}
+
+// openMenu serves the menu the way the screen's own browser does, and returns
+// the page and the pass it was given.
+func openMenu(t *testing.T, server *Server) (string, string) {
+	t.Helper()
+	body := menuPage(t, server)
+	match := regexp.MustCompile(`const pass = "([^"]+)"`).FindStringSubmatch(body)
+	if match == nil {
+		t.Fatal("the menu was served without a pass")
+	}
+	return body, match[1]
+}
+
+// passRequest is a call the menu itself would make: no cookie, no Origin, just
+// the pass it was handed.
+func passRequest(t *testing.T, server *Server, method, path string, body interface{}, pass string) int {
+	t.Helper()
+	encoded := ""
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded = string(raw)
+	}
+	request := httptest.NewRequest(method, path, strings.NewReader(encoded))
+	request.RemoteAddr = "127.0.0.1:54321"
+	request.Header.Set("Content-Type", "application/json")
+	if pass != "" {
+		request.Header.Set(passHeader, pass)
+	}
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	return response.Code
 }
 
 // Once somebody has set a password, that password says who may change the
@@ -577,20 +637,36 @@ func TestWhatTheScreenDoesByItselfIsNotGated(t *testing.T) {
 // The menu says so on the page, rather than only refusing when a button is
 // pressed.
 func TestTheMenuAsksForThePasswordUpFront(t *testing.T) {
-	fresh := newTestServer(t, config.Default())
-	if body := menuPage(t, fresh); strings.Contains(body, "const locked = true") {
-		t.Error("a brand new device asks for a password it does not have")
-	}
-
 	owned := newTestServer(t, config.Default())
 	signedIn(t, owned)
 	body := menuPage(t, owned)
-	if !strings.Contains(body, "const locked = true") {
+	if !strings.Contains(body, "const hasWord = true") {
 		t.Error("a device with an owner does not ask at the screen")
 	}
 	for _, words := range []string{"password to change it", "密码", "パスワード"} {
 		if !strings.Contains(body, words) {
 			t.Errorf("the menu does not say %q in every language", words)
 		}
+	}
+}
+
+// A device with no password is not a device nobody owns. It is one somebody
+// never finished setting up -- which is the state a device stays in for as
+// long as nobody visits its web interface, and some never do. Letting the next
+// passer-by change its network on that basis was the hole; asking them to
+// choose a password closes it in one step.
+func TestADeviceWithNoPasswordIsAskedToChooseOne(t *testing.T) {
+	fresh := newTestServer(t, config.Default())
+	body := menuPage(t, fresh)
+
+	if !strings.Contains(body, "const hasWord = false") {
+		t.Error("a brand new device asks for a password it does not have")
+	}
+	if !strings.Contains(body, `"choose-explain"`) {
+		t.Error("the menu does not offer to set a password")
+	}
+	// Twice, so that a mistyped one is not the password from then on.
+	if !strings.Contains(body, `id="word-again"`) {
+		t.Error("the new password is asked for only once")
 	}
 }

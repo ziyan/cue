@@ -52,11 +52,26 @@ func (self *Server) onboardingOrNotFound(next http.HandlerFunc) http.HandlerFunc
 // is not losing ownership, and a screen that fell back to offering setup must
 // not become a screen that anybody in range can put on their own network.
 //
-// So the portal asks for the password when there is one, and does not when
-// there is not.
+// So the portal asks for the password when there is one -- and when there is
+// not, it asks for one to be chosen, which is the same question a step
+// earlier. A device with no password is not a device nobody owns; it is one
+// nobody finished setting up, and the phone in front of it belongs to whoever
+// is doing that now.
+//
+// What proves it is the pass this page was given when it was served, not a
+// session cookie. A phone that joined the setup network to fix a screen should
+// not leave signed in to it.
 func (self *Server) portalAction(next http.HandlerFunc) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if self.isSetUp() && !self.hasSession(request) {
+		if self.hasElevatedPass(request) {
+			next(response, request)
+			return
+		}
+		if !self.isSetUp() {
+			writeError(response, http.StatusUnauthorized, "choose a password first")
+			return
+		}
+		if !self.hasSession(request) {
 			writeError(response, http.StatusUnauthorized, "sign in first")
 			return
 		}
@@ -91,6 +106,16 @@ func (self *Server) portal(response http.ResponseWriter, request *http.Request) 
 		})
 	}
 
+	// The authority this page will carry while it is open, minted before it
+	// exists so that there is no moment where the portal is on a phone with no
+	// way to prove who is holding it.
+	pass, err := self.passes.mint()
+	if err != nil {
+		log.Errorf("cannot mint a pass for the portal: %s", err)
+		writeError(response, http.StatusInternalServerError, "cannot open the setup page")
+		return
+	}
+
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
 	if err := portalTemplate.Execute(response, map[string]interface{}{
@@ -98,6 +123,7 @@ func (self *Server) portal(response http.ResponseWriter, request *http.Request) 
 		"Networks":  networks,
 		"Trouble":   self.device.SetupTrouble(),
 		"NeedsWord": self.isSetUp(),
+		"Pass":      pass,
 	}); err != nil {
 		log.Debugf("cannot render the setup portal: %s", err)
 	}
@@ -226,18 +252,26 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
   <p class="lead">Choose the network this screen should use.</p>
   {{ if .Trouble }}<p class="trouble">{{ .Trouble }}</p>{{ end }}
 
-  {{ if .NeedsWord }}
   <div id="gate">
+    {{ if .NeedsWord }}
     <p class="lead">This screen already belongs to somebody. Enter its password to
       change which network it uses.</p>
     <label for="word">Password</label>
     <input id="word" type="password" autocomplete="current-password" autocapitalize="none">
+    {{ else }}
+    <p class="lead">This screen has no password yet. Choose one now: it is what
+      will be asked for the next time somebody sets it up, and it is the
+      password for its web interface.</p>
+    <label for="word">New password</label>
+    <input id="word" type="password" autocomplete="new-password" autocapitalize="none">
+    <label for="word-again">Type it again</label>
+    <input id="word-again" type="password" autocomplete="new-password" autocapitalize="none">
+    {{ end }}
     <p class="trouble" id="wrong" style="display:none">That is not the password.</p>
     <button class="go" id="unlock" type="button">Continue</button>
   </div>
-  {{ end }}
 
-  <div id="chooser"{{ if .NeedsWord }} style="display:none"{{ end }}>
+  <div id="chooser" style="display:none">
     <ul id="networks">
       {{ range .Networks }}
       <li><button class="network" type="button" data-ssid="{{ .SSID }}" data-secured="{{ .Secured }}"
@@ -272,37 +306,73 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
 <script>
   var chosen = null, secured = false;
 
+  // The authority this page carries, minted when the daemon served it. It is
+  // not a cookie: a phone that joined a setup network to fix a screen should
+  // not walk away signed in to it.
+  var pass = "{{ .Pass }}";
+  var hasWord = {{ if .NeedsWord }}true{{ else }}false{{ end }};
+  function send(path, options) {
+    var settings = {};
+    for (var key in (options || {})) settings[key] = options[key];
+    settings.headers = Object.assign({ "X-Cue-Pass": pass }, settings.headers || {});
+    return fetch(path, settings);
+  }
+
   // A device that has been set up asks for its password before it will join
   // anything. Losing a network is not losing ownership, and this page is
   // reached over a network anybody with the code on the screen can join.
   var unlock = document.getElementById("unlock");
   if (unlock) {
     var word = document.getElementById("word");
+    var wordAgain = document.getElementById("word-again");
     var wrong = document.getElementById("wrong");
+
+    function complain(what) {
+      wrong.textContent = what;
+      wrong.style.display = "block";
+    }
 
     function tryWord() {
       wrong.style.display = "none";
-      fetch("/api/v1/session", {
+
+      if (!hasWord) {
+        if (word.value.length < 8) {
+          complain("At least eight characters.");
+          return;
+        }
+        if (word.value !== wordAgain.value) {
+          complain("Those two are not the same.");
+          wordAgain.value = "";
+          wordAgain.focus();
+          return;
+        }
+      }
+
+      send(hasWord ? "/api/v1/screen/unlock" : "/api/v1/screen/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password: word.value }),
       }).then(function (answer) {
         if (!answer.ok) {
-          wrong.style.display = "block";
+          complain(hasWord ? "That is not the password." : "That password was not accepted.");
           word.value = "";
+          if (wordAgain) wordAgain.value = "";
           word.focus();
           return;
         }
         document.getElementById("gate").style.display = "none";
         document.getElementById("chooser").style.display = "block";
       }).catch(function () {
-        wrong.style.display = "block";
+        complain(hasWord ? "That is not the password." : "That password was not accepted.");
       });
     }
 
     unlock.addEventListener("click", tryWord);
-    word.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") tryWord();
+    [word, wordAgain].forEach(function (box) {
+      if (!box) return;
+      box.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") tryWord();
+      });
     });
     word.focus();
   }
@@ -330,7 +400,7 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
   document.getElementById("again").addEventListener("click", function () {
     this.disabled = true;
     this.textContent = "Scanning. This drops your phone off for a moment.";
-    fetch("/api/v1/portal/scan", { method: "POST" })
+    send("/api/v1/portal/scan", { method: "POST" })
       .then(function () { location.reload(); })
       .catch(function () { location.reload(); });
   });
@@ -350,7 +420,7 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
       "it has joined.<br><br>If it did not work, this setup network comes back " +
       "within a minute and you can try again.";
 
-    fetch("/api/v1/portal/join", {
+    send("/api/v1/portal/join", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ssid: chosen, passphrase: secured ? passphrase.value : "" }),

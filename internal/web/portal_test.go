@@ -2,8 +2,11 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -112,9 +115,10 @@ func TestANetworkThisDeviceCannotJoinIsShownButNotOffered(t *testing.T) {
 
 func TestChoosingANetworkStartsTheJoin(t *testing.T) {
 	server, device := setupServer(t, true)
+	pass := portalPass(t, server)
 
-	response := do(server, "POST", "/api/v1/portal/join",
-		map[string]string{"ssid": "the office", "passphrase": "a test passphrase"}, nil)
+	response := withPass(server, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "the office", "passphrase": "a test passphrase"}, pass)
 	if response.Code != http.StatusOK {
 		t.Fatalf("joining answered %d: %s", response.Code, response.Body)
 	}
@@ -126,8 +130,9 @@ func TestChoosingANetworkStartsTheJoin(t *testing.T) {
 
 func TestJoiningNothingIsRefused(t *testing.T) {
 	server, device := setupServer(t, true)
+	pass := portalPass(t, server)
 
-	if code := do(server, "POST", "/api/v1/portal/join", map[string]string{"ssid": "  "}, nil).Code; code != http.StatusBadRequest {
+	if code := withPass(server, "POST", "/api/v1/portal/join", map[string]string{"ssid": "  "}, pass).Code; code != http.StatusBadRequest {
 		t.Errorf("joining a blank network answered %d, want 400", code)
 	}
 	if device.joinedSSID != "" {
@@ -161,8 +166,9 @@ func TestTheSetupPassphraseIsNotOnThePortal(t *testing.T) {
 
 func TestScanningAgainAsksTheDevice(t *testing.T) {
 	server, device := setupServer(t, true)
+	pass := portalPass(t, server)
 
-	if code := do(server, "POST", "/api/v1/portal/scan", nil, nil).Code; code != http.StatusOK {
+	if code := withPass(server, "POST", "/api/v1/portal/scan", nil, pass).Code; code != http.StatusOK {
 		t.Fatalf("scanning again answered %d", code)
 	}
 	if device.rescans != 1 {
@@ -215,37 +221,77 @@ func TestTheSetupPortServesThePortal(t *testing.T) {
 // ownership, and this page is reached over a network anybody with that code
 // can join.
 func TestTheSetupPortalAsksForThePasswordOnceThereIsOne(t *testing.T) {
-	fresh, _ := setupServer(t, true)
-	body := do(fresh, "GET", "/portal", nil, nil).Body.String()
-	if strings.Contains(body, "already belongs to somebody") {
-		t.Error("a brand new device asks for a password it does not have")
-	}
-	if code := do(fresh, "POST", "/api/v1/portal/join",
-		map[string]string{"ssid": "the office"}, nil).Code; code != http.StatusOK {
-		t.Errorf("a brand new device refused to be set up: %d", code)
-	}
-
 	owned, device := setupServer(t, true)
-	session := signedIn(t, owned)
+	signedIn(t, owned)
 
-	page := do(owned, "GET", "/portal", nil, nil).Body.String()
+	page, pass := openPortal(t, owned)
 	if !strings.Contains(page, "already belongs to somebody") {
 		t.Error("a device with an owner does not say so on the setup page")
 	}
 
+	// Neither a bare request nor one holding a pass that has not been through
+	// the gate may put this device on somebody else's network.
 	if code := do(owned, "POST", "/api/v1/portal/join",
 		map[string]string{"ssid": "somewhere else"}, nil).Code; code != http.StatusUnauthorized {
-		t.Errorf("a device with an owner was put on another network without its "+
-			"password: %d", code)
+		t.Errorf("a device with an owner was put on another network without its password: %d", code)
+	}
+	if code := withPass(owned, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "somewhere else"}, pass).Code; code != http.StatusUnauthorized {
+		t.Errorf("an unopened pass put the device on another network: %d", code)
 	}
 	if device.joinedSSID != "" {
 		t.Errorf("it joined %q", device.joinedSSID)
 	}
 
-	// With the password, it works as before.
-	if code := do(owned, "POST", "/api/v1/portal/join",
-		map[string]string{"ssid": "the office", "passphrase": "a test passphrase"}, session).Code; code != http.StatusOK {
+	// With the password, through the same pass, it works.
+	if code := withPass(owned, "POST", "/api/v1/screen/unlock",
+		map[string]string{"password": testPassword}, pass).Code; code != http.StatusOK {
+		t.Fatal("the password did not open the portal")
+	}
+	if code := withPass(owned, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "the office", "passphrase": "a test passphrase"}, pass).Code; code != http.StatusOK {
 		t.Errorf("the password did not open the portal: %d", code)
+	}
+	if device.joinedSSID != "the office" {
+		t.Errorf("it joined %q", device.joinedSSID)
+	}
+}
+
+// A device with no password is not one nobody owns. It is one nobody finished
+// setting up, and the phone in front of it belongs to whoever is doing that
+// now -- so the portal asks them to choose a password rather than letting them
+// past without one. Anybody who can reach this page has the passphrase from
+// the screen, so this costs them one step and costs the next person the whole
+// device.
+func TestTheSetupPortalAsksForAPasswordToBeChosen(t *testing.T) {
+	fresh, device := setupServer(t, true)
+
+	page, pass := openPortal(t, fresh)
+	if strings.Contains(page, "already belongs to somebody") {
+		t.Error("a brand new device asks for a password it does not have")
+	}
+	if !strings.Contains(page, "has no password yet") {
+		t.Error("the portal does not offer to set a password")
+	}
+
+	if code := withPass(fresh, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "the office"}, pass).Code; code == http.StatusOK {
+		t.Error("a device with no password joined a network before one was chosen")
+	}
+	if device.joinedSSID != "" {
+		t.Errorf("it joined %q", device.joinedSSID)
+	}
+
+	if code := withPass(fresh, "POST", "/api/v1/screen/password",
+		map[string]string{"password": "a chosen test password"}, pass).Code; code != http.StatusOK {
+		t.Fatal("choosing the first password from the portal was refused")
+	}
+	if !fresh.isSetUp() {
+		t.Fatal("the chosen password was not kept")
+	}
+	if code := withPass(fresh, "POST", "/api/v1/portal/join",
+		map[string]string{"ssid": "the office", "passphrase": "a test passphrase"}, pass).Code; code != http.StatusOK {
+		t.Errorf("after choosing a password the portal still refused: %d", code)
 	}
 	if device.joinedSSID != "the office" {
 		t.Errorf("it joined %q", device.joinedSSID)
@@ -261,4 +307,52 @@ func TestScanningFromThePortalIsGatedTheSameWay(t *testing.T) {
 	if code := do(owned, "POST", "/api/v1/portal/scan", nil, nil).Code; code != http.StatusUnauthorized {
 		t.Errorf("anybody with the code could list the networks this device can see: %d", code)
 	}
+}
+
+// openPortal serves the setup page the way a phone on the setup network does,
+// and returns the page and the pass it was handed.
+func openPortal(t *testing.T, server *Server) (string, string) {
+	t.Helper()
+	body := do(server, "GET", "/portal", nil, nil).Body.String()
+	match := regexp.MustCompile(`var pass = "([^"]+)"`).FindStringSubmatch(body)
+	if match == nil {
+		t.Fatal("the portal was served without a pass")
+	}
+	return body, match[1]
+}
+
+// portalPass opens the portal and gets past its gate, which means choosing the
+// first password on a device that has none and giving the existing one on a
+// device that has. Either way what comes back is a pass that may change the
+// network.
+func portalPass(t *testing.T, server *Server) string {
+	t.Helper()
+	_, pass := openPortal(t, server)
+
+	path, word := "/api/v1/screen/password", "a chosen test password"
+	if server.isSetUp() {
+		path, word = "/api/v1/screen/unlock", testPassword
+	}
+	if code := withPass(server, "POST", path, map[string]string{"password": word}, pass).Code; code != http.StatusOK {
+		t.Fatalf("getting past the portal gate answered %d", code)
+	}
+	return pass
+}
+
+// withPass is do() for a page holding a pass rather than a browser holding a
+// cookie.
+func withPass(server *Server, method, path string, body interface{}, pass string) *httptest.ResponseRecorder {
+	var reader *strings.Reader
+	if body != nil {
+		encoded, _ := json.Marshal(body)
+		reader = strings.NewReader(string(encoded))
+	} else {
+		reader = strings.NewReader("")
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(passHeader, pass)
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	return response
 }

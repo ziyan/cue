@@ -41,7 +41,13 @@ const x86Only = "X86_PACKAGES"
 func main() {
 	dockerfile := flag.String("dockerfile", "Dockerfile", "the Dockerfile to read the package lists from")
 	suite := flag.String("suite", "trixie", "the Debian release the image is built on")
+	// Handy for asking "could we publish for this too?" without editing the
+	// list the release actually uses.
+	wanted := flag.String("architectures", strings.Join(architectures, ","),
+		"comma-separated architectures to check")
 	flag.Parse()
+
+	architectures = strings.Split(*wanted, ",")
 
 	if err := run(*dockerfile, *suite); err != nil {
 		fmt.Fprintf(os.Stderr, "checkpackages: %s\n", err)

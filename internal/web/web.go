@@ -118,6 +118,10 @@ type Server struct {
 
 	uploads *media.Store
 
+	// The authority pages shown on this device's own screen carry, which
+	// lasts as long as the page does. See pass.go.
+	passes *passes
+
 	router   *mux.Router
 	listener net.Listener
 	server   *http.Server
@@ -131,6 +135,7 @@ func New(store *config.Store, device Device) *Server {
 		store:   store,
 		device:  device,
 		metrics: hardware.NewCollector("/", configuration.Paths.State),
+		passes:  newPasses(),
 		router:  mux.NewRouter(),
 	}
 	self.addRoutes()
@@ -233,6 +238,14 @@ func (self *Server) addRoutes() {
 	api.Path("/setup").Methods(http.MethodPost).HandlerFunc(self.setup)
 	api.Path("/session").Methods(http.MethodPost).HandlerFunc(self.signIn)
 	api.Path("/session").Methods(http.MethodDelete).HandlerFunc(self.signOut)
+
+	// The three things a page on this device's own screen does with its pass.
+	// They cannot sit behind a session, because they are how a screen with
+	// nobody signed in at it proves who is standing there. Each one checks
+	// the pass itself.
+	api.Path("/screen/unlock").Methods(http.MethodPost).HandlerFunc(self.screenUnlock)
+	api.Path("/screen/password").Methods(http.MethodPost).HandlerFunc(self.screenChooseWord)
+	api.Path("/screen/close").Methods(http.MethodPost).HandlerFunc(self.screenClose)
 
 	// Setting the device up over the air happens before there is a session,
 	// for the same reason setup and sign-in do.
