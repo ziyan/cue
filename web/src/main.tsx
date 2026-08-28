@@ -13,7 +13,29 @@ import { themeFor } from "./theme";
 import { Shell } from "./Shell";
 import { SignIn } from "./SignIn";
 import { Placeholder } from "./pages/Placeholder";
+import { Overview } from "./pages/Overview";
+import { Device } from "./pages/Device";
+import { Display } from "./pages/Display";
+import { Browser } from "./pages/Browser";
+import { Health } from "./pages/Health";
+import { Access } from "./pages/Access";
+import { Time } from "./pages/Time";
+import { Logs } from "./pages/Logs";
 import { allPages } from "./pages";
+
+// The pages that have been moved across. Anything not in here still shows a
+// placeholder saying so, which keeps a half-finished port visible in the
+// interface rather than only in the commit log.
+const ported: Record<string, React.ReactElement> = {
+  "/": <Overview />,
+  "/device": <Device />,
+  "/display": <Display />,
+  "/browser": <Browser />,
+  "/health": <Health />,
+  "/access": <Access />,
+  "/time": <Time />,
+  "/logs": <Logs />,
+};
 
 function App() {
   const [appearance, mode, chooseAppearance] = useAppearance();
@@ -59,7 +81,11 @@ function App() {
             }
           >
             {allPages.map((page) => (
-              <Route key={page.path} path={page.path} element={<Placeholder title={page.title} />} />
+              <Route
+                key={page.path}
+                path={page.path}
+                element={ported[page.path] ?? <Placeholder title={page.title} />}
+              />
             ))}
             <Route path="*" element={<Placeholder title="Not a page" />} />
           </Route>

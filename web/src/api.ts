@@ -51,6 +51,13 @@ export interface Configuration {
   [section: string]: unknown;
 }
 
+export interface LogEntry {
+  at?: string;
+  monotonic?: number;
+  severity?: string;
+  text: string;
+}
+
 export interface SetupState {
   needsSetup: boolean;
   signedIn: boolean;
@@ -68,6 +75,10 @@ export const api = {
   configuration: () => request<Configuration>("GET", "/api/v1/configuration"),
   saveConfiguration: (configuration: Configuration) =>
     request<Configuration>("PUT", "/api/v1/configuration", configuration),
+  restart: (program: string) => request<void>("POST", `/api/v1/restart/${encodeURIComponent(program)}`),
+  navigate: (url: string) => request<void>("POST", "/api/v1/navigate", { url }),
+  xorgLog: () => request<LogEntry[]>("GET", "/api/v1/logs/xorg"),
+
   upgrade: () => request<Record<string, unknown>>("GET", "/api/v1/upgrade"),
   applyUpgrade: () => request<Record<string, unknown>>("POST", "/api/v1/upgrade"),
 };
