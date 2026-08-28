@@ -11,23 +11,26 @@ import { device, display, browserPage, health, access, logs } from "./pages/devi
 import { network } from "./pages/network.js";
 import { upgrade } from "./pages/upgrade.js";
 
-// The pages, in groups. Eleven entries in one undivided list is a wall; the
-// groups say which errand each row belongs to, so somebody looking for the
-// watchdog knows to look under the settings rather than reading all eleven.
+// The pages, in groups. Eleven entries in one undivided list is a wall; a rule
+// between them is enough to say these belong together and those do not, and
+// the rows already say what they are.
 const pages = [
   { path: "", title: "Overview", render: overview },
   { path: "content", title: "Content", render: content },
   { path: "screen", title: "Screen", render: screen },
-  { path: "network", title: "Network", render: network },
 
-  { group: "Settings" },
+  { divider: true },
+  // Network belongs with the settings rather than above them: joining a
+  // wireless network is the same kind of errand as setting the resolution,
+  // not the same kind as looking at what is on the screen.
+  { path: "network", title: "Network", render: network },
   { path: "device", title: "Device", render: device },
   { path: "display", title: "Display", render: display },
   { path: "browser", title: "Browser", render: browserPage },
   { path: "health", title: "Health", render: health },
   { path: "access", title: "Access", render: access },
 
-  { group: "This machine" },
+  { divider: true },
   { path: "logs", title: "Logs", render: logs },
   { path: "upgrade", title: "Upgrade", render: upgrade },
 ];
@@ -167,11 +170,8 @@ function sidebar(active) {
       h("img", { class: "mark", src: "/favicon.svg", alt: "" }),
       h("span", { class: "name", text: state.device.name || "Cue" })),
     h("nav", {},
-      pages.map((page) => page.group
-        // A rule and a small heading, the way the portal does it. The rule
-        // stays when the sidebar is collapsed to its icons and the heading
-        // goes: a heading in a 60 pixel column is a smear.
-        ? h("div", { class: "group" }, h("span", { class: "group-name", text: page.group }))
+      pages.map((page) => page.divider
+        ? h("div", { class: "group" })
         : h("a", {
             href: `#/${page.path}`,
             class: page === active ? "active" : "",

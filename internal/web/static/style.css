@@ -134,20 +134,13 @@ body.sidebar-collapsed .sidebar .brand { justify-content: center; padding-inline
 .sidebar nav { display: flex; flex-direction: column; gap: 0.15rem;
   padding-top: 0.75rem; }
 
-/* A rule between groups of pages, with a small heading over each. Eleven rows
-   in one undivided list is a wall. */
-/* The rule runs the whole width of the sidebar. The negative margin cancels
-   the sidebar's own padding, which was insetting it at both ends and leaving
-   it looking like an underline for the heading rather than a division. The
-   heading is padded back in on top of it. */
+/* A rule between groups of pages. Eleven rows in one undivided list is a wall;
+   a rule is enough to say these belong together and those do not, and the rows
+   already say what they are. It runs the whole width of the sidebar: the
+   sidebar's own padding was insetting it at both ends, which made it read as
+   an underline for whatever came next rather than a division above it. */
 .sidebar .group { border-top: 1px solid var(--border);
-  margin: 0.6rem -0.6rem 0.15rem; padding-top: 0.6rem; }
-.sidebar .group-name { display: block; padding: 0 1.1rem 0.15rem;
-  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--text-dim); }
-/* Collapsed to icons, the rule stays and the words go: a heading in a sixty
-   pixel column is a smear. */
-body.sidebar-collapsed .sidebar .group-name { display: none; }
+  margin: 0.55rem -0.6rem; }
 .sidebar nav a {
   display: flex; align-items: center; gap: 0.7rem;
   /* At least 44px, because this is pressed with a thumb. The tab row it
