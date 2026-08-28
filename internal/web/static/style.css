@@ -97,7 +97,14 @@ a { color: var(--accent); }
   grid-template-columns: var(--sidebar) 1fr;
   grid-template-rows: auto 1fr;
   grid-template-areas: "sidebar bar" "sidebar sheet"; }
-:root { --sidebar: 15rem; }
+:root { --sidebar: 15rem;
+  /* One height for the top bar and for the sidebar's logo block, so the rule
+     under the logo and the rule under the top bar are the same line across the
+     whole window. The portal fixes its rail header to the same height as its
+     top bar for exactly this reason; it then chooses to carry no border, and
+     this one does. Either way the number has to be shared rather than
+     arrived at twice. */
+  --topbar: 64px; }
 
 /* Collapsed: the icons stay and the words go. For a narrow laptop, where
    there is room for a column but not a wide one. */
@@ -105,25 +112,37 @@ body.sidebar-collapsed { --sidebar: 3.75rem; }
 body.sidebar-collapsed .sidebar .label,
 body.sidebar-collapsed .sidebar .brand .name { display: none; }
 body.sidebar-collapsed .sidebar nav a { justify-content: center; padding-inline: 0; }
+body.sidebar-collapsed .sidebar .brand { justify-content: center; padding-inline: 0; }
 
 .sidebar { grid-area: sidebar; background: var(--surface);
   border-right: 1px solid var(--border);
   position: sticky; top: 0; height: 100vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 0.35rem; padding: 0.75rem 0.6rem; }
+  display: flex; flex-direction: column;
+  /* No padding at the top: the logo block owns that height exactly, or the
+     rule under it cannot line up with the one under the top bar. */
+  padding: 0 0.6rem 0.75rem; }
 
 .sidebar .brand { display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.5rem 0.65rem 0.9rem; min-width: 0; }
+  height: var(--topbar); flex: none; min-width: 0;
+  /* Out to the edges, like the group rules below it. */
+  margin: 0 -0.6rem; padding: 0 1.1rem;
+  border-bottom: 1px solid var(--border); }
 .sidebar .brand .mark { height: 1.4rem; width: auto; flex: none; }
 .sidebar .brand .name { font-weight: 600; letter-spacing: -0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.sidebar nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.sidebar nav { display: flex; flex-direction: column; gap: 0.15rem;
+  padding-top: 0.75rem; }
 
 /* A rule between groups of pages, with a small heading over each. Eleven rows
    in one undivided list is a wall. */
+/* The rule runs the whole width of the sidebar. The negative margin cancels
+   the sidebar's own padding, which was insetting it at both ends and leaving
+   it looking like an underline for the heading rather than a division. The
+   heading is padded back in on top of it. */
 .sidebar .group { border-top: 1px solid var(--border);
-  margin: 0.6rem 0.15rem 0.15rem; padding-top: 0.6rem; }
-.sidebar .group-name { display: block; padding: 0 0.5rem 0.15rem;
+  margin: 0.6rem -0.6rem 0.15rem; padding-top: 0.6rem; }
+.sidebar .group-name { display: block; padding: 0 1.1rem 0.15rem;
   font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--text-dim); }
 /* Collapsed to icons, the rule stays and the words go: a heading in a sixty
@@ -147,7 +166,7 @@ body.sidebar-collapsed .sidebar .group-name { display: none; }
 header.bar {
   grid-area: bar;
   display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.6rem 1rem;
+  height: var(--topbar); padding: 0 1rem; box-sizing: border-box;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 10;
