@@ -20,6 +20,7 @@ type Configuration struct {
 	Network  Network  `yaml:"network" json:"network"`
 	Audio    Audio    `yaml:"audio" json:"audio"`
 	Time     Time     `yaml:"time" json:"time"`
+	Service  Service  `yaml:"service" json:"service"`
 
 	// IgnoredSettings are the names in the file that this version has no
 	// setting for. They are not fatal — a device already in service has the
@@ -69,6 +70,47 @@ type Device struct {
 	// when a screen wedges, and a device that forgot which language it spoke
 	// every time it recovered would be a poor thing to live with.
 	Language string `yaml:"language,omitempty" json:"language"`
+}
+
+// Service is the hosted side this device may be attached to, and the
+// credential it holds once it is.
+//
+// A device works entirely on its own with none of this set, which is the
+// normal state and the one everything else in this file assumes. Linking is
+// something an operator chooses, from the menu or the interface, and it adds
+// somewhere to report to rather than somewhere to be run from.
+type Service struct {
+	// Address is where the service lives, as a URL a phone could open. Empty
+	// disables linking entirely, and the interface says so rather than
+	// offering a button that cannot work.
+	//
+	// Configurable rather than compiled in so that a device can be pointed at
+	// a staging service, or at a deployment that is not the public one,
+	// without a different image.
+	Address string `yaml:"address,omitempty" json:"address"`
+
+	// Secret is what the service issued when this device was linked, and what
+	// it presents when it connects. Never leaves the device again: it renders
+	// as a placeholder everywhere outside this file, and RestoreSecrets is
+	// what stops the interface erasing it by saving a form.
+	Secret Secret `yaml:"secret,omitempty" json:"secret"`
+
+	// Account and DeviceID are what the service said this device became. They
+	// are held for the interface to show -- somebody who has just linked a
+	// screen wants to see which account it went to, and somebody looking at it
+	// a year later wants to know before they unlink it.
+	Account  string `yaml:"account,omitempty" json:"account"`
+	DeviceID string `yaml:"deviceId,omitempty" json:"deviceId"`
+}
+
+// IsConfigured reports whether there is a service to link to at all.
+func (self *Service) IsConfigured() bool {
+	return self.Address != ""
+}
+
+// IsLinked reports whether this device holds a credential.
+func (self *Service) IsLinked() bool {
+	return self.Secret.IsSet()
 }
 
 // Log controls what the daemon writes to its standard error, which in a

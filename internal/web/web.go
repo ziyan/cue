@@ -23,6 +23,7 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/hardware"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
@@ -108,6 +109,10 @@ type Device interface {
 
 	// Restart restarts one supervised program by name.
 	Restart(ctx context.Context, name string) error
+
+	// Linker attaches this device to an account on the hosted service, and
+	// says whether it already is.
+	Linker() *link.Linker
 }
 
 // Server is the HTTP server.
@@ -247,6 +252,13 @@ func (self *Server) addRoutes() {
 	api.Path("/screen/password").Methods(http.MethodPost).HandlerFunc(self.screenChooseWord)
 	api.Path("/screen/close").Methods(http.MethodPost).HandlerFunc(self.screenClose)
 
+	// Linking from the screen. Starting one needs the device password proved
+	// through this pass; watching it needs only the page to still be open.
+	api.Path("/screen/link").Methods(http.MethodGet).HandlerFunc(self.screenLinkState)
+	api.Path("/screen/link").Methods(http.MethodPost).HandlerFunc(self.screenLinkStart)
+	api.Path("/screen/link").Methods(http.MethodDelete).HandlerFunc(self.screenLinkAbandon)
+	api.Path("/screen/link/code.svg").Methods(http.MethodGet).HandlerFunc(self.screenLinkCode)
+
 	// Setting the device up over the air happens before there is a session,
 	// for the same reason setup and sign-in do.
 	// Setting up from a phone is gated the same way. A device out of its box
@@ -273,6 +285,14 @@ func (self *Server) addRoutes() {
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)
 	guarded.Path("/media").Methods(http.MethodGet).HandlerFunc(self.listMedia)
 	guarded.Path("/media").Methods(http.MethodPost).HandlerFunc(self.uploadMedia)
+
+	// Linking from the interface, where there is a session. Forgetting a link
+	// is offered only here; see linkapi.go for why not at the screen.
+	guarded.Path("/link").Methods(http.MethodGet).HandlerFunc(self.linkState)
+	guarded.Path("/link").Methods(http.MethodPost).HandlerFunc(self.linkStart)
+	guarded.Path("/link").Methods(http.MethodDelete).HandlerFunc(self.linkAbandon)
+	guarded.Path("/link/forget").Methods(http.MethodPost).HandlerFunc(self.linkForget)
+	guarded.Path("/link/code.svg").Methods(http.MethodGet).HandlerFunc(self.linkCode)
 
 	// Moving to the next item is how the player says its video has ended, so
 	// it has to be reachable by the browser on this device, which has no

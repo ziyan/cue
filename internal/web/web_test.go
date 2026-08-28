@@ -13,6 +13,7 @@ import (
 
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
@@ -26,6 +27,7 @@ import (
 // are real components that were never started, which is the state the
 // interface has to cope with anyway on a device whose display will not start.
 type fakeDevice struct {
+	linker    *link.Linker
 	statuses  []supervise.Status
 	browser   *browser.Browser
 	watchdog  *watchdog.Watchdog
@@ -55,6 +57,7 @@ func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
 		t.Fatalf("xserver: %s", err)
 	}
 	return &fakeDevice{
+		linker:    link.New(store),
 		browser:   browser.New(configuration, ":9", "/nonexistent/Xauthority"),
 		watchdog:  watchdog.New(&configuration.Watchdog, watchdog.Remedies{}),
 		xserver:   server,
@@ -97,6 +100,8 @@ func (self *fakeDevice) JoinFromSetup(ssid, passphrase string) error {
 }
 func (self *fakeDevice) Network() *network.Manager             { return nil }
 func (self *fakeDevice) Restart(context.Context, string) error { return nil }
+
+func (self *fakeDevice) Linker() *link.Linker { return self.linker }
 
 func newTestServer(t *testing.T, configuration *config.Configuration) *Server {
 	t.Helper()

@@ -122,7 +122,16 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
-			call == "/api/v1/wireless/reset":
+			call == "/api/v1/wireless/reset",
+			// Attaching this screen to an account. It belongs here for the
+			// same reason the network does: it is a thing somebody standing
+			// in front of a screen with a phone can do and somebody at a desk
+			// cannot do for them, because the code has to be visible from
+			// where they are. It writes no setting of its own -- what it
+			// changes is who the device answers to, and only after somebody
+			// authorises it somewhere else.
+			call == "/api/v1/screen/link",
+			strings.HasPrefix(call, "/api/v1/screen/link/code.svg"):
 		default:
 			t.Errorf("the menu calls %q, which is neither an action nor the network", call)
 		}
@@ -668,5 +677,69 @@ func TestADeviceWithNoPasswordIsAskedToChooseOne(t *testing.T) {
 	// Twice, so that a mistyped one is not the password from then on.
 	if !strings.Contains(body, `id="word-again"`) {
 		t.Error("the new password is asked for only once")
+	}
+}
+
+// A screen that already belongs to somebody must ask for its password before
+// it will show a linking code.
+//
+// The code is what attaches the device to an account, so showing one to
+// whoever walks up to a lobby screen would be handing the device away to
+// anybody with a phone.
+func TestLinkingAtTheScreenNeedsThePasswordFirst(t *testing.T) {
+	configuration := config.Default()
+	configuration.Service.Address = "https://example.com"
+	server := newTestServer(t, configuration)
+
+	// Give the device an owner, so that a live pass is not enough on its own.
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/setup",
+		map[string]string{"password": "an example password"}, ""); code != http.StatusOK {
+		t.Fatalf("setting a password answered %d", code)
+	}
+
+	_, pass := openMenu(t, server)
+
+	// A pass that has not had the password proved through it gets nothing.
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/screen/link", nil, pass); code != http.StatusForbidden {
+		t.Errorf("starting a link without the password answered %d, want 403", code)
+	}
+	if state := server.device.Linker().State(); state.Pending {
+		t.Error("a code was minted for somebody who had not given the password")
+	}
+
+	// And no pass at all gets nothing either.
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/screen/link", nil, ""); code != http.StatusForbidden {
+		t.Errorf("starting a link with no pass answered %d, want 403", code)
+	}
+
+	// Once the password is proved, it works.
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/screen/unlock",
+		map[string]string{"password": "an example password"}, pass); code != http.StatusOK {
+		t.Fatalf("unlocking answered %d", code)
+	}
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/screen/link", nil, pass); code != http.StatusOK {
+		t.Fatalf("starting a link after unlocking answered %d", code)
+	}
+	if state := server.device.Linker().State(); !state.Pending || state.URL == "" {
+		t.Errorf("no code was minted after unlocking: %+v", state)
+	}
+
+	// The picture is served to the same pass, and refused without one.
+	if code := passRequest(t, server, http.MethodGet, "/api/v1/screen/link/code.svg", nil, pass); code != http.StatusOK {
+		t.Errorf("the code picture answered %d", code)
+	}
+	if code := passRequest(t, server, http.MethodGet, "/api/v1/screen/link/code.svg", nil, ""); code != http.StatusForbidden {
+		t.Errorf("the code picture was served without a pass: %d", code)
+	}
+}
+
+// Unlinking is not offered at the screen. It is not urgent, and a stranger
+// doing it leaves a device that quietly stops reporting.
+func TestForgettingALinkIsNotOfferedAtTheScreen(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	_, pass := openMenu(t, server)
+
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/link/forget", nil, pass); code == http.StatusOK {
+		t.Error("a page on the screen could forget the device's link")
 	}
 }

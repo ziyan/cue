@@ -17,6 +17,7 @@ import (
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/input"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
@@ -44,6 +45,11 @@ type Status struct {
 	Sound      []audio.Device     `json:"sound"`
 	Input      []input.Device     `json:"input"`
 	Network    network.State      `json:"network"`
+
+	// Link is whether this device is attached to an account, and any attempt
+	// in progress. Here as well as under /api/v1/link so that the overview
+	// page can say so without a second request.
+	Link link.State `json:"link"`
 
 	// IgnoredSettings are names in the configuration file this version has no
 	// setting for: a mistyped key, or a setting removed by an upgrade. They
@@ -102,6 +108,7 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 			Now:        time.Now(),
 		},
 		Programs: self.device.Statuses(),
+		Link:     self.device.Linker().State(),
 		Watchdog: self.device.Watchdog().State(),
 		Machine:  self.metrics.Collect(),
 	}

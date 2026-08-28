@@ -262,6 +262,12 @@ func RestoreSecrets(updated, previous *Configuration) {
 	if updated.VNC.Password.IsRedacted() {
 		updated.VNC.Password = previous.VNC.Password
 	}
+	// The credential the service issued. The interface is never shown it, so
+	// a form posted back carries the placeholder, and taking that literally
+	// would unlink a device every time somebody changed its name.
+	if updated.Service.Secret.IsRedacted() {
+		updated.Service.Secret = previous.Service.Secret
+	}
 	// Playlist items are matched by identifier rather than by position,
 	// because the interface can reorder them in the same request that saves
 	// them.

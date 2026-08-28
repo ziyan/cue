@@ -40,6 +40,11 @@ recovering.
     POST   /api/v1/restart/{program} chromium | display | vnc | time
     GET    /api/v1/logs/xorg         the end of the X server's own log
     GET    /api/v1/vnc               the WebSocket the VNC viewer connects to
+    GET    /api/v1/link              whether this device is linked, and any code in progress
+    POST   /api/v1/link              start linking: mint a code to scan
+    DELETE /api/v1/link              abandon the attempt, leaving any existing link alone
+    POST   /api/v1/link/forget       forget the credential, so the device answers to nobody
+    GET    /api/v1/link/code.svg     the code in progress, as a picture
     DELETE /api/v1/session           sign out
 
 ### Status
@@ -73,3 +78,20 @@ credential on the device.
 VNC server on the loopback address. noVNC connects to it directly. The origin
 is checked against the request's own host and `web.trustedOrigins`, so a page
 elsewhere cannot use a browser's session cookie to watch the screen.
+
+### Linking
+
+Attaching this device to an account on the hosted service. The same three calls
+exist twice: under `/api/v1/link` for somebody signed in to the interface, and
+under `/api/v1/screen/link` for a page on this device's own screen, which
+carries a pass rather than a session and must have had the device password
+proved through it.
+
+Starting an attempt mints a ticket and shows it as a URL and a QR code. The
+device then asks the service, on its own timer, whether anybody has authorised
+it; the interface only polls the device to see what it has heard. What travels
+in the code is a ticket, which is the hash of a verifier that never leaves the
+device — so a photograph of the screen is not enough to finish a link.
+
+Forgetting a link is offered only with a session. It is not urgent, and a
+stranger doing it at a screen leaves a device that quietly stops reporting.

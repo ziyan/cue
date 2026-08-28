@@ -301,6 +301,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       <span class="why" data-t="network-why"></span></button>
     <button data-do="screen"><span class="what" data-t="screen"></span>
       <span class="why" data-t="screen-why"></span></button>
+    <button data-do="link"><span class="what" data-t="link"></span>
+      <span class="why" data-t="link-why"></span></button>
     <button data-do="restart-browser" class="danger"><span class="what" data-t="restart-browser"></span>
       <span class="why" data-t="restart-browser-why"></span></button>
     <button data-do="restart-display" class="danger"><span class="what" data-t="restart-display"></span>
@@ -309,6 +311,14 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     <button data-do="wireless" class="danger"><span class="what" data-t="wireless-again"></span>
       <span class="why" data-t="wireless-again-why"></span></button>
     {{ end }}
+  </div>
+
+  <div id="link" hidden>
+    <p class="facts" data-t="link-explain"></p>
+    <img id="link-code" alt="" hidden>
+    <p class="facts mono" id="link-url"></p>
+    <p class="facts" id="link-said"></p>
+    <div class="actions"><button id="link-back" class="quiet"><span class="what" data-t="back"></span></button></div>
   </div>
 
   <div id="network" hidden>
@@ -401,7 +411,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      "language-name": "English", "best": "recommended", "link": "Link to the service", "link-why": "Attach this screen to an account", "link-explain": "Scan this with a phone, sign in, and authorise this screen.", "link-waiting": "Waiting for somebody to authorise it\u2026", "link-done": "Linked. This screen now belongs to", "link-failed": "That did not work.", "link-nowhere": "No service address is set for this device.", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
       "next": "Show the next item", "next-why": "Move the screen on now",
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
@@ -434,7 +444,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      "language-name": "中文", "best": "推荐", "link": "关联到服务", "link-why": "将此屏幕关联到账号", "link-explain": "用手机扫描，登录后授权此屏幕。", "link-waiting": "等待授权中…", "link-done": "已关联。此屏幕归属于", "link-failed": "未能完成。", "link-nowhere": "此设备未设置服务地址。", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
       "next": "显示下一项", "next-why": "立即切换到下一个内容",
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
@@ -467,7 +477,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      "language-name": "日本語", "best": "推奨", "link": "サービスと連携", "link-why": "この画面をアカウントに紐づけます", "link-explain": "スマートフォンで読み取り、サインインして承認してください。", "link-waiting": "承認を待っています…", "link-done": "連携しました。この画面の所有者：", "link-failed": "完了できませんでした。", "link-nowhere": "このデバイスにはサービスのアドレスが設定されていません。", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
       "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
@@ -944,6 +954,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     if (!button) return;
     if (button.dataset.do === "network") return openNetwork();
     if (button.dataset.do === "screen") return openScreen();
+    if (button.dataset.do === "link") return openLink();
 
     const what = doing[button.dataset.do];
     if (!what) return;
@@ -965,6 +976,85 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       .catch(() => {})
       .finally(() => setTimeout(close, 1200));
   }
+
+  // Linking this screen to an account on the hosted service.
+  //
+  // The daemon does the waiting: it asks the service on its own timer whether
+  // somebody has authorised the code. This panel only asks the daemon what it
+  // has heard, which is why closing the menu does not abandon a link that is
+  // half done -- it abandons watching one.
+  const linkPanel = document.getElementById("link");
+  const linkCode = document.getElementById("link-code");
+  const linkUrl = document.getElementById("link-url");
+  const linkSaid = document.getElementById("link-said");
+  let linkTimer = null;
+
+  function stopWatchingLink() {
+    if (linkTimer) {
+      clearInterval(linkTimer);
+      linkTimer = null;
+    }
+  }
+
+  async function openLink() {
+    actions.hidden = true;
+    linkPanel.hidden = false;
+    linkCode.hidden = true;
+    linkUrl.textContent = "";
+    linkSaid.textContent = "";
+
+    let state;
+    try {
+      state = await send("/api/v1/screen/link", { method: "POST" }).then((r) => r.json());
+    } catch (error) {
+      // The one failure worth naming: a device with nowhere to link to. Every
+      // other one is the same "that did not work".
+      linkSaid.textContent = say("link-nowhere");
+      return;
+    }
+    showLink(state);
+    linkTimer = setInterval(watchLink, 1500);
+  }
+
+  function showLink(state) {
+    if (state && state.linked) {
+      stopWatchingLink();
+      linkCode.hidden = true;
+      linkUrl.textContent = "";
+      linkSaid.textContent = say("link-done") + " " + (state.account || "");
+      return;
+    }
+    if (state && state.pending && state.url) {
+      // Reloaded whenever the attempt changes, since a cached picture is a
+      // code that no longer works.
+      linkCode.src = "/api/v1/screen/link/code.svg?at=" + encodeURIComponent(state.expiresAt || "");
+      linkCode.hidden = false;
+      linkUrl.textContent = state.url;
+      linkSaid.textContent = say("link-waiting");
+      return;
+    }
+    stopWatchingLink();
+    linkCode.hidden = true;
+    linkSaid.textContent = (state && state.error) ? state.error : say("link-failed");
+  }
+
+  async function watchLink() {
+    try {
+      showLink(await send("/api/v1/screen/link", { method: "GET" }).then((r) => r.json()));
+    } catch (error) {
+      stopWatchingLink();
+      linkSaid.textContent = say("link-failed");
+    }
+  }
+
+  document.getElementById("link-back").addEventListener("click", () => {
+    stopWatchingLink();
+    // Backing out of the panel gives up the attempt. Leaving a code live on a
+    // screen nobody is watching is the thing this should not do.
+    send("/api/v1/screen/link", { method: "DELETE" }).catch(() => {});
+    linkPanel.hidden = true;
+    actions.hidden = false;
+  });
 
   document.getElementById("dismiss").addEventListener("click", close);
   window.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });

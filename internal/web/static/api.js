@@ -50,4 +50,8 @@ export const api = {
   network: () => request("GET", "/api/v1/network"),
   scanWireless: (name) => request("POST", `/api/v1/network/scan/${encodeURIComponent(name)}`),
 
+  link: () => request("GET", "/api/v1/link"),
+  startLink: () => request("POST", "/api/v1/link"),
+  abandonLink: () => request("DELETE", "/api/v1/link"),
+  forgetLink: () => request("POST", "/api/v1/link/forget"),
 };

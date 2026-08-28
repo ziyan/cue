@@ -225,6 +225,11 @@ label.inline input { width: auto; }
 
 /* --- messages ------------------------------------------------------------- */
 
+/* The linking code. Sized so it reads from a phone held at arm's length, and
+   given a white ground of its own: scanners want dark on light and the page
+   behind it is nearly black. */
+.code { width: 15rem; height: 15rem; max-width: 100%; background: #fff; padding: 0.5rem; border-radius: 8px; display: block; margin: 0.75rem 0; }
+
 .notice { padding: 0.6rem 0.85rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid var(--border); }
 .notice.bad { color: var(--bad); border-color: var(--bad); }
 .notice.good { color: var(--good); border-color: var(--good); }

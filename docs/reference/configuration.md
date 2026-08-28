@@ -411,6 +411,29 @@ server, works out that the clock is wrong, and cannot do anything about it —
 which produces a device showing certificate errors with a healthy-looking time
 client on it.
 
+## service
+
+    service:
+      address: https://example.com
+      secret: ""
+      account: ""
+      deviceId: ""
+
+Where this device reports to, and the credential it holds once it is attached.
+All of it is empty on a device that has never been linked, which is the normal
+state: a device works entirely on its own with none of this set.
+
+`address` is the only field an operator sets. The other three are written by
+the device when a link completes and are read back only to be shown: `secret`
+is what it presents when it connects, and is never sent to the interface or
+written to the log; `account` and `deviceId` are what the service said this
+device became.
+
+Linking is started from the menu at the screen or from the Service page of the
+web interface, and finished on a phone. See `docs/planning/active/`. The
+address is configurable rather than compiled in so that a device can be pointed
+at a staging service without a different image.
+
 ## When nothing is plugged in
 
 A machine with no screen attached has no output for the X server to drive.

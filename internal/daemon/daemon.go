@@ -23,6 +23,7 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	setupnetwork "github.com/ziyan/cue/internal/network/onboarding"
@@ -50,6 +51,7 @@ type Daemon struct {
 	network    *network.Manager
 	onboarding *onboarding.Onboarding
 	uploads    *media.Store
+	linker     *link.Linker
 
 	// When this device last had an address that reached something, and when
 	// it last stopped offering setup to try the real network again. Both are
@@ -256,6 +258,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// X server will not start is still reachable to say so. That is the case
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
+	self.linker = link.New(self.store)
 	self.web = web.New(self.store, self)
 	// Somebody standing in front of the screen can always open the menu,
 	// whatever page is showing. It has to be set after the web server exists,
@@ -858,4 +861,9 @@ func (self *Daemon) ForgetWireless() error {
 		self.browser.Refresh(ctx)
 	}()
 	return nil
+}
+
+// Linker attaches this device to an account on the hosted service.
+func (self *Daemon) Linker() *link.Linker {
+	return self.linker
 }
