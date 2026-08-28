@@ -21,6 +21,10 @@ import { Health } from "./pages/Health";
 import { Access } from "./pages/Access";
 import { Time } from "./pages/Time";
 import { Logs } from "./pages/Logs";
+import { Content } from "./pages/Content";
+import { Network } from "./pages/Network";
+import { Screen } from "./pages/Screen";
+import { Upgrade } from "./pages/Upgrade";
 import { allPages } from "./pages";
 
 // The pages that have been moved across. Anything not in here still shows a
@@ -35,6 +39,10 @@ const ported: Record<string, React.ReactElement> = {
   "/access": <Access />,
   "/time": <Time />,
   "/logs": <Logs />,
+  "/content": <Content />,
+  "/network": <Network />,
+  "/screen": <Screen />,
+  "/upgrade": <Upgrade />,
 };
 
 function App() {

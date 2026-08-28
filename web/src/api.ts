@@ -51,6 +51,52 @@ export interface Configuration {
   [section: string]: unknown;
 }
 
+export interface WirelessNetwork {
+  ssid: string;
+  signalStrength: number;
+  security?: string;
+}
+
+export interface Interface {
+  name: string;
+  kind: string;
+  carrier?: boolean;
+  up?: boolean;
+  addresses?: string[];
+  gateway?: string;
+  nameservers?: string[];
+  receivedBytes: number;
+  transmittedBytes: number;
+  wireless?: { ssid?: string; state: string; signalStrength?: number };
+}
+
+export interface NetworkState {
+  interfaces?: Interface[];
+  errors?: Record<string, string>;
+  problem?: string;
+}
+
+export interface UpgradeState {
+  running: string;
+  latest?: string;
+  notes?: string;
+  publishedAt?: string;
+  url?: string;
+  newer: boolean;
+  checkedAt?: string;
+  trouble?: string;
+  canApply: boolean;
+  whyNot?: string;
+  image?: string;
+  progress: {
+    running: boolean;
+    version?: string;
+    stage?: string;
+    startedAt?: string;
+    trouble?: string;
+  };
+}
+
 export interface LogEntry {
   at?: string;
   monotonic?: number;
@@ -75,10 +121,15 @@ export const api = {
   configuration: () => request<Configuration>("GET", "/api/v1/configuration"),
   saveConfiguration: (configuration: Configuration) =>
     request<Configuration>("PUT", "/api/v1/configuration", configuration),
+  network: () => request<NetworkState>("GET", "/api/v1/network"),
+  scanWireless: (name: string) =>
+    request<{ networks: WirelessNetwork[] }>("POST", `/api/v1/network/scan/${encodeURIComponent(name)}`),
+
+  show: (item: string) => request<void>("POST", `/api/v1/show/${encodeURIComponent(item)}`),
   restart: (program: string) => request<void>("POST", `/api/v1/restart/${encodeURIComponent(program)}`),
   navigate: (url: string) => request<void>("POST", "/api/v1/navigate", { url }),
   xorgLog: () => request<LogEntry[]>("GET", "/api/v1/logs/xorg"),
 
-  upgrade: () => request<Record<string, unknown>>("GET", "/api/v1/upgrade"),
-  applyUpgrade: () => request<Record<string, unknown>>("POST", "/api/v1/upgrade"),
+  upgrade: () => request<UpgradeState>("GET", "/api/v1/upgrade"),
+  applyUpgrade: () => request<void>("POST", "/api/v1/upgrade"),
 };
