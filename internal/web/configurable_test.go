@@ -2,6 +2,7 @@ package web
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -119,18 +120,33 @@ func walk(kind reflect.Type, report func(name string)) {
 func readTheInterface(t *testing.T) string {
 	t.Helper()
 
+	// The interface's own source, in web/src, rather than the built bundle:
+	// the bundle is a build artefact that may not exist in a fresh checkout,
+	// and minified names would not match a setting's name anyway.
+	//
+	// This walks a directory outside the package on purpose. It is a test, so
+	// it runs from the package's own directory and can climb out; the embed
+	// that ships the interface cannot, which is why the bundle is written to
+	// internal/web/dist instead.
+	source := filepath.Join("..", "..", "web", "src")
+	if _, err := os.Stat(source); err != nil {
+		t.Skipf("no interface source to read: %s", err)
+	}
+
 	var builder strings.Builder
-	err := fs.WalkDir(staticFiles, "static", func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() && entry.Name() == "novnc" {
-			return fs.SkipDir
-		}
-		if entry.IsDir() || filepath.Ext(path) != ".js" {
+		if entry.IsDir() {
 			return nil
 		}
-		content, err := staticFiles.ReadFile(path)
+		switch filepath.Ext(path) {
+		case ".ts", ".tsx":
+		default:
+			return nil
+		}
+		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}

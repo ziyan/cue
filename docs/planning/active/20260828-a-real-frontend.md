@@ -92,8 +92,10 @@ device never sees Node; the builder does.
   groups, permanent above `md` and a drawer below it; top bar with breadcrumb,
   language, appearance and account; the appearance in three states; the sign-in
   gate. Running on carbon.
-- [ ] 4. The pages
-- [ ] 5. The image builds it
+- [x] 4. The pages — 2026-08-28. All twelve, and the hand-written interface is
+  deleted. The bundle is served at `/`; `/next` is gone.
+- [x] 5. The image builds it — 2026-08-28. A Node stage in the Dockerfile
+  produces the bundle and the Go stage embeds it. The device never sees Node.
 
 ## Decision log
 
@@ -115,6 +117,27 @@ as though it were a requirement. It was a choice made once and then quoted back
 as a constraint, including by me, in this session — as a reason not to do this
 work. Worth writing down: a comment explaining a decision is not the same as a
 decision that is still right.
+
+**2026-08-28 — The settings-coverage test survived the port, and earned its
+keep.** `TestEverySettingIsReachableFromTheInterface` walks the configuration
+struct and insists every field is mentioned somewhere in the interface. It read
+the hand-written modules; it now reads `web/src`. It passing after the rewrite
+is the evidence that the port did not quietly drop a setting -- which was the
+risk worth worrying about, twelve pages and forty-odd fields being retyped.
+
+**2026-08-28 — The single-page fallback was too eager.** Anything the bundle
+did not have was answered with `index.html`, which is right for `/device` and
+wrong for `/app.js`: a missing script got a page, the browser failed to parse
+it as JavaScript, and the error appeared nowhere near the missing file. Only
+paths that could be a route fall through now; a path with an extension gets a
+404.
+
+**2026-08-28 — Splitting is worth it here for one reason and not the other.**
+The bundle is three pieces: the app, MUI, and the screen viewer. The viewer is
+noVNC and nobody opens that page by accident, so it is fetched when asked for
+-- 57 kB compressed that most visits never pay. MUI is separated not for size
+but for staleness: it changes when a dependency is bumped rather than when this
+interface is edited, so a browser that has it keeps it across releases.
 
 ## Outcomes and retrospective
 

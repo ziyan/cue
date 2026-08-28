@@ -37,17 +37,13 @@ import (
 
 var log = logging.MustGetLogger("web")
 
-//go:embed all:static
-var staticFiles embed.FS
-
-// The built interface: webpack-free, Vite-built React and MUI from web/. It
-// is embedded exactly as the hand-written one beside it is, so the daemon
-// still ships as one executable with nothing to fetch at runtime.
+// The interface: React and MUI from web/, built by Vite. It is embedded, so
+// the daemon ships as one executable with nothing to fetch at runtime.
 //
 // Built by `make web`, which writes it here because Go's embed cannot reach
-// outside the directory of the package that declares it. A build that has not
-// run it has an empty directory and says so rather than failing to compile,
-// which is what the placeholder file is for.
+// outside the directory of the package that declares it. A checkout that has
+// not run it has an empty directory and says so at runtime rather than
+// failing to compile, which is what the .gitkeep is for.
 //
 //go:embed all:dist
 var builtFiles embed.FS
@@ -342,38 +338,11 @@ func (self *Server) addRoutes() {
 	api.Path("/menu/display").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuSetDisplay))
 
 	// Everything else is the interface itself.
-	// While the interface is being moved across, both are served: the one
-	// people use at /, and the new one at /next.
-	self.router.PathPrefix("/next").Methods(http.MethodGet).HandlerFunc(self.built)
-	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)
+	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.built)
 }
 
 // static serves the embedded interface, falling back to the single page for
 // any path the interface routes itself.
-func (self *Server) static(response http.ResponseWriter, request *http.Request) {
-	content, err := fs.Sub(staticFiles, "static")
-	if err != nil {
-		http.Error(response, "the interface is missing from this build", http.StatusInternalServerError)
-		return
-	}
-
-	path := request.URL.Path
-	if path == "/" {
-		path = "/index.html"
-	}
-	file, err := content.Open(path[1:])
-	if err != nil {
-		// A path the interface handles itself: serve the shell and let it
-		// route. A reload of /content must not be a 404.
-		request.URL.Path = "/"
-		http.FileServerFS(content).ServeHTTP(response, request)
-		return
-	}
-	_ = file.Close()
-
-	http.FileServerFS(content).ServeHTTP(response, request)
-}
-
 func describeAddress(address net.Addr) string {
 	text := address.String()
 	host, port, err := net.SplitHostPort(text)
@@ -411,7 +380,7 @@ func primaryAddress() string {
 // built serves the bundle from web/.
 //
 // Anything it does not have is answered with index.html, because the routing
-// is in the browser: /next/device is a page React knows about and not a file.
+// is in the browser: /device is a page React knows about and not a file.
 func (self *Server) built(response http.ResponseWriter, request *http.Request) {
 	content, err := fs.Sub(builtFiles, "dist")
 	if err != nil {
@@ -419,15 +388,24 @@ func (self *Server) built(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	path := strings.TrimPrefix(request.URL.Path, "/next")
-	path = strings.TrimPrefix(path, "/")
+	path := strings.TrimPrefix(request.URL.Path, "/")
 	if path == "" {
 		path = "index.html"
 	}
 
 	if file, err := content.Open(path); err == nil {
 		_ = file.Close()
-		http.StripPrefix("/next/", http.FileServerFS(content)).ServeHTTP(response, request)
+		http.FileServerFS(content).ServeHTTP(response, request)
+		return
+	}
+
+	// Only a path that could be a page falls through to the shell. A request
+	// for something with an extension is asking for a file, and answering
+	// that with HTML means a missing script gets a page instead of a 404 --
+	// which the browser then fails to parse, somewhere far away from the
+	// missing file.
+	if strings.Contains(strings.TrimPrefix(path, "assets/"), ".") {
+		http.NotFound(response, request)
 		return
 	}
 

@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useState } from "react";
+import { StrictMode, Suspense, lazy, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router";
 import Alert from "@mui/material/Alert";
@@ -23,7 +23,10 @@ import { Time } from "./pages/Time";
 import { Logs } from "./pages/Logs";
 import { Content } from "./pages/Content";
 import { Network } from "./pages/Network";
-import { Screen } from "./pages/Screen";
+// The viewer pulls noVNC in with it, which is the largest single thing in
+// this interface and is wanted only by somebody who has asked to drive the
+// screen. Loaded when that happens.
+const Screen = lazy(() => import("./pages/Screen").then((module) => ({ default: module.Screen })));
 import { Upgrade } from "./pages/Upgrade";
 import { allPages } from "./pages";
 
@@ -41,9 +44,17 @@ const ported: Record<string, React.ReactElement> = {
   "/logs": <Logs />,
   "/content": <Content />,
   "/network": <Network />,
-  "/screen": <Screen />,
+  "/screen": <Suspense fallback={<Waiting />}><Screen /></Suspense>,
   "/upgrade": <Upgrade />,
 };
+
+function Waiting() {
+  return (
+    <Box sx={{ display: "grid", placeItems: "center", minHeight: "40vh" }}>
+      <CircularProgress />
+    </Box>
+  );
+}
 
 function App() {
   const [appearance, mode, chooseAppearance] = useAppearance();
@@ -105,7 +116,7 @@ function App() {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter basename="/next">
+    <BrowserRouter>
       <App />
     </BrowserRouter>
   </StrictMode>,

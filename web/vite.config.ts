@@ -6,16 +6,25 @@ import react from "@vitejs/plugin-react";
 // embeds what is beside it, so the build has to put it there.
 export default defineConfig({
   plugins: [react()],
-  // Served under /next while the pages are moved across, so the interface
-  // people are actually using goes on working at / until this one replaces it.
-  base: "/next/",
   build: {
     outDir: "../internal/web/dist",
     emptyOutDir: true,
-    // A device is fetched from over a local network by one person at a time.
-    // Splitting into many small chunks buys nothing here and makes the embed
-    // a longer list of files.
-    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        // Three pieces rather than one. The screen viewer is the largest
+        // thing here and the page nobody opens by accident, so it is loaded
+        // when somebody asks for it rather than on the way to the overview;
+        // MUI is separated because it changes when a dependency is bumped and
+        // not when this interface is edited, so a browser that has it keeps
+        // it across releases.
+        manualChunks(id: string) {
+          if (id.includes("node_modules/@mui") || id.includes("node_modules/@emotion")) {
+            return "mui";
+          }
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     // `npm run dev` against a real device: everything the interface asks for

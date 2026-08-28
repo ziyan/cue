@@ -261,3 +261,39 @@ func TestAFailedUpgradeSaysSoAfterwards(t *testing.T) {
 		t.Error("a failed upgrade kept the claim, so nobody can try again")
 	}
 }
+
+// A path that could be a page is answered with the shell, because the routing
+// is in the browser. A path that is asking for a file is not: answering a
+// missing script with HTML gives the browser something it cannot parse, and
+// the error it reports is nowhere near the file that is actually missing.
+func TestOnlyPagesFallThroughToTheShell(t *testing.T) {
+	server := newTestServer(t, config.Default())
+
+	for _, one := range []struct {
+		path string
+		page bool
+	}{
+		{"/device", true},
+		{"/content", true},
+		{"/some/deep/route", true},
+		{"/app.js", false},
+		{"/assets/index-abc123.js", false},
+		{"/style.css", false},
+		{"/nothing.png", false},
+	} {
+		request := httptest.NewRequest(http.MethodGet, one.path, nil)
+		response := httptest.NewRecorder()
+		server.router.ServeHTTP(response, request)
+
+		// With no bundle built, a page answers 404 too -- but with the
+		// "run make web" complaint rather than a plain not-found. What is
+		// being checked is that a file request never gets HTML.
+		gotHTML := strings.Contains(response.Header().Get("Content-Type"), "text/html")
+		if one.page && response.Code == http.StatusOK && !gotHTML {
+			t.Errorf("%s did not get the shell", one.path)
+		}
+		if !one.page && gotHTML && response.Code == http.StatusOK {
+			t.Errorf("%s was answered with the interface instead of a 404", one.path)
+		}
+	}
+}
