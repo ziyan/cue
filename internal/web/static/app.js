@@ -9,6 +9,7 @@ import { content } from "./pages/content.js";
 import { screen } from "./pages/screen.js";
 import { device } from "./pages/device.js";
 import { network } from "./pages/network.js";
+import { upgrade } from "./pages/upgrade.js";
 
 const pages = [
   { path: "", title: "Overview", render: overview },
@@ -16,6 +17,7 @@ const pages = [
   { path: "screen", title: "Screen", render: screen },
   { path: "network", title: "Network", render: network },
   { path: "device", title: "Device", render: device },
+  { path: "upgrade", title: "Upgrade", render: upgrade },
 ];
 
 const root = document.getElementById("app");

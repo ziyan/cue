@@ -62,8 +62,32 @@ func TestTheMarkItselfCanDoNothing(t *testing.T) {
 	if !strings.Contains(script, "/menu") {
 		t.Error("the mark does not open the menu")
 	}
-	if !strings.Contains(script, "iframe") {
-		t.Error("the menu is not opened as a page of its own")
+	if !strings.Contains(script, "location.href = MENU") {
+		t.Error("the mark does not send this tab to the menu")
+	}
+	// Not a tab of its own either, which was the second attempt.
+	//
+	// The daemon knows the tabs it opened and nothing about one a page opens
+	// for itself. It swept that tab up as a stray window; and when the tab
+	// closed itself, the browser stopped answering the daemon at all --
+	// Runtime.evaluate timing out, the watchdog escalating, and a display
+	// frozen on a wall. Navigating a tab the daemon already owns creates and
+	// destroys nothing, so its idea of its own tabs never stops being true.
+	if strings.Contains(script, "window.open") {
+		t.Error("the menu opens a tab the daemon does not own again, which wedged the browser")
+	}
+
+	// Not a frame, and this is the interesting half.
+	//
+	// As a frame the menu was a subresource of whatever page the screen was
+	// showing, fetched from an address on the local network -- so Chrome asked
+	// the viewer to approve "do you want to allow <that site> to access local
+	// network". On a wall display there is nobody to answer it, and the menu
+	// never appeared. It also sat inside a tab the playlist rotates, so it
+	// could be moved out from under somebody reading it.
+	if strings.Contains(script, "iframe") {
+		t.Error("the menu is opened in a frame again, which asks the viewer of a wall display " +
+			"for permission to reach the local network")
 	}
 }
 
@@ -113,6 +137,12 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			// Which language the screen speaks: a preference of the person
 			// standing there, and the only other thing they may write.
 			call == "/api/v1/menu/language",
+			// Replacing the software on the machine. Offered here because the
+			// menu asks for this device's password before it offers anything,
+			// so the person pressing it has proved what they would have proved
+			// by signing in to the web interface. Proximity alone still does
+			// not authorise it -- see the pass, which has to be elevated.
+			call == "/api/v1/menu/upgrade",
 			// Proving who they are, and giving that proof up again. Not
 			// /api/v1/session: signing in sets a cookie, and a cookie in the
 			// browser bolted to the wall outlives the person who typed it.
@@ -122,6 +152,13 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
+			// Said every twenty seconds while the menu is open, so that a menu
+			// that dies without closing cannot leave the screen still for ever.
+			call == "/api/v1/playlist/keep",
+			// Reloading the pages on the way out: somebody who has just
+			// changed the network or the screen leaves dashboards behind that
+			// loaded before any of it.
+			call == "/api/v1/playlist/refresh",
 			call == "/api/v1/wireless/reset":
 		default:
 			t.Errorf("the menu calls %q, which is neither an action nor the network", call)
@@ -668,5 +705,23 @@ func TestADeviceWithNoPasswordIsAskedToChooseOne(t *testing.T) {
 	// Twice, so that a mistyped one is not the password from then on.
 	if !strings.Contains(body, `id="word-again"`) {
 		t.Error("the new password is asked for only once")
+	}
+}
+
+// The mark is added to every page the browser shows, and the menu is a page
+// the browser shows. Without this it appeared on the menu itself, where
+// pressing it opened a second menu over the first.
+func TestTheMarkDoesNotAppearOnTheMenuItself(t *testing.T) {
+	script := newTestServer(t, config.Default()).WayBackScript()
+
+	for _, page := range []string{"/menu", "/upgrading"} {
+		if !strings.Contains(script, page) {
+			t.Errorf("the script does not exclude %s, so the mark appears there", page)
+		}
+	}
+	// It must still install itself on the pages the screen actually shows,
+	// including the daemon's own player.
+	if !strings.Contains(script, "location.href.indexOf") {
+		t.Error("the exclusion is not written as a check on the address")
 	}
 }

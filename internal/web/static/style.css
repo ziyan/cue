@@ -229,6 +229,37 @@ label.inline input { width: auto; }
 .notice.bad { color: var(--bad); border-color: var(--bad); }
 .notice.good { color: var(--good); border-color: var(--good); }
 
+/* --- release notes -------------------------------------------------------- */
+
+/* What changed in a release, rendered from the Markdown the release workflow
+   copied out of CHANGELOG.md. Entries there run to several sentences on
+   purpose, so this is set for reading rather than for scanning. */
+.notes { margin: 0.75rem 0; }
+.notes h3 { font-size: 0.95rem; margin: 1rem 0 0.35rem; }
+.notes h3:first-child { margin-top: 0; }
+.notes ul { margin: 0 0 0.5rem; padding-left: 1.1rem; }
+.notes li { margin-bottom: 0.4rem; line-height: 1.5; }
+.notes p { margin: 0 0 0.5rem; line-height: 1.5; }
+
+/* A command to type on the machine itself. It must be selectable and must not
+   wrap in a way that breaks it when somebody copies it. */
+.commands { background: var(--surface-sunken); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.6rem 0.85rem; margin: 0.35rem 0 0.75rem;
+  overflow-x: auto; white-space: pre; font-size: 0.85rem; }
+
+/* A bar that says something is happening without claiming to know how far
+   along it is. The daemon reports stages, not percentages: Docker's pull
+   progress is per layer and adding up to a number that goes backwards is
+   worse than not having one. */
+.bar { margin: 0.75rem 0; height: 4px; width: 100%; max-width: 22rem;
+  background: var(--surface-sunken); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 35%; background: var(--accent);
+  border-radius: 2px; animation: cue-sweep 1.8s ease-in-out infinite; }
+@keyframes cue-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
 /* --- tables --------------------------------------------------------------- */
 
 table { width: 100%; border-collapse: collapse; }

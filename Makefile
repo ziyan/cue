@@ -130,11 +130,12 @@ docker-test: docker ## Run the tests inside the image, where the programs they n
 # The packages whose tests depend on something only the image has.
 IMAGE_TESTED_PACKAGES = internal/browser internal/network internal/display internal/web internal/vncserver
 
-deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...])
+deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...] [DOCKER_SOCKET=yes])
 	@$(GO) run -mod=vendor ./tools/deploy -host $(HOST) -image $(DOCKER_TAG) \
 		$(if $(WAIT),-wait $(WAIT),) \
 		$(if $(CONFIG),-config $(CONFIG),) \
-		$(if $(filter stop,$(DISPLAY_MANAGER)),-stop-display-manager,)
+		$(if $(filter stop,$(DISPLAY_MANAGER)),-stop-display-manager,) \
+		$(if $(filter yes,$(DOCKER_SOCKET)),-docker-socket,)
 
 watch: ## Rebuild on source change (requires inotifywait)
 	@set -e; \

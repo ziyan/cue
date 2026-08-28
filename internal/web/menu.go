@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"github.com/ziyan/cue/internal/upgrade"
 	"github.com/ziyan/cue/internal/util/deferutil"
 	"github.com/ziyan/cue/internal/util/picture"
 	"github.com/ziyan/cue/internal/version"
@@ -56,6 +57,19 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 
 	_, setUp := self.device.SetupNetwork()
 
+	// Whether to offer the upgrade at all. Both halves are asked here rather
+	// than in the page: a menu that offered a button which then answered "this
+	// device is not set up for that" would be worse than one that never
+	// offered it.
+	upgradeVersion := ""
+	if self.upgrades != nil {
+		if canApply, _ := upgrade.CanApply(configuration.Upgrade.AllowApply); canApply {
+			if state := self.upgrades.State(); state.Newer {
+				upgradeVersion = state.Latest
+			}
+		}
+	}
+
 	// The authority this page will carry for as long as it is open. It is
 	// minted here, before the page exists, so that there is no moment where a
 	// menu is on the screen with no way to prove who is in front of it.
@@ -79,6 +93,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		"SettingUp":  setUp,
 		"NeedsWord":  self.isSetUp(),
 		"Pass":       pass,
+		"Upgrade":    upgradeVersion,
 		"Language":   configuration.Device.Language,
 		"Mark":       template.URL("data:image/png;base64," + smallMark()),
 	}); err != nil {
@@ -94,12 +109,27 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "there is no browser to hold")
 		return
 	}
-	if strings.HasSuffix(request.URL.Path, "/release") {
+	held := true
+	switch {
+	case strings.HasSuffix(request.URL.Path, "/refresh"):
+		// Not waited for: this is asked for as the menu closes, and the caller
+		// is a page that is navigating away in the same breath.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		go func() {
+			defer cancel()
+			browser.RefreshAll(ctx)
+		}()
+	case strings.HasSuffix(request.URL.Path, "/release"):
 		browser.Release()
-	} else {
+		held = false
+	case strings.HasSuffix(request.URL.Path, "/keep"):
+		browser.KeepHolding()
+	default:
 		browser.Hold()
 	}
-	writeJSON(response, http.StatusOK, map[string]interface{}{"held": true})
+	// Reported rather than assumed: this used to answer "held" to the call
+	// that let the playlist go.
+	writeJSON(response, http.StatusOK, map[string]interface{}{"held": held})
 }
 
 // smallMark is this project's mark, shrunk to something a button wants and
@@ -142,7 +172,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
      .actions sets display:grid -- so hiding the actions to show the network
      section did nothing at all, and both were on screen at once. */
   [hidden] { display: none !important; }
-  html, body { margin: 0; height: 100%; background: rgba(6,8,10,0.72);
+  html, body { margin: 0; height: 100%; background: #0b0d10;
     font: 2vmin system-ui, -apple-system, "Segoe UI", Roboto,
       "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; color: #e7ecf3; }
   body { display: grid; place-items: center; padding: calc(var(--step) * 2); }
@@ -301,6 +331,10 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       <span class="why" data-t="network-why"></span></button>
     <button data-do="screen"><span class="what" data-t="screen"></span>
       <span class="why" data-t="screen-why"></span></button>
+    {{ if .Upgrade }}
+    <button data-do="upgrade"><span class="what" data-t="upgrade"></span>
+      <span class="why"><span data-t="upgrade-why"></span> {{ .Upgrade }}</span></button>
+    {{ end }}
     <button data-do="restart-browser" class="danger"><span class="what" data-t="restart-browser"></span>
       <span class="why" data-t="restart-browser-why"></span></button>
     <button data-do="restart-display" class="danger"><span class="what" data-t="restart-display"></span>
@@ -401,7 +435,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "upgrade": "Update this screen", "upgrade-why": "A newer version is available:", "ask-upgrade": "Update now? The screen goes blank for about a minute and comes back on its own. If the new version will not start, this device puts the old one back.", "doing-upgrade": "Fetching the update. The screen will go blank and come back.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
       "next": "Show the next item", "next-why": "Move the screen on now",
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
@@ -434,7 +468,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "upgrade": "更新此屏幕", "upgrade-why": "有新版本可用：", "ask-upgrade": "现在更新？屏幕将黑屏约一分钟后自动恢复。如果新版本无法启动，设备会自动恢复到旧版本。", "doing-upgrade": "正在获取更新。屏幕将黑屏后恢复。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
       "next": "显示下一项", "next-why": "立即切换到下一个内容",
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
@@ -467,7 +501,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "upgrade": "この画面を更新", "upgrade-why": "新しいバージョンがあります:", "ask-upgrade": "今すぐ更新しますか？画面は約1分間暗くなり、自動的に復帰します。新しいバージョンが起動しない場合は、元のバージョンに戻します。", "doing-upgrade": "更新を取得しています。画面が暗くなってから復帰します。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
       "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
@@ -616,6 +650,14 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
   send("/api/v1/playlist/hold", { method: "POST" }).catch(() => {});
 
+  // Said again every so often for as long as this page is open. The daemon
+  // lets the playlist go if nobody says it, so a menu that dies without
+  // closing -- a crashed tab, a browser restarted underneath it, a request
+  // that never arrived -- cannot leave the screen still for ever.
+  const keepHolding = setInterval(() => {
+    send("/api/v1/playlist/keep", { method: "POST" }).catch(() => {});
+  }, 20000);
+
   // A device that has been set up asks for its password before it will do
   // anything. Being in the room was enough when there was nobody to ask; it is
   // not once somebody has said this screen is theirs.
@@ -693,12 +735,36 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   }
 
   function close() {
-    send("/api/v1/playlist/release", { method: "POST" }).catch(() => {});
+    clearInterval(keepHolding);
+    // keepalive, both of them, and this is the whole reason the screen froze
+    // the first time: closing the tab in the next breath cancels a request
+    // that is still in flight, so the playlist was never let go and the
+    // display stopped changing until somebody restarted it.
+    send("/api/v1/playlist/release", { method: "POST", keepalive: true }).catch(() => {});
     // The pass dies with the menu. Until this call the daemon would go on
     // accepting it for another quarter of an hour, which is the backstop for
     // a menu nobody closes -- not the ordinary way out.
     send("/api/v1/screen/close", { method: "POST", keepalive: true }).catch(() => {});
-    parent.postMessage("cue:close-menu", "*");
+    // Back to whatever this tab was showing before. The daemon is told to
+    // freshen the playlist first: somebody who has just been in here may have
+    // changed the network or the screen, and a page that loaded before those
+    // changed is showing an answer from the old world.
+    send("/api/v1/playlist/refresh", { method: "POST", keepalive: true }).catch(() => {});
+
+    // Back to the page this tab was showing. The address came in on the query
+    // string from the page itself, so it is checked before it is used: an
+    // http or https address and nothing else. Without that check a page could
+    // send the menu to a javascript: address, and the menu is served by the
+    // daemon -- which would be a page on the screen running its own code with
+    // the daemon's origin.
+    const from = new URLSearchParams(location.search).get("from") || "";
+    if (/^https?:\/\//i.test(from)) {
+      location.replace(from);
+    } else if (history.length > 1) {
+      history.back();
+    } else {
+      location.replace("/");
+    }
   }
 
   function openNetwork() {
@@ -937,6 +1003,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       ask: "ask-restart-display", said: "doing-restart-display" },
     "wireless": { call: "/api/v1/wireless/reset",
       ask: "ask-wireless", said: "doing-wireless" },
+    "upgrade": { call: "/api/v1/menu/upgrade",
+      ask: "ask-upgrade", said: "doing-upgrade" },
   };
 
   actions.addEventListener("click", (event) => {

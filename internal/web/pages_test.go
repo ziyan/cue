@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,35 @@ import (
 // throw inside an awaited render lands. Console noise is deliberately not a
 // fault — the pages talk to a daemon that is only half there in a test, and
 // failing on that would make this test cry wolf until somebody turned it off.
+
+// pagesTheInterfaceHas reads the page list out of the interface's own source,
+// so that a page added there is tested here without anybody remembering to add
+// it twice.
+//
+// It was a written list, and a written list is how the Upgrade page was added
+// with this test passing over it. That is the same shape as the fault this
+// whole test exists for: the interface had a page nobody had opened, and
+// nothing said so.
+func pagesTheInterfaceHas(t *testing.T) []string {
+	t.Helper()
+
+	source, err := staticFiles.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatalf("cannot read the interface's own source: %s", err)
+	}
+
+	found := regexp.MustCompile(`\{\s*path:\s*"([^"]*)"`).FindAllStringSubmatch(string(source), -1)
+	if len(found) == 0 {
+		t.Fatal("no pages found in app.js; has the page list changed shape?")
+	}
+
+	paths := make([]string, 0, len(found))
+	for _, one := range found {
+		paths = append(paths, one[1])
+	}
+	return paths
+}
+
 func TestEveryPageRendersWithoutFaulting(t *testing.T) {
 	executable := findBrowser()
 	if executable == "" {
@@ -90,7 +120,7 @@ func TestEveryPageRendersWithoutFaulting(t *testing.T) {
 		t.Fatalf("signing in returned %v, want 200", status)
 	}
 
-	for _, path := range []string{"", "content", "screen", "network", "device"} {
+	for _, path := range pagesTheInterfaceHas(t) {
 		name := path
 		if name == "" {
 			name = "overview"

@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ziyan/cue/internal/config"
@@ -232,6 +233,19 @@ func (self *Browser) rotate(ctx context.Context) {
 func (self *Browser) Hold() {
 	self.mutex.Lock()
 	self.holds++
+	self.heldSince = time.Now()
+	self.mutex.Unlock()
+}
+
+// KeepHolding says the thing holding the playlist is still there.
+//
+// The menu says this every so often while it is open, and that is what makes
+// the hold safe: a hold nobody renews is dropped. See held.
+func (self *Browser) KeepHolding() {
+	self.mutex.Lock()
+	if self.holds > 0 {
+		self.heldSince = time.Now()
+	}
 	self.mutex.Unlock()
 }
 
@@ -248,11 +262,77 @@ func (self *Browser) Release() {
 	self.mutex.Unlock()
 }
 
+// longestHold is how long a hold lasts without being renewed.
+//
+// A hold stops the screen changing, and every hold is asked for by a page --
+// which means every hold depends on that page living long enough to give it
+// back. That is not something to rely on. The menu released the playlist and
+// closed its own tab in the same breath, and closing the tab cancelled the
+// request that was still in flight: the hold was never given back, the screen
+// stopped rotating, and it stayed stopped. A wall display that freezes until
+// somebody walks over to it is the worst outcome this program has, and it
+// should not be one lost HTTP request away.
+//
+// So a hold expires. The menu renews it while it is open, which costs one
+// request every twenty seconds and means the screen can never be still for
+// more than this long by accident.
+const longestHold = 90 * time.Second
+
+// RefreshAll reloads every page the playlist is showing.
+//
+// Somebody who has just been in the on-screen menu may have changed the
+// network, the screen or the language, and a dashboard that loaded before any
+// of that is showing an answer from the old world -- at its worst, a page that
+// failed to load when the device had no network and has been an error message
+// on a wall ever since.
+func (self *Browser) RefreshAll(ctx context.Context) {
+	self.mutex.Lock()
+	// Not the one on screen. This is called as the menu closes, and the tab
+	// showing the menu is the one on screen -- it is already loading the page
+	// it came from, by its own navigation. Reloading it as well is a race
+	// between that navigation and this one, and the prize for winning it is
+	// the menu loading again.
+	current := self.tabs[self.current]
+	targets := make([]string, 0, len(self.tabs))
+	for _, target := range self.tabs {
+		if target == current && current != "" {
+			continue
+		}
+		targets = append(targets, target)
+	}
+	self.mutex.Unlock()
+
+	for _, target := range targets {
+		tab, err := self.session(ctx, target)
+		if err != nil {
+			log.Debugf("cannot reach a tab to reload it: %s", err)
+			continue
+		}
+		if err := tab.Reload(ctx, false); err != nil {
+			log.Debugf("cannot reload a tab: %s", err)
+		}
+	}
+}
+
 // held reports whether the playlist is being kept still.
+//
+// A hold that has not been renewed within longestHold is dropped, whatever the
+// count says: whoever asked for it is gone.
 func (self *Browser) held() bool {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return self.holds > 0
+
+	if self.holds == 0 {
+		return false
+	}
+	if time.Since(self.heldSince) > longestHold {
+		log.Warningf("nothing has renewed the hold on the playlist for %s, so it is being let go; "+
+			"the page that asked for it has probably gone", longestHold)
+		self.holds = 0
+		self.currentSince = time.Now()
+		return false
+	}
+	return true
 }
 
 // currentDuration is how long the item now on screen should stay there.
@@ -491,6 +571,12 @@ func (self *Browser) closeUnexpectedTabs(ctx context.Context) {
 		if ours[page.Identifier] {
 			continue
 		}
+		// The menu opens itself, from the control on whatever page is showing,
+		// so it is not among the tabs this daemon opened. Closing it would take
+		// the menu away from somebody in the middle of using it.
+		if self.isOwnMenu(page.URL) {
+			continue
+		}
 		seenNow[page.Identifier] = true
 		if !seenBefore[page.Identifier] {
 			// First sighting. Give it one cycle to close itself.
@@ -509,6 +595,18 @@ func (self *Browser) closeUnexpectedTabs(ctx context.Context) {
 
 // describeTarget names a window in a way that is useful in a log line without
 // being a page's whole URL, which can be several kilobytes of query string.
+// isOwnMenu reports whether an address is the on-screen menu this daemon
+// serves.
+//
+// The empty check is not defensive clutter. An unset OwnMenu is the ordinary
+// state in tests and tools, and strings.HasPrefix of an empty prefix is true
+// of everything -- so without it, a daemon that had not been told its own
+// address would treat every window as the menu and close none of them, which
+// is this whole sweep quietly doing nothing.
+func (self *Browser) isOwnMenu(address string) bool {
+	return self.OwnMenu != "" && strings.HasPrefix(address, self.OwnMenu)
+}
+
 func describeTarget(target cdp.Target) string {
 	address := target.URL
 	const maximum = 200

@@ -35,10 +35,20 @@ type Browser struct {
 	// the menu on the screen does while somebody has it open.
 	holds int
 
+	// heldSince is when a hold was last asked for or renewed. A hold nobody
+	// renews is dropped: see longestHold.
+	heldSince time.Time
+
 	// OnEveryPage is a script added to every tab, now and on every page they
 	// visit afterwards. It carries the control that puts this device back into
 	// setup, which has to be reachable from whatever is on the screen.
 	OnEveryPage string
+
+	// OwnMenu is the address of the on-screen menu, which the control above
+	// opens in a tab of its own. That tab is not one this daemon opened, so
+	// without this it would be swept up as a window nobody asked for and
+	// closed while somebody was reading it.
+	OwnMenu string
 
 	// SetupInProgress reports whether the device is being set up over the air.
 	// While it is, the screen shows the daemon's own page rather than the

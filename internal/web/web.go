@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -27,6 +28,7 @@ import (
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
+	"github.com/ziyan/cue/internal/upgrade"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/xserver"
 )
@@ -122,6 +124,18 @@ type Server struct {
 	// lasts as long as the page does. See pass.go.
 	passes *passes
 
+	// What is known about newer releases. Nil on a daemon built without one,
+	// and the Upgrade page says so rather than pretending to be up to date.
+	upgrades *upgrade.Checker
+
+	// What an upgrade is doing, if one is. Two at once is not a slow upgrade
+	// but a dead device: see applyUpgrade. Kept rather than merely counted so
+	// that the page can say what is happening -- an upgrade takes minutes, and
+	// a page that shows the button again while one is running invites somebody
+	// to press it a second time.
+	upgradeMutex    sync.Mutex
+	upgradeProgress upgradeProgress
+
 	router   *mux.Router
 	listener net.Listener
 	server   *http.Server
@@ -139,6 +153,14 @@ func New(store *config.Store, device Device) *Server {
 		router:  mux.NewRouter(),
 	}
 	self.addRoutes()
+	return self
+}
+
+// WithUpgrades gives the server what knows whether a newer release exists.
+// Without one the Upgrade page says this daemon is not checking, which is
+// honest; the alternative is a page that looks like "you are up to date".
+func (self *Server) WithUpgrades(checker *upgrade.Checker) *Server {
+	self.upgrades = checker
 	return self
 }
 
@@ -258,6 +280,8 @@ func (self *Server) addRoutes() {
 
 	guarded := api.NewRoute().Subrouter()
 	guarded.Use(self.requireSession)
+	guarded.Path("/upgrade").Methods(http.MethodGet).HandlerFunc(self.upgradeState)
+	guarded.Path("/upgrade").Methods(http.MethodPost).HandlerFunc(self.applyUpgrade)
 
 	guarded.Path("/status").Methods(http.MethodGet).HandlerFunc(self.status)
 	guarded.Path("/timezones").Methods(http.MethodGet).HandlerFunc(self.timezones)
@@ -287,8 +311,11 @@ func (self *Server) addRoutes() {
 	// The menu somebody at the screen can open, and the few things it does.
 	// All of them are actions; none of them changes a setting.
 	self.router.Path("/menu").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menu))
+	self.router.Path("/upgrading").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.upgrading))
 	api.Path("/playlist/hold").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
+	api.Path("/playlist/keep").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
+	api.Path("/playlist/refresh").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuReload))
 	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuRestart))
 	api.Path("/menu/network").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menuNetwork))
@@ -296,6 +323,7 @@ func (self *Server) addRoutes() {
 	api.Path("/menu/network/wireless").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuJoinWireless))
 	api.Path("/menu/network/wired").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuConfigureWired))
 	api.Path("/menu/language").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuLanguage))
+	api.Path("/menu/upgrade").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuUpgrade))
 	api.Path("/menu/display").Methods(http.MethodGet).HandlerFunc(self.screenAction(self.menuDisplay))
 	api.Path("/menu/display").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuSetDisplay))
 
