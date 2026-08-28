@@ -40,6 +40,12 @@ var deliberatelyNotInTheInterface = []struct {
 		"a wrong value here is a device that stops recovering"},
 	{"modeName", "read from the hardware, not chosen"},
 	{"rate", "part of the mode, which is chosen as one string"},
+	{"allowApply", "whether this device may replace its own container; it must not be " +
+		"settable from the interface, because the interface is the thing it grants " +
+		"power over. Anybody who reached the web interface could otherwise turn on " +
+		"its own ability to use the Docker socket, which is root on the host. It " +
+		"takes two deliberate acts by somebody with a shell on the machine: this " +
+		"setting, and mounting the socket"},
 }
 
 func TestEverySettingIsReachableFromTheInterface(t *testing.T) {

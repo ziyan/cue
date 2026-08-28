@@ -147,7 +147,10 @@ standing in front of it wondering why the lobby display just died.
   `upgrade.go` keeps the answer and refreshes it daily. Tested against a
   stand-in server rather than the real API, so the tests prove something
   without a network.
-- [ ] 2. The web interface shows it
+- [x] 2. The web interface shows it — 2026-08-28. `GET /api/v1/upgrade`
+  behind the session, an Upgrade page, and `upgrade.allowApply` in the
+  configuration so the page can say whether the button will be possible before
+  the button exists.
 - [ ] 3. Pressing the button replaces the container
 - [ ] 4. It says so on the screen it is about to interrupt
 
@@ -193,6 +196,22 @@ that reads as reassurance: a device that saw 0.2.0 yesterday and cannot reach
 GitHub today would show nothing at all, and a page showing nothing looks
 exactly like a page saying you are up to date. It now keeps the last answer,
 with the date it was obtained and a line saying the most recent attempt failed.
+
+**2026-08-28 — The page test had a written list of pages.**
+`TestEveryPageRendersWithoutFaulting` opens every page in a real browser and
+fails on an uncaught exception, which is the test that exists because a page
+was once shipped throwing `ReferenceError` on load. It carried a hand-written
+list of the five pages, so adding a sixth left it passing over a page nobody
+had opened — the same shape as the fault it was written for. It now reads the
+list out of `static/app.js`. Confirmed by breaking the new page on purpose and
+watching it fail by name.
+
+**2026-08-28 — `allowApply` must not be settable from the interface.**
+`TestEverySettingIsReachableFromTheInterface` asks for a control for every
+setting, and this is the one that has to be argued out of it rather than given
+one: the interface is the thing the setting grants power over. Anybody who
+reached the web interface could otherwise turn on its own access to the Docker
+socket. It takes two deliberate acts from somebody with a shell on the machine.
 
 ## Outcomes and retrospective
 

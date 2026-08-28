@@ -20,6 +20,7 @@ type Configuration struct {
 	Network  Network  `yaml:"network" json:"network"`
 	Audio    Audio    `yaml:"audio" json:"audio"`
 	Time     Time     `yaml:"time" json:"time"`
+	Upgrade  Upgrade  `yaml:"upgrade" json:"upgrade"`
 
 	// IgnoredSettings are the names in the file that this version has no
 	// setting for. They are not fatal — a device already in service has the
@@ -693,4 +694,28 @@ type Time struct {
 
 	// Servers are the NTP servers to use.
 	Servers []string `yaml:"servers" json:"servers"`
+}
+
+// Upgrade is what this device may do about a newer release of cue.
+//
+// Finding out is not configurable: it reads a public API, changes nothing, and
+// a screen that cannot say whether it is out of date is a screen nobody
+// upgrades. Acting on it is, because it needs the Docker socket.
+type Upgrade struct {
+	// AllowApply lets the web interface replace this container with one built
+	// from a newer release.
+	//
+	// Off unless somebody turns it on, and useless on its own: the daemon also
+	// has to be able to reach /var/run/docker.sock, which means whoever
+	// started the container mounted it deliberately. Two separate acts, both
+	// required, because the socket is not a small permission. The other
+	// capabilities this container asks for let it do more to the machine it is
+	// already on; the socket lets it become any process on that machine. A
+	// screen in a lobby has a web interface reachable by everybody on the
+	// network, and granting this makes that interface's password the password
+	// to the host.
+	//
+	// A device with this off still sees that a release exists, reads its
+	// notes, and is shown the commands to upgrade by hand.
+	AllowApply bool `yaml:"allowApply" json:"allowApply"`
 }
