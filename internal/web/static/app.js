@@ -3,6 +3,7 @@
 // this project has no JavaScript toolchain.
 
 import { h, clear, svg } from "./dom.js";
+import { wouldLoseWork, forgetWarning, leavingMessage } from "./leaving.js";
 import { api, whenSignedOut } from "./api.js";
 import { overview } from "./pages/overview.js";
 import { content } from "./pages/content.js";
@@ -71,7 +72,32 @@ async function start() {
         h("button", { class: "primary", onClick: () => location.reload() }, "Try again"))));
     return;
   }
-  window.addEventListener("hashchange", render);
+  // Changing the page throws away anything typed and not saved, so ask first.
+  // The hash has already changed by the time this runs, which is why refusing
+  // means putting it back.
+  let showing = location.hash;
+  let goingBack = false;
+  window.addEventListener("hashchange", () => {
+    if (goingBack) {
+      goingBack = false;
+      return;
+    }
+    if (wouldLoseWork() && !window.confirm(leavingMessage)) {
+      goingBack = true;
+      location.hash = showing;
+      return;
+    }
+    showing = location.hash;
+    render();
+  });
+
+  // And the same for a reload or a closed tab, which the shell cannot
+  // intercept -- all a page may do is ask the browser to ask.
+  window.addEventListener("beforeunload", (event) => {
+    if (!wouldLoseWork()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
   window.addEventListener("device-renamed", (event) => {
     if (!event.detail || state.device.name === event.detail.name) return;
     state.device.name = event.detail.name;
@@ -96,6 +122,9 @@ function render() {
     stopCurrentPage();
     stopCurrentPage = null;
   }
+  // Whatever the page that is going away asked to be warned about goes with
+  // it, so a page with no form cannot inherit another page's unsaved work.
+  forgetWarning();
   root.className = "";
   clear(root);
   nameTheDocument(null);

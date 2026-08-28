@@ -291,13 +291,71 @@ button:disabled { opacity: 0.5; cursor: default; }
 label { display: block; margin-bottom: 0.75rem; }
 label > span { display: block; font-size: 0.82rem; color: var(--text-dim); margin-bottom: 0.25rem; }
 input[type=text], input[type=url], input[type=password], input[type=number], select, textarea {
-  font: inherit; width: 100%; padding: 0.45rem 0.6rem;
+  font: inherit; width: 100%; padding: 0.55rem 0.65rem;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--background); color: var(--text);
 }
+input[type=text]:hover, input[type=url]:hover, input[type=password]:hover,
+input[type=number]:hover, select:hover, textarea:hover { border-color: var(--text-dim); }
+
+/* The chevron is drawn here so that it matches the one in the breadcrumb and
+   does not change with the platform. The control underneath is still a
+   <select>: on a phone that opens the wheel the operating system provides,
+   which is better than anything that could be built to replace it. */
+select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2393a1b3' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1.05rem;
+}
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 textarea { min-height: 5rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85em; }
-label.inline { display: flex; align-items: center; gap: 0.5rem; }
+label.inline { display: flex; align-items: center; gap: 0.65rem; min-height: 2.25rem; }
+
+/* A switch rather than a tick box, drawn to the same proportions Material
+   uses: a 34x14 track with a 20px thumb standing proud of it.
+ *
+ * Still an <input type="checkbox"> underneath. It is the control the platform
+ * already knows how to focus, tab to, toggle with a space bar and read out to
+ * somebody who cannot see it; none of that is worth giving up for the look,
+ * and all of it would have to be rebuilt to give it up. Only the drawing
+ * changes.
+ *
+ * A switch says which way is on at a glance, where a tick box only says so if
+ * you already know which way the tick means -- and half of these settings are
+ * ones where "on" is the safe answer and half are not. */
+label.inline input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; margin: 0;
+  position: relative; flex: none; cursor: pointer;
+  width: 34px; height: 14px; border-radius: 999px;
+  background: var(--border); border: 0;
+  transition: background 0.15s ease;
+}
+label.inline input[type=checkbox]::before {
+  content: ""; position: absolute; top: -3px; left: -1px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+/* The track is the accent at about half strength and the thumb is the accent
+   itself, which is how Material draws it. Not opacity on the track: opacity
+   makes a stacking context, so the thumb inside it cannot be more opaque than
+   its own track however it is styled, and both ended up washed out. */
+label.inline input[type=checkbox]:checked {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+label.inline input[type=checkbox]:checked::before {
+  transform: translateX(16px); background: var(--accent);
+}
+label.inline input[type=checkbox]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 4px;
+}
+label.inline input[type=checkbox]:disabled { cursor: default; opacity: 0.5; }
+/* The words beside a switch are the label, not a hint above a field. */
+label.inline > span { display: inline; font-size: inherit; color: inherit;
+  margin-bottom: 0; }
 label.inline > span { margin: 0; font-size: inherit; color: inherit; }
 label.inline input { width: auto; }
 .row { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }

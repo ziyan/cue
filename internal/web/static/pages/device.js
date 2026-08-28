@@ -12,6 +12,7 @@
 
 import { h, clear } from "../dom.js";
 import { api } from "../api.js";
+import { warnBeforeLeaving } from "../leaving.js";
 import { field, checkbox, secondsOf, choice, searchable } from "./content.js";
 
 // settingsPage builds one of these pages from the cards it should carry.
@@ -24,6 +25,16 @@ function settingsPage(wanted) {
   let timezones = [];
   let status = null;
 
+  // The configuration as it was when it arrived, or as it was last saved.
+  // Everything about whether there is anything to save is decided by comparing
+  // against this rather than by watching for edits: a field that is typed into
+  // and then typed back is not a change, and offering to discard nothing is a
+  // button that does nothing.
+  let asItArrived = "";
+  const changed = () => JSON.stringify(configuration) !== asItArrived;
+
+  warnBeforeLeaving(() => changed());
+
   const load = async () => {
     clear(body);
     body.append(h("p", { class: "dim", text: "Loading…" }));
@@ -31,6 +42,7 @@ function settingsPage(wanted) {
       [configuration, status, timezones] = await Promise.all([
         api.configuration(), api.status(), api.timezones().catch(() => []),
       ]);
+      asItArrived = JSON.stringify(configuration);
       draw();
     } catch (error) {
       clear(body);
@@ -41,6 +53,7 @@ function settingsPage(wanted) {
   const save = async () => {
     try {
       configuration = await api.saveConfiguration(configuration);
+      asItArrived = JSON.stringify(configuration);
       // The shell keeps the name — it is in the header and in the browser tab
       // — and would otherwise show the old one until somebody reloaded.
       window.dispatchEvent(new CustomEvent("device-renamed", {
@@ -74,9 +87,22 @@ function settingsPage(wanted) {
     body.append(...wanted.map((name) => cards[name]()));
 
     if (wanted.some((name) => name !== "log" && name !== "actions")) {
-      body.append(h("div", { class: "actions" },
-        h("button", { class: "primary", onClick: save }, "Save"),
-        h("button", { onClick: load }, "Discard changes")));
+      const saveButton = h("button", { class: "primary", onClick: save }, "Save");
+      const discardButton = h("button", { onClick: load }, "Discard changes");
+
+      // Both follow whether there is anything to act on. Watching for input
+      // rather than redrawing on every keystroke: redrawing would take the
+      // cursor out of the field somebody is typing in.
+      const followTheForm = () => {
+        const anything = changed();
+        saveButton.disabled = !anything;
+        discardButton.hidden = !anything;
+      };
+      followTheForm();
+      body.addEventListener("input", followTheForm);
+      body.addEventListener("change", followTheForm);
+
+      body.append(h("div", { class: "actions" }, saveButton, discardButton));
     }
   }
 
