@@ -186,6 +186,25 @@ RUN set -eux; \
 # ---------------------------------------------------------------------------
 FROM gcr.io/distroless/base-debian13:latest AS runtime
 
+# The build arguments are declared again because each stage gets its own, and
+# the labels below are written in this one.
+ARG VERSION=0.0.0-dev
+ARG COMMIT=unknown
+
+# Where this image came from and what is in it. The source label is the one
+# that does work rather than decorate: a registry uses it to tie the image back
+# to its repository, which is what puts the package on the repository's own
+# page and lets it take the repository's visibility instead of being published
+# private and unreachable by everybody the README tells to pull it.
+LABEL org.opencontainers.image.source="https://github.com/ziyan/cue" \
+      org.opencontainers.image.url="https://github.com/ziyan/cue" \
+      org.opencontainers.image.documentation="https://github.com/ziyan/cue#readme" \
+      org.opencontainers.image.title="cue" \
+      org.opencontainers.image.description="Turn a headless Linux machine with a screen attached into a managed display." \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}"
+
 COPY --from=rootfs /rootfs /
 COPY --from=daemon /cue /usr/local/bin/cue
 

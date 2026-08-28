@@ -8,6 +8,18 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Added
 
+- The image says where it came from. It carried no metadata at all, so a
+  registry had nothing to tie it back to this repository and a person holding
+  it had no way to find the source. It now carries the standard OCI labels,
+  including `org.opencontainers.image.source`, which is the one a registry
+  reads to link the package to its repository — and a linked package can take
+  the repository's visibility instead of being published private, which is how
+  the first release ended up with an image that nobody following the README
+  could pull.
+
+
+### Added
+
 - The image is published to Docker Hub as well as the GitHub registry, as
   `ziyan/cue:latest` and `ziyan/cue:v<version>`. A device that pulls by name
   no longer has to be told about a second registry first. Docker Hub is
