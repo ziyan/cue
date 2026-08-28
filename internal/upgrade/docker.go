@@ -311,3 +311,40 @@ func OwnContainerID() (string, error) {
 	}
 	return "", fmt.Errorf("cannot tell which container this is; is this running in Docker?")
 }
+
+// LastWords is the tail of a container's output, for saying why it failed.
+//
+// A helper that exits immediately takes its reason with it unless somebody
+// reads it, and the reason is usually one line -- "No help topic for
+// upgrade-swap" was the first one, and knowing that would have saved an
+// afternoon.
+func (self *Docker) LastWords(ctx context.Context, container string) string {
+	path := fmt.Sprintf("/containers/%s/logs?stdout=true&stderr=true&tail=10",
+		url.PathEscape(container))
+	response, err := self.do(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 8<<10))
+	if err != nil {
+		return ""
+	}
+
+	// Docker frames log output with an eight byte header per chunk when the
+	// container has no TTY. Anything below a space is dropped rather than
+	// parsed: this is for showing a person a sentence, not for reading a
+	// stream exactly.
+	cleaned := make([]rune, 0, len(raw))
+	for _, letter := range string(raw) {
+		if letter == '\n' {
+			cleaned = append(cleaned, ' ')
+			continue
+		}
+		if letter >= ' ' {
+			cleaned = append(cleaned, letter)
+		}
+	}
+	return strings.TrimSpace(strings.Join(strings.Fields(string(cleaned)), " "))
+}

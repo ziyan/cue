@@ -20,6 +20,9 @@ type upgradeAnswer struct {
 	// Image is where a newer one would come from, so that somebody upgrading
 	// by hand does not have to guess.
 	Image string `json:"image,omitempty"`
+	// Progress is what an upgrade is doing, if one is, and why the last one
+	// failed if it did.
+	Progress upgradeProgress `json:"progress"`
 }
 
 // upgradeState answers what is known about newer releases.
@@ -50,5 +53,6 @@ func (self *Server) upgradeState(response http.ResponseWriter, request *http.Req
 		CanApply: canApply,
 		WhyNot:   whyNot,
 		Image:    upgrade.ImageFor(state.Latest),
+		Progress: self.upgradeNow(),
 	})
 }

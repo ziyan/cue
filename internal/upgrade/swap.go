@@ -20,11 +20,24 @@ import (
 // must still be a screen: the alternative is a dark display on a wall in a
 // building whose owner cannot reach it except by walking there.
 //
-// The helper is built from the *new* image on purpose. The code that performs
-// the swap is then the code being upgraded to, so a bug fixed in the new
-// release is fixed for the upgrade that installs it -- and the older the
-// release somebody is upgrading from, the more likely its own swap code is the
-// broken part.
+// The helper is built from the image this daemon is *already running*, and
+// that is a reversal worth explaining.
+//
+// It was built from the new image, on the reasoning that the code performing
+// the swap should be the code being installed: a bug fixed in the new release
+// would then be fixed for the upgrade that installs it. That reasoning is
+// sound and the design did not work, because it assumes the new image knows
+// how to do this. The first device to try it upgraded to a release published
+// before any of this existed: the helper started, said "No help topic for
+// upgrade-swap", exited, and was removed by AutoRemove. Nothing was swapped
+// and nothing was reported. Every release older than this feature does that,
+// and so does anything somebody pins deliberately.
+//
+// The running image is the one image known to be able to do this, because it
+// is doing it. The cost is real and is the other side of the same coin: a bug
+// in the swap code here can only be fixed for upgrades that start from a later
+// version. That is the lesser failure -- it affects devices already on a bad
+// version rather than every device upgrading to a good one.
 
 // helperSuffix names the container that does the work, and the one the old
 // container is renamed to while the new one is tried.
@@ -42,13 +55,18 @@ const howLongToStop = 30 * time.Second
 var howLongToProveItself = 2 * time.Minute
 
 // StartHelper creates and starts the container that performs the swap, and
-// returns once it is running. The caller is about to be stopped by it.
-func StartHelper(ctx context.Context, docker *Docker, ownContainer, image, socket string) error {
+// returns its name once it is running. The caller is about to be stopped by
+// it.
+//
+// helperImage is what the helper is built from -- this daemon's own image --
+// and image is what the device is being upgraded to.
+func StartHelper(ctx context.Context, docker *Docker, ownContainer, helperImage, image, socket string) (string, error) {
+	name := helperName(ownContainer)
 	// Anything left from a previous attempt would take the name.
-	_ = docker.Remove(ctx, helperName(ownContainer), true)
+	_ = docker.Remove(ctx, name, true)
 
 	spec := map[string]interface{}{
-		"Image": image,
+		"Image": helperImage,
 		"Cmd": []string{
 			"upgrade-swap",
 			"--container", ownContainer,
@@ -65,22 +83,25 @@ func StartHelper(ctx context.Context, docker *Docker, ownContainer, image, socke
 			// The host's network namespace, for the same reason: the health
 			// check is an HTTP request to this machine's own interface.
 			"NetworkMode": "host",
-			// It has one job and should not survive it.
-			"AutoRemove": true,
+			// Deliberately not AutoRemove. A helper that fails takes its
+			// reason with it when it disappears, and the first one to fail
+			// did exactly that: it exited immediately, was removed, and left
+			// nobody any the wiser about why the screen had not changed.
+			// Whoever started it removes it once it has been read.
 			"RestartPolicy": map[string]interface{}{
 				"Name": "no",
 			},
 		},
 	}
 
-	id, err := docker.CreateWith(ctx, helperName(ownContainer), spec)
+	id, err := docker.CreateWith(ctx, name, spec)
 	if err != nil {
-		return fmt.Errorf("cannot create the container that would do the upgrade: %w", err)
+		return "", fmt.Errorf("cannot create the container that would do the upgrade: %w", err)
 	}
 	if err := docker.Start(ctx, id); err != nil {
-		return fmt.Errorf("cannot start the container that would do the upgrade: %w", err)
+		return "", fmt.Errorf("cannot start the container that would do the upgrade: %w", err)
 	}
-	return nil
+	return name, nil
 }
 
 // Swap is what the helper runs. It replaces one container with another built
@@ -197,7 +218,11 @@ func helperName(container string) string {
 // part most likely to fail -- a gigabyte and a half over whatever connection a
 // building has -- and a failure here has changed nothing at all: no container
 // has been touched, and the page can say so and offer to try again.
-func Begin(ctx context.Context, socket, image string) error {
+func Begin(ctx context.Context, socket, image string, saying func(string)) error {
+	if saying == nil {
+		saying = func(string) {}
+	}
+
 	docker := NewDocker(socket)
 	if err := docker.Ping(ctx); err != nil {
 		return fmt.Errorf("cannot reach Docker on %s: %w", socket, err)
@@ -207,15 +232,64 @@ func Begin(ctx context.Context, socket, image string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := docker.Inspect(ctx, own); err != nil {
+	details, err := docker.Inspect(ctx, own)
+	if err != nil {
 		return fmt.Errorf("cannot read this container: %w", err)
 	}
+	if details.Image == "" {
+		return fmt.Errorf("cannot tell which image this container is running")
+	}
 
+	saying("Fetching " + image)
 	log.Noticef("fetching %s", image)
 	if err := docker.Pull(ctx, image); err != nil {
 		return err
 	}
 
-	log.Noticef("handing over to a helper built from %s", image)
-	return StartHelper(ctx, docker, own, image, socket)
+	saying("Replacing the container")
+	log.Noticef("handing over to a helper")
+	helper, err := StartHelper(ctx, docker, own, details.Image, image, socket)
+	if err != nil {
+		return err
+	}
+
+	// Watch it, rather than assuming. This daemon is about to be stopped by
+	// that helper, so ordinarily this loop simply ends with the process. If it
+	// does not -- if the helper exits without replacing anything -- somebody
+	// needs to be told why, and the first time this failed nobody was.
+	return watchHelper(ctx, docker, helper)
+}
+
+// watchHelper waits for the helper to do its work or to die trying.
+//
+// Returning nil means the helper is still going, which is the ordinary
+// outcome: this process is stopped partway through and never returns at all.
+func watchHelper(ctx context.Context, docker *Docker, helper string) error {
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(2 * time.Second):
+		}
+
+		details, err := docker.Inspect(ctx, helper)
+		if err != nil {
+			// Gone. Somebody removed it, or Docker did; either way there is
+			// nothing left to read and nothing useful to say.
+			return nil
+		}
+		if details.State.Running {
+			continue
+		}
+
+		// It stopped without stopping us, which means it did not do the job.
+		reason := docker.LastWords(ctx, helper)
+		_ = docker.Remove(ctx, helper, true)
+		if reason == "" {
+			reason = "it stopped without saying why"
+		}
+		return fmt.Errorf("the upgrade did not happen: %s", reason)
+	}
+	return nil
 }

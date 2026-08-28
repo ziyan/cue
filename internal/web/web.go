@@ -15,7 +15,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -128,9 +128,13 @@ type Server struct {
 	// and the Upgrade page says so rather than pretending to be up to date.
 	upgrades *upgrade.Checker
 
-	// Whether an upgrade is already under way. Two at once is not a slow
-	// upgrade but a dead device: see applyUpgrade.
-	upgradeRunning atomic.Bool
+	// What an upgrade is doing, if one is. Two at once is not a slow upgrade
+	// but a dead device: see applyUpgrade. Kept rather than merely counted so
+	// that the page can say what is happening -- an upgrade takes minutes, and
+	// a page that shows the button again while one is running invites somebody
+	// to press it a second time.
+	upgradeMutex    sync.Mutex
+	upgradeProgress upgradeProgress
 
 	router   *mux.Router
 	listener net.Listener

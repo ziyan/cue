@@ -146,7 +146,9 @@ func TestOnlyOneUpgradeRunsAtATime(t *testing.T) {
 
 	// As if one were already under way. Starting a real one here would need a
 	// Docker daemon and would try to replace this test's own container.
-	server.upgradeRunning.Store(true)
+	if !server.claimUpgrade("9.9.9") {
+		t.Fatal("could not claim the upgrade")
+	}
 
 	response := do(server, "POST", "/api/v1/upgrade", nil, session)
 	if response.Code != http.StatusConflict {
@@ -197,7 +199,9 @@ func TestTheReasonGivenIsTheRealOne(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	server = server.WithUpgrades(upgrade.NewChecker(upgrade.Repository, "0.1.0"))
 	session := signedIn(t, server)
-	server.upgradeRunning.Store(true)
+	if !server.claimUpgrade("9.9.9") {
+		t.Fatal("could not claim the upgrade")
+	}
 
 	// This device has no socket and no allowApply, which is the more useful
 	// thing to say.
@@ -207,5 +211,53 @@ func TestTheReasonGivenIsTheRealOne(t *testing.T) {
 	}
 	if response.Code != http.StatusForbidden {
 		t.Errorf("answered %d, want %d", response.Code, http.StatusForbidden)
+	}
+}
+
+// An upgrade takes minutes and takes the screen away in the middle of them.
+// A page that cannot say one is running shows the button again on every
+// reload, which is an invitation to press it twice -- and twice is the one
+// thing that must not happen.
+func TestThePageCanTellAnUpgradeIsRunning(t *testing.T) {
+	server := readyToUpgradeServer(t)
+	session := signedIn(t, server)
+
+	if !server.claimUpgrade("9.9.9") {
+		t.Fatal("could not claim the upgrade")
+	}
+	server.upgradeSaying("Fetching the image")
+
+	body := do(server, "GET", "/api/v1/upgrade", nil, session).Body.String()
+	for _, expected := range []string{`"running":true`, `"version":"9.9.9"`, `"stage":"Fetching the image"`} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("the page cannot see %s: %s", expected, body)
+		}
+	}
+}
+
+// And when one fails, the reason stays. Somebody who reloads afterwards must
+// find out what happened rather than an interface that looks as though nothing
+// was ever tried -- which is exactly what the first failed attempt looked
+// like.
+func TestAFailedUpgradeSaysSoAfterwards(t *testing.T) {
+	server := readyToUpgradeServer(t)
+	session := signedIn(t, server)
+
+	if !server.claimUpgrade("9.9.9") {
+		t.Fatal("could not claim the upgrade")
+	}
+	server.upgradeFailed("the upgrade did not happen: No help topic for 'upgrade-swap'")
+
+	body := do(server, "GET", "/api/v1/upgrade", nil, session).Body.String()
+	if !strings.Contains(body, `"running":false`) {
+		t.Errorf("it still says an upgrade is running: %s", body)
+	}
+	if !strings.Contains(body, "No help topic") {
+		t.Errorf("the reason was lost: %s", body)
+	}
+
+	// And the claim is back, so somebody can try again.
+	if !server.claimUpgrade("9.9.9") {
+		t.Error("a failed upgrade kept the claim, so nobody can try again")
 	}
 }

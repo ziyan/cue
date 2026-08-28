@@ -32,7 +32,7 @@ func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Req
 		return
 	}
 
-	if !self.upgradeRunning.CompareAndSwap(false, true) {
+	if !self.claimUpgrade(state.Latest) {
 		writeError(response, http.StatusConflict, "an upgrade is already under way on this device")
 		return
 	}
@@ -50,47 +50,41 @@ func (self *Server) applyUpgrade(response http.ResponseWriter, request *http.Req
 	go func() {
 		defer cancel()
 
-		// The hold on the playlist expires if nobody renews it, which is what
-		// stops a lost request freezing a screen for ever -- and an upgrade
-		// takes minutes, which is longer than that. So it is renewed here for
-		// as long as this goes on. The page on the screen cannot do it: it is
-		// deliberately a page that fetches nothing, because the daemon serving
-		// it is about to stop.
-		// Renewed until this container stops, which is how the upgrade ends.
-		// Not stopped when Begin returns: Begin returns as soon as the helper
-		// is running, and the helper still has to stop this container. If the
-		// renewal stopped there, a slow handover would let the hold lapse and
-		// the playlist would rotate the "updating" page off the screen while
-		// the upgrade was still going on.
+		// Renewed until this container stops, which is how an upgrade ends.
+		// The hold on the playlist expires if nobody renews it -- that is what
+		// stops a lost request freezing a display for ever -- and an upgrade
+		// takes longer than that. The page shown on the screen cannot do the
+		// renewing itself: it deliberately fetches nothing, because the daemon
+		// serving it is about to stop.
 		stopHolding := self.keepHolding(ctx)
 
-		// If the helper starts and then fails, it puts the old container back
-		// and this process carries on running -- with the flag above still
-		// set, refusing every further attempt until somebody restarts the
-		// daemon. So the claim is given up after long enough that a real
-		// upgrade would have stopped this process instead.
-		go func() {
-			select {
-			case <-ctx.Done():
-			case <-time.After(15 * time.Minute):
-			}
-			if self.upgradeRunning.Swap(false) {
-				log.Warningf("the upgrade to %s did not replace this container; "+
-					"letting somebody try again", state.Latest)
-			}
-		}()
-
-		if err := upgrade.Begin(ctx, upgrade.SocketPath, image); err != nil {
-			log.Errorf("the upgrade to %s did not start: %s", state.Latest, err)
+		if err := upgrade.Begin(ctx, upgrade.SocketPath, image, self.upgradeSaying); err != nil {
+			log.Errorf("the upgrade to %s did not happen: %s", state.Latest, err)
+			self.upgradeFailed(err.Error())
+			stopHolding()
 			// Nothing is going to happen now, so let the screen go back to
 			// what it was showing: a display stuck on "updating" for ever is
-			// worse than one that never said anything. And let somebody try
-			// again.
-			self.upgradeRunning.Store(false)
-			stopHolding()
+			// worse than one that never said anything.
 			if browser := self.device.Browser(); browser != nil {
 				browser.Release()
 			}
+			return
+		}
+
+		// Begin came back with the helper still working, which means this
+		// process is about to be stopped by it and nothing below will run.
+		// If it does run, the helper never finished the job -- so say so and
+		// let somebody try again, rather than refusing every further attempt
+		// until the daemon is restarted.
+		select {
+		case <-ctx.Done():
+		case <-time.After(10 * time.Minute):
+		}
+		log.Warningf("the upgrade to %s never replaced this container", state.Latest)
+		self.upgradeFailed("the upgrade started but never replaced this container")
+		stopHolding()
+		if browser := self.device.Browser(); browser != nil {
+			browser.Release()
 		}
 	}()
 

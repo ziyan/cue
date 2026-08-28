@@ -14,6 +14,15 @@ export function upgrade(main) {
   const body = h("div");
   main.append(body);
 
+  // While an upgrade is running the page asks again every few seconds, so that
+  // the stage moves and the button does not come back. Cleared when the page
+  // is left, or it goes on polling a daemon nobody is looking at.
+  let watching = null;
+  const stopWatching = () => {
+    if (watching) clearInterval(watching);
+    watching = null;
+  };
+
   const load = async () => {
     clear(body);
     body.append(h("p", { class: "dim", text: "Looking…" }));
@@ -27,6 +36,33 @@ export function upgrade(main) {
 
   const draw = (state) => {
     clear(body);
+
+    const progress = state.progress || {};
+
+    // An upgrade in progress is the whole page. Nothing else on it can be
+    // acted on while the device is replacing itself, and showing the button
+    // again is how somebody presses it twice.
+    if (progress.running) {
+      if (!watching) watching = setInterval(quietly, 3000);
+      body.append(h("div", { class: "card" },
+        h("h2", { text: `Updating to ${progress.version || state.latest}` }),
+        h("p", { class: "lead", text: progress.stage || "Working" }),
+        h("p", { class: "dim", text: progress.startedAt ? `Started ${when(progress.startedAt)}` : "" }),
+        h("div", { class: "bar" }, h("i")),
+        h("p", { class: "dim", text: "The screen goes blank and comes back on its own. This page stops answering while the daemon restarts — it will come back too." })));
+      return;
+    }
+
+    stopWatching();
+
+    // A failed attempt is worth saying on the way in, rather than showing an
+    // interface that looks as though nothing was ever tried.
+    if (progress.trouble) {
+      body.append(h("div", { class: "card" },
+        h("h2", { text: "The last update did not finish" }),
+        h("div", { class: "notice bad", text: progress.trouble }),
+        h("p", { class: "dim", text: "This device is still running what it was running before." })));
+    }
 
     body.append(h("div", { class: "card" },
       h("h2", { text: "This device" }),
@@ -119,11 +155,22 @@ export function upgrade(main) {
     h("pre", { class: "commands", text: `docker pull ${state.image}` }),
     h("p", { class: "dim", text: "then start it again with the same flags as before, using the new image." }));
 
+  // quietly refreshes without the "Looking…" flicker, for the poll.
+  const quietly = async () => {
+    try {
+      draw(await api.upgrade());
+    } catch (error) {
+      // A daemon that has stopped answering is the ordinary case here: it is
+      // being replaced. Keep the last thing shown rather than replacing it
+      // with an error somebody would read as a failure.
+    }
+  };
+
   const link = (url) => h("p", {},
     h("a", { href: url, target: "_blank", rel: "noreferrer noopener", text: "Read it on GitHub" }));
 
   load();
-  return () => {};
+  return stopWatching;
 }
 
 // notes turns the release body into elements. Three shapes, because those are

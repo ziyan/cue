@@ -247,6 +247,19 @@ label.inline input { width: auto; }
   border-radius: 8px; padding: 0.6rem 0.85rem; margin: 0.35rem 0 0.75rem;
   overflow-x: auto; white-space: pre; font-size: 0.85rem; }
 
+/* A bar that says something is happening without claiming to know how far
+   along it is. The daemon reports stages, not percentages: Docker's pull
+   progress is per layer and adding up to a number that goes backwards is
+   worse than not having one. */
+.bar { margin: 0.75rem 0; height: 4px; width: 100%; max-width: 22rem;
+  background: var(--surface-sunken); border-radius: 2px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 35%; background: var(--accent);
+  border-radius: 2px; animation: cue-sweep 1.8s ease-in-out infinite; }
+@keyframes cue-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
 /* --- tables --------------------------------------------------------------- */
 
 table { width: 100%; border-collapse: collapse; }
