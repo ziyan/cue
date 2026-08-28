@@ -6,6 +6,8 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-28
+
 ### Added
 
 - The image is published to Docker Hub as well as the GitHub registry, as
