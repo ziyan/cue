@@ -41,7 +41,14 @@ type pullRequest struct {
 func entriesFromPullRequests(since string) (map[string][]string, error) {
 	repository := os.Getenv("GITHUB_REPOSITORY")
 	token := firstOf(os.Getenv("GH_TOKEN"), os.Getenv("GITHUB_TOKEN"))
-	if repository == "" || token == "" {
+	if why := whyNotReadingPullRequests(repository, token); why != "" {
+		// Said out loud, because the silence here hid a broken release. The
+		// workflow ran this without a token in its environment, so no
+		// descriptions were read, so there were no entries -- and a release
+		// with no entries is a legitimate outcome that fails nothing. It
+		// reported "nothing under Unreleased", which was true and was not the
+		// reason.
+		fmt.Fprintf(os.Stderr, "cut: not reading pull request descriptions: %s\n", why)
 		return nil, nil
 	}
 
@@ -73,6 +80,24 @@ func entriesFromPullRequests(since string) (map[string][]string, error) {
 		}
 	}
 	return entries, nil
+}
+
+// whyNotReadingPullRequests explains what is missing, or returns empty when
+// nothing is. On a laptop this is the ordinary case and the answer comes from
+// the Unreleased section instead; in a workflow it means the release is about
+// to be wrong.
+func whyNotReadingPullRequests(repository, token string) string {
+	switch {
+	case repository == "" && token == "":
+		return "no GITHUB_REPOSITORY and no GH_TOKEN or GITHUB_TOKEN in the environment"
+	case repository == "":
+		return "no GITHUB_REPOSITORY in the environment"
+	case token == "":
+		return "no GH_TOKEN or GITHUB_TOKEN in the environment; " +
+			"a workflow step needs one passed to it explicitly"
+	default:
+		return ""
+	}
 }
 
 // mergedPullRequest matches the way a squashed merge names itself: the subject
