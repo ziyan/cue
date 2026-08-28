@@ -141,6 +141,9 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
+			// Said every twenty seconds while the menu is open, so that a menu
+			// that dies without closing cannot leave the screen still for ever.
+			call == "/api/v1/playlist/keep",
 			call == "/api/v1/wireless/reset":
 		default:
 			t.Errorf("the menu calls %q, which is neither an action nor the network", call)
@@ -687,5 +690,23 @@ func TestADeviceWithNoPasswordIsAskedToChooseOne(t *testing.T) {
 	// Twice, so that a mistyped one is not the password from then on.
 	if !strings.Contains(body, `id="word-again"`) {
 		t.Error("the new password is asked for only once")
+	}
+}
+
+// The mark is added to every page the browser shows, and the menu is a page
+// the browser shows. Without this it appeared on the menu itself, where
+// pressing it opened a second menu over the first.
+func TestTheMarkDoesNotAppearOnTheMenuItself(t *testing.T) {
+	script := newTestServer(t, config.Default()).WayBackScript()
+
+	for _, page := range []string{"/menu", "/upgrading"} {
+		if !strings.Contains(script, page) {
+			t.Errorf("the script does not exclude %s, so the mark appears there", page)
+		}
+	}
+	// It must still install itself on the pages the screen actually shows,
+	// including the daemon's own player.
+	if !strings.Contains(script, "location.href.indexOf") {
+		t.Error("the exclusion is not written as a check on the address")
 	}
 }

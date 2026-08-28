@@ -233,6 +233,19 @@ func (self *Browser) rotate(ctx context.Context) {
 func (self *Browser) Hold() {
 	self.mutex.Lock()
 	self.holds++
+	self.heldSince = time.Now()
+	self.mutex.Unlock()
+}
+
+// KeepHolding says the thing holding the playlist is still there.
+//
+// The menu says this every so often while it is open, and that is what makes
+// the hold safe: a hold nobody renews is dropped. See held.
+func (self *Browser) KeepHolding() {
+	self.mutex.Lock()
+	if self.holds > 0 {
+		self.heldSince = time.Now()
+	}
 	self.mutex.Unlock()
 }
 
@@ -249,11 +262,41 @@ func (self *Browser) Release() {
 	self.mutex.Unlock()
 }
 
+// longestHold is how long a hold lasts without being renewed.
+//
+// A hold stops the screen changing, and every hold is asked for by a page --
+// which means every hold depends on that page living long enough to give it
+// back. That is not something to rely on. The menu released the playlist and
+// closed its own tab in the same breath, and closing the tab cancelled the
+// request that was still in flight: the hold was never given back, the screen
+// stopped rotating, and it stayed stopped. A wall display that freezes until
+// somebody walks over to it is the worst outcome this program has, and it
+// should not be one lost HTTP request away.
+//
+// So a hold expires. The menu renews it while it is open, which costs one
+// request every twenty seconds and means the screen can never be still for
+// more than this long by accident.
+const longestHold = 90 * time.Second
+
 // held reports whether the playlist is being kept still.
+//
+// A hold that has not been renewed within longestHold is dropped, whatever the
+// count says: whoever asked for it is gone.
 func (self *Browser) held() bool {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
-	return self.holds > 0
+
+	if self.holds == 0 {
+		return false
+	}
+	if time.Since(self.heldSince) > longestHold {
+		log.Warningf("nothing has renewed the hold on the playlist for %s, so it is being let go; "+
+			"the page that asked for it has probably gone", longestHold)
+		self.holds = 0
+		self.currentSince = time.Now()
+		return false
+	}
+	return true
 }
 
 // currentDuration is how long the item now on screen should stay there.

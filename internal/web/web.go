@@ -305,6 +305,7 @@ func (self *Server) addRoutes() {
 	self.router.Path("/upgrading").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.upgrading))
 	api.Path("/playlist/hold").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
+	api.Path("/playlist/keep").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuReload))
 	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuRestart))
 	api.Path("/menu/network").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menuNetwork))

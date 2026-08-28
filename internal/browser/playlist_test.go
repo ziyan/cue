@@ -204,3 +204,60 @@ func TestAnUnsetMenuAddressDoesNotMatchEveryWindow(t *testing.T) {
 		}
 	}
 }
+
+// A hold stops the screen changing, and every hold is asked for by a page --
+// so every hold depends on that page living long enough to give it back.
+//
+// It did not. The menu released the playlist and closed its own tab in the
+// same breath, which cancelled the request still in flight: the hold was never
+// returned and the display stopped rotating until somebody restarted the
+// daemon. A wall display frozen until somebody walks to it is the worst thing
+// this program can do, and it must not be one lost request away.
+func TestAHoldNobodyRenewsIsLetGo(t *testing.T) {
+	browser := newTestBrowser(t, nil)
+
+	browser.Hold()
+	if !browser.held() {
+		t.Fatal("asking for a hold did not hold the playlist")
+	}
+
+	// As if whoever asked has been gone for longer than the limit.
+	browser.mutex.Lock()
+	browser.heldSince = time.Now().Add(-longestHold - time.Second)
+	browser.mutex.Unlock()
+
+	if browser.held() {
+		t.Error("a hold nobody renewed still holds the screen, so it stays frozen")
+	}
+	browser.mutex.Lock()
+	remaining := browser.holds
+	browser.mutex.Unlock()
+	if remaining != 0 {
+		t.Errorf("the abandoned hold is still counted: %d", remaining)
+	}
+}
+
+// And a hold that is being renewed must go on holding, or the menu would be
+// rotated out from under somebody reading it -- which is what holds are for.
+func TestARenewedHoldKeepsHolding(t *testing.T) {
+	browser := newTestBrowser(t, nil)
+
+	browser.Hold()
+	browser.mutex.Lock()
+	browser.heldSince = time.Now().Add(-longestHold + 5*time.Second)
+	browser.mutex.Unlock()
+
+	browser.KeepHolding()
+	if !browser.held() {
+		t.Error("renewing the hold did not keep the screen still")
+	}
+}
+
+// Renewing something nobody is holding must not start holding it.
+func TestRenewingNothingHoldsNothing(t *testing.T) {
+	browser := newTestBrowser(t, nil)
+	browser.KeepHolding()
+	if browser.held() {
+		t.Error("renewing a hold that was never asked for holds the screen")
+	}
+}

@@ -35,6 +35,10 @@ type Browser struct {
 	// the menu on the screen does while somebody has it open.
 	holds int
 
+	// heldSince is when a hold was last asked for or renewed. A hold nobody
+	// renews is dropped: see longestHold.
+	heldSince time.Time
+
 	// OnEveryPage is a script added to every tab, now and on every page they
 	// visit afterwards. It carries the control that puts this device back into
 	// setup, which has to be reachable from whatever is on the screen.

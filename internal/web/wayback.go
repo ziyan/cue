@@ -61,6 +61,18 @@ const wayBackScriptTemplate = `
   var MENU = "__MENU__";
   var MARK = "__MARK__";
 
+  // Not on the daemon's own pages that are not playlist items. The mark is put
+  // on every page the browser shows, and the menu is a page the browser shows,
+  // so the menu got one too -- and pressing it opened a second menu on top of
+  // the first. The page that says the screen is being updated is excluded for
+  // the same reason: there is nothing useful to do from it, and it is about to
+  // be taken away.
+  var OWN = MENU.replace(/\/menu$/, "");
+  if (location.href.indexOf(OWN + "/menu") === 0 ||
+      location.href.indexOf(OWN + "/upgrading") === 0) {
+    return;
+  }
+
   var mark = null, idle = null;
 
   function make() {

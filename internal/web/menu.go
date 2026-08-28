@@ -109,9 +109,12 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "there is no browser to hold")
 		return
 	}
-	if strings.HasSuffix(request.URL.Path, "/release") {
+	switch {
+	case strings.HasSuffix(request.URL.Path, "/release"):
 		browser.Release()
-	} else {
+	case strings.HasSuffix(request.URL.Path, "/keep"):
+		browser.KeepHolding()
+	default:
 		browser.Hold()
 	}
 	writeJSON(response, http.StatusOK, map[string]interface{}{"held": true})
@@ -635,6 +638,14 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
   send("/api/v1/playlist/hold", { method: "POST" }).catch(() => {});
 
+  // Said again every so often for as long as this page is open. The daemon
+  // lets the playlist go if nobody says it, so a menu that dies without
+  // closing -- a crashed tab, a browser restarted underneath it, a request
+  // that never arrived -- cannot leave the screen still for ever.
+  const keepHolding = setInterval(() => {
+    send("/api/v1/playlist/keep", { method: "POST" }).catch(() => {});
+  }, 20000);
+
   // A device that has been set up asks for its password before it will do
   // anything. Being in the room was enough when there was nobody to ask; it is
   // not once somebody has said this screen is theirs.
@@ -712,7 +723,12 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   }
 
   function close() {
-    send("/api/v1/playlist/release", { method: "POST" }).catch(() => {});
+    clearInterval(keepHolding);
+    // keepalive, both of them, and this is the whole reason the screen froze
+    // the first time: closing the tab in the next breath cancels a request
+    // that is still in flight, so the playlist was never let go and the
+    // display stopped changing until somebody restarted it.
+    send("/api/v1/playlist/release", { method: "POST", keepalive: true }).catch(() => {});
     // The pass dies with the menu. Until this call the daemon would go on
     // accepting it for another quarter of an hour, which is the backstop for
     // a menu nobody closes -- not the ordinary way out.
