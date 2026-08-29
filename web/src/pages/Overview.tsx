@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
@@ -90,16 +91,26 @@ function OnTheScreen({ status }: { status: Status }) {
       {!everArrived && (
         <Alert severity="info" sx={{ mb: 1.5 }}>No picture yet — the browser is still starting.</Alert>
       )}
+      {/* The picture is the obvious thing to press when what you want is to
+          drive the screen, so it goes there. */}
       <Box
-        component="img"
-        ref={image}
-        alt="What the screen is showing"
-        sx={{
-          width: "100%", display: everArrived ? "block" : "none",
-          borderRadius: 1, border: 1, borderColor: "divider",
-          opacity: stale ? 0.5 : 1, transition: "opacity 0.2s ease", mb: 1.5,
-        }}
-      />
+        component={Link}
+        to="/screen"
+        title="Open the screen"
+        sx={{ display: everArrived ? "block" : "none", mb: 1.5 }}
+      >
+        <Box
+          component="img"
+          ref={image}
+          alt="What the screen is showing"
+          sx={{
+            width: "100%", display: "block",
+            borderRadius: 1, border: 1, borderColor: "divider",
+            opacity: stale ? 0.5 : 1, transition: "opacity 0.2s ease, border-color 0.2s ease",
+            "&:hover": { borderColor: "primary.main" },
+          }}
+        />
+      </Box>
       <Readout label="Showing">{showing}</Readout>
       {status.browser.currentUrl && (
         <Readout label="Address" mono>{status.browser.currentUrl}</Readout>
