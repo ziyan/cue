@@ -27,6 +27,7 @@ import (
 	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/upgrade"
@@ -137,6 +138,10 @@ type Server struct {
 	// lasts as long as the page does. See pass.go.
 	passes *passes
 
+	// What is telling the service about this screen. Nil until the daemon
+	// hands one over, and on any build without one.
+	reporter *service.Reporter
+
 	// What is known about newer releases. Nil on a daemon built without one,
 	// and the Upgrade page says so rather than pretending to be up to date.
 	upgrades *upgrade.Checker
@@ -174,6 +179,15 @@ func New(store *config.Store, device Device) *Server {
 // honest; the alternative is a page that looks like "you are up to date".
 func (self *Server) WithUpgrades(checker *upgrade.Checker) *Server {
 	self.upgrades = checker
+	return self
+}
+
+// WithReporter gives the server what is telling the service about this screen,
+// so the interface can say whether it is getting through. Without one the
+// Service page simply does not mention reporting, which is what a build with
+// no reporter should show.
+func (self *Server) WithReporter(reporter *service.Reporter) *Server {
+	self.reporter = reporter
 	return self
 }
 

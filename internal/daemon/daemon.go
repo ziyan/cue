@@ -8,8 +8,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image/jpeg"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -28,10 +30,12 @@ import (
 	"github.com/ziyan/cue/internal/network"
 	setupnetwork "github.com/ziyan/cue/internal/network/onboarding"
 	"github.com/ziyan/cue/internal/onboarding"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/upgrade"
 	"github.com/ziyan/cue/internal/util/deferutil"
+	"github.com/ziyan/cue/internal/util/picture"
 	"github.com/ziyan/cue/internal/util/reaper"
 	"github.com/ziyan/cue/internal/version"
 	"github.com/ziyan/cue/internal/vncserver"
@@ -54,6 +58,7 @@ type Daemon struct {
 	onboarding *onboarding.Onboarding
 	uploads    *media.Store
 	linker     *link.Linker
+	reporter   *service.Reporter
 	upgrades   *upgrade.Checker
 
 	// When this device last had an address that reached something, and when
@@ -294,6 +299,14 @@ func (self *Daemon) Run(ctx context.Context) error {
 	self.upgrades = upgrade.NewChecker(upgrade.Repository, version.Version())
 	self.web = self.web.WithUpgrades(self.upgrades)
 	go self.upgrades.Run(ctx)
+
+	// Telling the service what is on the screen, for as long as this device is
+	// linked to an account. A device that is not linked has no credential and
+	// nothing to say, and this sits idle: there is no separate setting,
+	// because being linked is the choice somebody already made.
+	self.reporter = service.New(self.store, self.photograph)
+	self.reporter.Start(ctx)
+	self.web = self.web.WithReporter(self.reporter)
 
 	// Clear away the container that replaced this one, if that is how this
 	// daemon came to be running. The helper is left behind on purpose so that
@@ -887,4 +900,43 @@ func (self *Daemon) ForgetWireless() error {
 // Linker attaches this device to an account on the hosted service.
 func (self *Daemon) Linker() *link.Linker {
 	return self.linker
+}
+
+// Reporter tells the service what this screen is showing.
+func (self *Daemon) Reporter() *service.Reporter {
+	return self.reporter
+}
+
+// reportedScreenshotWidth is what the service is sent. Smaller than the
+// screen: this goes out every half minute over whatever network the device
+// has, and the picture is looked at in a list beside other devices rather
+// than read.
+const reportedScreenshotWidth = 960
+
+// photograph takes the picture the reporter sends.
+//
+// A JPEG rather than the lossless PNG the interface can ask for. Most of what
+// is on these screens is video from a camera, which PNG stores appallingly: on
+// the first real device this ran on a lossless 4K frame was 5.6 megabytes,
+// which is over what the service accepts as well as being wasteful of a
+// connection somebody else is paying for.
+func (self *Daemon) photograph(ctx context.Context) ([]byte, string, error) {
+	configuration := self.store.Current()
+	connection, err := display.Open(ctx, configuration.Display.Number, self.xserver.Cookie())
+	if err != nil {
+		return nil, "", fmt.Errorf("the X server cannot be reached: %w", err)
+	}
+	defer connection.Close()
+
+	screen, err := connection.Capture(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var body bytes.Buffer
+	if err := jpeg.Encode(&body, picture.Shrink(screen, reportedScreenshotWidth),
+		&jpeg.Options{Quality: 70}); err != nil {
+		return nil, "", err
+	}
+	return body.Bytes(), "image/jpeg", nil
 }

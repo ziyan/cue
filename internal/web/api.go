@@ -19,6 +19,7 @@ import (
 	"github.com/ziyan/cue/internal/input"
 	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/network"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/drm"
@@ -50,6 +51,12 @@ type Status struct {
 	// in progress. Here as well as under /api/v1/link so that the overview
 	// page can say so without a second request.
 	Link link.State `json:"link"`
+
+	// Reporting is whether this device is getting through to the service it
+	// is linked to. Separate from Link because they fail separately: a device
+	// can hold a perfectly good credential and be unable to reach anything,
+	// and somebody looking for a missing picture needs to be told which.
+	Reporting service.State `json:"reporting"`
 
 	// IgnoredSettings are names in the configuration file this version has no
 	// setting for: a mistyped key, or a setting removed by an upgrade. They
@@ -109,6 +116,12 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 		},
 		Programs: self.device.Statuses(),
 		Link:     self.device.Linker().State(),
+		Reporting: func() service.State {
+			if self.reporter == nil {
+				return service.State{}
+			}
+			return self.reporter.State()
+		}(),
 		Watchdog: self.device.Watchdog().State(),
 		Machine:  self.metrics.Collect(),
 	}

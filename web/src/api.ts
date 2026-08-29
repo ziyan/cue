@@ -121,6 +121,15 @@ export interface LinkState {
   error?: string;
 }
 
+// Whether the device is getting through to the service it is linked to.
+// Separate from being linked, because they fail separately: a device can hold
+// a perfectly good credential and be unable to reach anything.
+export interface ReportingState {
+  attached: boolean;
+  lastReportedAt?: string;
+  trouble?: string;
+}
+
 export interface LogEntry {
   at?: string;
   monotonic?: number;

@@ -138,10 +138,16 @@ would be a second thing to check when the picture is missing.
 
 ## Progress
 
-- [ ] Milestone 1: the connection
-- [ ] Milestone 2: one request over the tunnel
-- [ ] Milestone 3: screenshots
+- [x] Milestone 1: the connection — *done 2026-08-29*
+- [x] Milestone 2: one request over the tunnel — *done 2026-08-29*
+- [x] Milestone 3: screenshots — *built 2026-08-29, not yet proved against
+      the real service*
 - [ ] Milestone 4: state
+
+Remaining before this can be called done: a run against the real service. The
+framing is proved against a stub that serves the real device routes with Go's
+own HTTP server on the other end, which is a strong test of the framing and no
+test at all of the service actually accepting what this sends.
 
 ## Surprises and discoveries
 

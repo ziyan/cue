@@ -9,8 +9,38 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { Section } from "../components/Section";
 import { Readout } from "../components/Readout";
-import { SettingsPage, useSettings } from "../settings";
-import { api, type LinkState } from "../api";
+import { SettingsPage, useSettings, type Settings } from "../settings";
+import { api, type LinkState, type ReportingState } from "../api";
+import { ago } from "../format";
+
+// Whether the pictures are getting through.
+//
+// Shown next to the link because they are the two halves of the same question
+// and they fail separately: a device can hold a credential the service is
+// perfectly happy with and still be unable to reach it, and somebody wondering
+// why the picture on their phone is old needs to be told which of the two it
+// is.
+function Reporting({ settings }: { settings: Settings }) {
+  const reporting = (settings.status as unknown as { reporting?: ReportingState } | null)?.reporting;
+  if (!reporting) return null;
+  return (
+    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1.5 }}>
+      <Chip
+        size="small"
+        variant="outlined"
+        color={reporting.attached ? "success" : "warning"}
+        label={reporting.attached ? "reporting" : "not reporting"}
+      />
+      <Typography variant="body2" color="text.secondary">
+        {reporting.trouble
+          ? reporting.trouble
+          : reporting.lastReportedAt
+            ? `Last picture sent ${ago(reporting.lastReportedAt)}.`
+            : "No picture has been sent yet."}
+      </Typography>
+    </Stack>
+  );
+}
 
 // How often the page asks whether the link has completed. Somebody is standing
 // over it, so it is short; the daemon asks the service on its own schedule
@@ -127,6 +157,7 @@ export function Service() {
                 {service.deviceId && (
                   <Readout label="Known there as" mono>{service.deviceId}</Readout>
                 )}
+                <Reporting settings={settings} />
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, mb: 2 }}>
                   Unlinking forgets the credential and nothing else. The device keeps its
                   name, its screens and everything it is showing.
