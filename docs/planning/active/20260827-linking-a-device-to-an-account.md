@@ -121,6 +121,39 @@ plan. Ending here is deliberate: linking is independently useful and
 independently verifiable, and the connection has nothing to attach to until it
 exists.
 
+## Proved against the service
+
+Run on 2026-08-29 against the real service rather than a stub. A device on a
+wall reached it over a reverse tunnel, so the service's loopback was the
+device's loopback -- which also exercised the exemption that lets a plain
+address through only there.
+
+Observed, in order, by the two programs rather than by one program and a
+stand-in: the device derived a ticket and showed it; the service answered 204
+to a ticket it had never heard of and recorded the attempt from that first
+poll; a mismatched verifier was refused with 403; somebody signed in and
+authorised the page; the next poll returned the credential; the device stored
+it; and that credential, read back out of `cue.yaml`, opened the service's
+device websocket with 101 where a fabricated one got 401.
+
+The device row the service then created reads `name=carbon` and
+`description=t6ny2v00xad86aj0` -- this device's own name and identifier,
+carried through the exchange, the signed payload and back. Lengths checked
+rather than looked at: 6 and 16 bytes, no truncation.
+
+Two things learned that are worth keeping:
+
+The wire contract was written down only after this. A 404 had been read as a
+refusal, which would have killed every attempt on its first poll; see the
+answers table above. The service now answers 204 for both "unknown" and "not
+yet", so the device's 404 handling is only robustness for a service that has
+not deployed the endpoint.
+
+And a note for anyone repeating this: over a reverse tunnel every device looks
+to the service as though it connected from the tunnel's own address, so the
+"where did this device connect from" fields are meaningless in this setup.
+Test that part without the tunnel or it will look broken when it is not.
+
 ## Progress
 
 - [x] Milestone 1: the ticket, and the exchange — *done 2026-08-27*
