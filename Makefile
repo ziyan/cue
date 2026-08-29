@@ -98,6 +98,11 @@ dev: dev-config ## Run the daemon locally against a virtual screen
 
 web: ## Build the management interface into internal/web/dist
 	@cd web && npm ci --no-audit --no-fund && npm run build
+	@# Vite empties the output directory, which takes the placeholder with it.
+	@# internal/web embeds this directory, and an embed of a directory with
+	@# nothing in it does not compile -- so a checkout that has never run this
+	@# target would not build at all. Put it back.
+	@touch internal/web/dist/.gitkeep
 
 web-dev: ## Run the interface against a device (CUE=http://host:8080)
 	@cd web && npm run dev

@@ -25,6 +25,21 @@ jobs:
           go-version: '1.25'
           cache: false # dependencies are vendored
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Before anything Go: the daemon embeds the built interface, so every
+      # step below compiles against whatever this produced. Without it they
+      # compile against an empty directory and prove nothing about what ships.
+      - name: Build the interface
+        run: make web
+
+      - name: Check the interface
+        run: cd web && npx tsc --noEmit
+
       - name: Check formatting
         run: make check
 
