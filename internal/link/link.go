@@ -342,10 +342,25 @@ func (self *Linker) exchange(ctx context.Context, attempt *Ticket) (string, stri
 
 	switch {
 	case response.StatusCode == http.StatusNotFound:
-		// The service has never heard of this ticket, or has forgotten it.
-		// Nothing will change that.
-		return "", "", "", ErrRefused
+		// Not a refusal, which is what this used to be read as.
+		//
+		// The device shows its code before it has ever spoken to the service
+		// -- that is the point of deriving the ticket rather than being given
+		// one, because the network may be the thing somebody is in the room to
+		// fix. So the service has not heard of the ticket until somebody opens
+		// the link on their phone, and a service that says so with a 404
+		// answers the first poll of every attempt that way. Treating that as
+		// the end meant no attempt could ever survive long enough to be
+		// authorised.
+		//
+		// It also covers a service that has not deployed this endpoint yet,
+		// where every poll is a 404 from the router. That attempt should run
+		// out its ten minutes and say the code expired, which is true, rather
+		// than claim the service refused the device, which is not.
+		return "", "", "", nil
 	case response.StatusCode == http.StatusForbidden:
+		// A decision, rather than an absence: the verifier did not hash to the
+		// ticket, or the ticket has already been redeemed.
 		return "", "", "", ErrRefused
 	case response.StatusCode == http.StatusNoContent:
 		// Known, not authorised yet.

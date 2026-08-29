@@ -463,3 +463,91 @@ func TestNothingSeesADeviceBothLinkedAndPending(t *testing.T) {
 		t.Errorf("the settled state is %+v", final)
 	}
 }
+
+// A ticket the service has not heard of yet is not a refusal.
+//
+// The device shows its code before it has ever spoken to the service, so the
+// service learns the ticket only when somebody opens the link on their phone.
+// Until then it has every right to say "no such ticket", and that is the answer
+// to the first poll of every single attempt. Reading it as the end meant no
+// attempt could survive long enough for anybody to authorise it -- which is how
+// this behaved against a real service with the endpoint not yet deployed, where
+// the router answers 404 to everything.
+func TestATicketTheServiceHasNotHeardOfKeepsWaiting(t *testing.T) {
+	var known atomic.Bool
+	var polls atomic.Int64
+
+	service := httptest.NewServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			polls.Add(1)
+			if !known.Load() {
+				// Nobody has opened the link yet, so this ticket means nothing
+				// here.
+				response.WriteHeader(http.StatusNotFound)
+				return
+			}
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(exchangeResponse{
+				Secret:   "an-example-secret",
+				Account:  "somebody@example.com",
+				DeviceID: "device-1",
+			})
+		}))
+	defer service.Close()
+
+	store := newStore(t, service.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// It has been told no such ticket, more than once, and is still waiting.
+	waitFor(t, 5*time.Second, func() bool { return polls.Load() >= 2 })
+	if state := linker.State(); !state.Pending || state.Linked {
+		t.Fatalf("the attempt gave up on a ticket the service had not heard of: %+v", state)
+	}
+	if state := linker.State(); state.Error != "" {
+		t.Errorf("an unheard-of ticket was reported as a failure: %q", state.Error)
+	}
+
+	// Then somebody opens the link on their phone and authorises it.
+	known.Store(true)
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+
+	if state := linker.State(); !state.Linked || state.Pending {
+		t.Errorf("after authorising, the state is %+v", state)
+	}
+}
+
+// A service with this endpoint not deployed at all answers 404 to every poll,
+// and the attempt should run out its life saying the code expired -- which is
+// true -- rather than claiming the service refused this device, which is not.
+func TestAServiceWithoutTheEndpointExpiresRatherThanRefuses(t *testing.T) {
+	service := httptest.NewServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			http.NotFound(response, request)
+		}))
+	defer service.Close()
+
+	store := newStore(t, service.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	// Short enough to watch it run out.
+	linker.lifetime = 300 * time.Millisecond
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return !linker.State().Pending })
+
+	state := linker.State()
+	if state.Linked {
+		t.Error("a device linked itself against a service that has no such endpoint")
+	}
+	if !strings.Contains(state.Error, "expired") {
+		t.Errorf("the attempt ended as %q, which does not say the code ran out", state.Error)
+	}
+}

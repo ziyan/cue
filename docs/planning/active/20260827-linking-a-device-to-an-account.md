@@ -82,6 +82,31 @@ not sit there displaying a linking code to a room full of strangers. The device
 also shows which account it ended up attached to, so a link to the wrong one is
 visible rather than silent.
 
+**What the service's answers mean.** Not written down when this was designed,
+and one of them was guessed wrong.
+
+    204  known, or not known -- either way, not authorised yet. Keep asking.
+    200  authorised: the credential, the account, and the device identifier.
+    403  a decision: the verifier does not hash to the ticket, or the ticket
+         has already been redeemed. The attempt ends.
+    404  the service has not heard of this ticket. Keep asking.
+    ---  anything else is a fault worth retrying on the next tick.
+
+A 404 was originally read as a refusal, on the reasoning that a ticket the
+service has never heard of is one it will never hear of. That is backwards.
+The device shows its code *before* it has spoken to the service -- which is the
+whole reason the ticket is derived rather than issued -- so the service does
+not learn a ticket until somebody opens the link on their phone. A 404 is
+therefore the answer to the first poll of every attempt, and treating it as
+final meant no attempt could live long enough to be authorised. It also made a
+service that has not deployed the endpoint yet, whose router answers 404 to
+everything, look like a service that had refused this device.
+
+The service is better off answering 204 for both "unknown" and "known but not
+authorised", which is what it will do: the two are indistinguishable to
+somebody probing for live tickets, and there is nothing a device would do
+differently between them.
+
 **Where the secret lives.** In `cue.yaml`, in a new section, as a `Secret` —
 the same type the VNC password uses, which renders as a placeholder everywhere
 outside the file and is restored by `RestoreSecrets` when a form is posted
