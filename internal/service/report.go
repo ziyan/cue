@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -155,6 +156,18 @@ func (self *Reporter) run(ctx context.Context) {
 		if err != nil {
 			self.setTrouble(err.Error())
 			log.Debugf("cannot report to the service: %s", err)
+
+			// A refused credential is not a network wobble. Somebody has
+			// revoked this device, or its credential was never good, and
+			// asking again in two seconds achieves nothing but noise -- so
+			// this goes straight to the long interval. It keeps trying at
+			// that rate rather than stopping, because the remedy is somebody
+			// linking the device again, and a device that had given up would
+			// need a visit to notice they had.
+			if errors.Is(err, ErrNotAccepted) {
+				wait = longestRetry
+			}
+
 			if !sleep(ctx, wait) {
 				return
 			}
@@ -221,8 +234,15 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 		if !connection.alive() {
 			return fmt.Errorf("service: the connection went away")
 		}
-		if !sleep(ctx, reportInterval) {
+		// Woken by the connection ending as well as by the timer, so a device
+		// whose network blinked attaches again in a moment rather than at its
+		// next report.
+		select {
+		case <-ctx.Done():
 			return nil
+		case <-connection.Gone():
+			return fmt.Errorf("service: the connection went away")
+		case <-time.After(reportInterval):
 		}
 	}
 }
@@ -259,7 +279,7 @@ func (self *Reporter) reportOnce(ctx context.Context, client *http.Client) error
 	case response.StatusCode == http.StatusUnauthorized:
 		// The credential has stopped working, which usually means somebody
 		// revoked this device. Reconnecting will not help.
-		return fmt.Errorf("service: this device is no longer accepted")
+		return ErrNotAccepted
 	case response.StatusCode >= 300:
 		return fmt.Errorf("service: the service answered %s", response.Status)
 	}
@@ -319,7 +339,7 @@ func (self *Reporter) describeOnce(ctx context.Context, client *http.Client) err
 
 	switch {
 	case response.StatusCode == http.StatusUnauthorized:
-		return fmt.Errorf("service: this device is no longer accepted")
+		return ErrNotAccepted
 	case response.StatusCode >= 300:
 		return fmt.Errorf("service: the service answered %s", response.Status)
 	}

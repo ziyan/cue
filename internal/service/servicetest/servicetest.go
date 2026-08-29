@@ -42,6 +42,25 @@ type Stub struct {
 
 	// Attaches counts accepted websocket connections.
 	Attaches atomic.Int64
+
+	// The connections currently attached, so a test can drop one. The
+	// server's own CloseClientConnections does not reach these: a websocket
+	// upgrade hijacks the connection, and a hijacked connection is no longer
+	// the server's to close.
+	liveMutex sync.Mutex
+	live      []*websocket.Conn
+}
+
+// Disconnect drops every attached device, as a service restart or a network
+// blink would.
+func (self *Stub) Disconnect() {
+	self.liveMutex.Lock()
+	attached := self.live
+	self.live = nil
+	self.liveMutex.Unlock()
+	for _, connection := range attached {
+		_ = connection.Close()
+	}
 }
 
 // New returns a stub serving routes over the tunnel. The websocket lives at
@@ -71,6 +90,9 @@ func New(t *testing.T, routes http.Handler, public http.Handler) *Stub {
 				return
 			}
 			stub.Attaches.Add(1)
+			stub.liveMutex.Lock()
+			stub.live = append(stub.live, connection)
+			stub.liveMutex.Unlock()
 			stub.carry(connection, routes)
 		}))
 	t.Cleanup(stub.Server.Close)

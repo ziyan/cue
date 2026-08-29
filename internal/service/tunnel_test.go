@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -269,5 +270,71 @@ func TestADescriptionThatCannotBeMadeDoesNotStopPictures(t *testing.T) {
 	waitFor(t, 10*time.Second, "a picture", func() bool { return stub.screenshots.Load() > 0 })
 	if state := reporter.State(); !state.Attached {
 		t.Error("a description that could not be made dropped the connection")
+	}
+}
+
+// A revoked device meets a refusal at the handshake, and must know it is one.
+//
+// This is the path nobody can exercise against the real service without
+// revoking a real device, so it is pinned here instead. The check is that the
+// refusal is a sentinel rather than a sentence: the first version asked
+// whether the error text contained "401", which worked, and would have gone on
+// working right up until somebody reworded a message -- at which point a
+// revoked device would have retried a dead credential for ten minutes instead
+// of saying so.
+func TestARefusedCredentialIsToldApartFromAnUnreachableService(t *testing.T) {
+	stub := newStubService(t)
+
+	// A credential the service will not take, which is what revocation looks
+	// like from here.
+	_, err := dial(context.Background(), stub.Server.URL, "a-revoked-credential")
+	if err == nil {
+		t.Fatal("the service accepted a credential it should not have")
+	}
+	if !errors.Is(err, ErrNotAccepted) {
+		t.Errorf("a refused credential gave %v, which callers cannot tell from a network failure", err)
+	}
+
+	// And a service that is not there at all is a different thing, worth
+	// trying again.
+	_, err = dial(context.Background(), "http://127.0.0.1:1", "any-credential")
+	if err == nil {
+		t.Fatal("dialling nothing succeeded")
+	}
+	if errors.Is(err, ErrNotAccepted) {
+		t.Error("an unreachable service was reported as a refused credential")
+	}
+}
+
+// A device whose credential has been revoked stops reporting rather than
+// retrying for ever, and says why.
+func TestARevokedDeviceStopsReporting(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("a picture"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "the first picture", func() bool {
+		return stub.screenshots.Load() > 0
+	})
+
+	// Somebody revokes the device. The tunnel authenticates once, at the
+	// handshake, so an attached device goes on reporting until its connection
+	// ends -- which is worth knowing and is true of the real service too. The
+	// connection is dropped here to get to the part this test is about.
+	stub.Credential = "something-else-entirely"
+	sent := stub.screenshots.Load()
+	stub.Disconnect()
+
+	waitFor(t, 20*time.Second, "the device to notice it is no longer accepted", func() bool {
+		state := reporter.State()
+		return !state.Attached && state.Trouble != ""
+	})
+	if now := stub.screenshots.Load(); now > sent+1 {
+		t.Errorf("a revoked device sent %d more pictures", now-sent)
 	}
 }

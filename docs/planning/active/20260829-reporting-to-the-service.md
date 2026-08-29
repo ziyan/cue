@@ -141,7 +141,7 @@ would be a second thing to check when the picture is missing.
 - [x] Milestone 1: the connection — *done 2026-08-29*
 - [x] Milestone 2: one request over the tunnel — *done 2026-08-29*
 - [x] Milestone 3: screenshots — *done 2026-08-29, proved against production*
-- [x] Milestone 4: state — *built 2026-08-29, not yet seen arrive*
+- [x] Milestone 4: state — *done 2026-08-29, confirmed arriving*
 
 Proved against the real service rather than a stub: a device linked from a
 phone attached to `https://cue.sh`, was told its own identity over the tunnel,
@@ -150,11 +150,31 @@ service's own side confirmed the picture independently -- a real JPEG at
 960x540, 109,743 bytes, checked by parsing its start-of-frame marker rather
 than by trusting the content type this device set.
 
-Remaining: nobody has watched a state report arrive, and nothing has tested
-what a revoked device does. The second needs a device somebody is willing to
-revoke.
+The state report was confirmed the same way, and it agrees with the picture:
+the description says the screen is 2560x1440 and the picture is 960x540, which
+is exactly that shape scaled down. Two reports agreeing about the same physical
+screen is better evidence than either alone.
+
+Remaining: what a revoked device does has been pinned in tests but never seen
+against the real service, which would mean revoking a real device. And the
+authorisation page has never been opened on a phone that arrived signed out,
+which is the case the whole feature exists for.
 
 ## Surprises and discoveries
+
+**2026-08-29 — The tunnel authenticates once, at the handshake.** A device that
+is revoked while attached goes on reporting until its connection ends, because
+nothing re-checks a credential per request -- the connection carries the
+identity. This is true of the real service as well as the stub. It is not
+obviously wrong; it is worth knowing, because "revoke a device" does not mean
+"that device stops reporting now".
+
+**2026-08-29 — A dropped connection was not noticed until the next report.**
+The loop only discovered a dead tunnel when it next tried to send, up to
+thirty seconds later. It now waits on the connection ending as well as on the
+timer, so a device whose network blinked attaches again in a moment. Found
+while testing revocation, not while testing reconnection.
+
 
 **2026-08-29 — Sizing writes from the service's limit was the wrong idea
 entirely.** Frames were half a megabyte because the service's limit was a

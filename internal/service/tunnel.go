@@ -77,6 +77,17 @@ const (
 	maximumFrameBytes = 16 << 10
 )
 
+// ErrNotAccepted means the service turned this device's credential away at
+// the handshake, which is what a revoked or unknown device meets. Final: it
+// will not start working, and a caller should stop rather than retry.
+//
+// A sentinel rather than a status code in a message. The first version of this
+// asked whether the error text contained "401", which worked because it
+// happened to -- and would have gone on compiling, passing and silently
+// retrying a dead credential for ten minutes if the wording had ever changed.
+// A reason attached to code that works is corrected by nothing.
+var ErrNotAccepted = errors.New("service: the service will not accept this device")
+
 type controlFrame struct {
 	Stream string `json:"stream"`
 	Kind   string `json:"kind"`
@@ -104,7 +115,15 @@ type tunnel struct {
 	streams map[string]*stream
 	closed  bool
 	trouble error
+
+	// Closed when the connection ends, so that anything waiting on a timer
+	// finds out at once rather than at its next tick. A device whose network
+	// blinked should be attaching again in a moment, not in half a minute.
+	gone chan struct{}
 }
+
+// Gone is closed when this connection has ended.
+func (self *tunnel) Gone() <-chan struct{} { return self.gone }
 
 // dial opens the connection and starts reading it.
 func dial(ctx context.Context, address, credential string) (*tunnel, error) {
@@ -123,9 +142,13 @@ func dial(ctx context.Context, address, credential string) (*tunnel, error) {
 	connection, response, err := dialer.DialContext(ctx, endpoint, header)
 	if err != nil {
 		if response != nil {
-			// The status is the useful part: 401 means the credential is no
-			// longer good, which is worth saying differently from the network
-			// being down.
+			switch response.StatusCode {
+			case http.StatusUnauthorized, http.StatusForbidden:
+				// The credential is not one this service will take. Told apart
+				// from the network being down because one is worth trying
+				// again and the other never will be.
+				return nil, fmt.Errorf("%w: it answered %s", ErrNotAccepted, response.Status)
+			}
 			return nil, fmt.Errorf("service: cannot attach: %s (%w)", response.Status, err)
 		}
 		return nil, fmt.Errorf("service: cannot attach: %w", err)
@@ -135,7 +158,11 @@ func dial(ctx context.Context, address, credential string) (*tunnel, error) {
 	// against a reply nothing asked for.
 	connection.SetReadLimit(1 << 20)
 
-	self := &tunnel{connection: connection, streams: map[string]*stream{}}
+	self := &tunnel{
+		connection: connection,
+		streams:    map[string]*stream{},
+		gone:       make(chan struct{}),
+	}
 	go self.read()
 	return self, nil
 }
@@ -245,6 +272,7 @@ func (self *tunnel) fail(err error) {
 	}
 	self.closed = true
 	self.trouble = err
+	close(self.gone)
 	streams := make([]*stream, 0, len(self.streams))
 	for _, one := range self.streams {
 		streams = append(streams, one)

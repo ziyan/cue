@@ -546,7 +546,7 @@ func (self *Linker) identity(ctx context.Context, credential string) (*Identity,
 		// itself linked with. The service refuses a revoked or unknown one
 		// with 401 during the handshake, which arrives here as a failure to
 		// attach rather than as an answer.
-		if isRefusal(err) {
+		if errors.Is(err, service.ErrNotAccepted) {
 			return nil, ErrRefused
 		}
 		return nil, err
@@ -572,15 +572,6 @@ func (self *Linker) identity(ctx context.Context, credential string) (*Identity,
 		return nil, fmt.Errorf("link: the service did not say which device this is")
 	}
 	return identity, nil
-}
-
-// isRefusal reports whether the service turned the credential away rather than
-// being unreachable. One is final and the other is worth trying again.
-func isRefusal(err error) bool {
-	return strings.Contains(err.Error(), "401") ||
-		strings.Contains(err.Error(), "403") ||
-		strings.Contains(err.Error(), "Unauthorized") ||
-		strings.Contains(err.Error(), "Forbidden")
 }
 
 // reasonFrom reads the short explanation a service puts in the body of a
