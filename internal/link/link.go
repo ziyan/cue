@@ -59,6 +59,12 @@ type State struct {
 	// ExpiresAt is when the pending attempt stops being answerable.
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 
+	// Checking reports that somebody has authorised the attempt and the device
+	// is collecting the credential and proving it works. Shown because it is a
+	// different thing to be waiting for: the code has done its job and the
+	// person can stop holding their phone up.
+	Checking bool `json:"checking,omitempty"`
+
 	// Error is why the last attempt ended, when it ended badly. Shown to
 	// whoever is standing at the screen, so it is a sentence rather than a
 	// code.
@@ -78,10 +84,11 @@ type Linker struct {
 	// than the constant so a test can watch an attempt expire.
 	lifetime time.Duration
 
-	mutex   sync.Mutex
-	attempt *Ticket
-	failure string
-	cancel  context.CancelFunc
+	mutex    sync.Mutex
+	attempt  *Ticket
+	checking bool
+	failure  string
+	cancel   context.CancelFunc
 
 	waitGroup sync.WaitGroup
 }
@@ -115,6 +122,7 @@ func (self *Linker) State() State {
 			state.Pending = true
 			state.URL = address
 			state.ExpiresAt = &expiresAt
+			state.Checking = self.checking
 		}
 	}
 	return state
@@ -168,6 +176,7 @@ func (self *Linker) Abandon() {
 		self.cancel = nil
 	}
 	self.attempt = nil
+	self.checking = false
 	self.failure = ""
 }
 
@@ -220,11 +229,8 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 			return
 		}
 
-		secret, account, deviceId, err := self.exchange(ctx, attempt)
+		authorised, err := self.ask(ctx, attempt)
 		switch {
-		case err == nil && secret == "":
-			// Not authorised yet, which is the usual answer.
-			continue
 		case errors.Is(err, ErrRefused):
 			self.finish(attempt, "the service refused this device")
 			return
@@ -232,14 +238,64 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 			// Worth a line but not the end: the next tick tries again.
 			log.Debugf("cannot ask the service about the link yet: %s", err)
 			continue
+		case !authorised:
+			// Nobody has pressed anything yet, which is the usual answer.
+			continue
+		}
+
+		// Only now is the verifier sent, and this is the only call that sends
+		// it. See redeem.
+		self.beginChecking(attempt)
+		secret, account, deviceId, err := self.redeem(ctx, attempt)
+		switch {
+		case errors.Is(err, ErrRefused):
+			self.finish(attempt, "the service refused this device")
+			return
+		case err != nil:
+			// Authorised, and then unreachable. Asked again on the next tick
+			// rather than losing a link somebody has already agreed to;
+			// redeeming twice returns the same credential.
+			log.Debugf("cannot collect the credential yet: %s", err)
+			continue
+		}
+
+		// Used before it is believed.
+		//
+		// Everything up to here proves somebody authorised something. It does
+		// not prove that what came back works, and a screen on a wall saying
+		// "linked" on the strength of an unexamined string is the kind of
+		// thing nobody discovers until much later, with no keyboard in the
+		// room. So the credential is spent once, on asking the service who
+		// this device is, and only an answer makes it a link.
+		who, err := self.identity(ctx, secret)
+		switch {
+		case errors.Is(err, ErrRefused):
+			self.finish(attempt, "the service issued a credential that does not work")
+			return
+		case err != nil:
+			// The credential may be perfectly good and the network not. Keep
+			// the attempt alive and try again; redeem will hand back the same
+			// credential.
+			log.Debugf("cannot confirm the credential yet: %s", err)
+			continue
 		}
 
 		if err := self.complete(attempt, secret, account, deviceId); err != nil {
 			log.Errorf("cannot save the credential the service issued: %s", err)
 			return
 		}
-		log.Noticef("this device is now linked to %s", account)
+		log.Noticef("this device is now linked to %s, known there as %s", account, who.ID)
 		return
+	}
+}
+
+// beginChecking records that the code has done its job and the device is now
+// collecting and proving the credential.
+func (self *Linker) beginChecking(attempt *Ticket) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.attempt == attempt {
+		self.checking = true
 	}
 }
 
@@ -269,6 +325,7 @@ func (self *Linker) complete(attempt *Ticket, secret, account, deviceId string) 
 	})
 
 	self.attempt = nil
+	self.checking = false
 	self.cancel = nil
 	if err != nil {
 		self.failure = "the credential could not be saved"
@@ -287,19 +344,36 @@ func (self *Linker) finish(attempt *Ticket, failure string) {
 		return
 	}
 	self.attempt = nil
+	self.checking = false
 	self.failure = failure
 	self.cancel = nil
 }
 
+// What is asked on every poll. No verifier: see redeem.
 type exchangeRequest struct {
-	Ticket   string `json:"ticket"`
-	Verifier string `json:"verifier"`
+	Ticket string `json:"ticket"`
 
 	// What the authorisation page shows the person deciding. Sent every time
 	// rather than registered up front, because the device may be renamed
 	// between showing a code and somebody scanning it.
 	Name       string `json:"name,omitempty"`
 	Identifier string `json:"identifier,omitempty"`
+}
+
+// What is sent once, to collect the credential.
+type redeemRequest struct {
+	Ticket   string `json:"ticket"`
+	Verifier string `json:"verifier"`
+}
+
+// Identity is what the service says this device is, asked with the credential
+// the service itself issued.
+type Identity struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	UserID      string `json:"userId,omitempty"`
+	IsRevoked   bool   `json:"isRevoked,omitempty"`
 }
 
 type exchangeResponse struct {
@@ -310,61 +384,97 @@ type exchangeResponse struct {
 	DeviceID string `json:"deviceId,omitempty"`
 }
 
-// exchange makes one call. An empty secret with no error means "not yet".
-func (self *Linker) exchange(ctx context.Context, attempt *Ticket) (string, string, string, error) {
+// ask makes one poll: has anybody authorised this yet?
+//
+// It carries the ticket and never the verifier. The verifier is the half that
+// redeems, and this call runs every two seconds for up to ten minutes -- three
+// hundred times per attempt, all but one of them redeeming nothing. Sending
+// the secret on all of them would push it through every proxy and access log
+// in front of the service to accomplish nothing. See redeem.
+func (self *Linker) ask(ctx context.Context, attempt *Ticket) (bool, error) {
 	configuration := self.store.Current()
 
 	body, err := json.Marshal(exchangeRequest{
 		Ticket:     attempt.Ticket,
-		Verifier:   attempt.Verifier,
 		Name:       configuration.Device.Name,
 		Identifier: configuration.Device.Identifier,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	address, err := exchangeURL(configuration.Service.Address)
+	if err != nil {
+		return false, err
+	}
+	response, err := self.send(ctx, http.MethodPost, address, body, "")
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	switch response.StatusCode {
+	case http.StatusAccepted:
+		// Authorised, or already redeemed. Indistinguishable here and there is
+		// nothing to do differently: both mean a credential is waiting. They
+		// have to be indistinguishable, or a lost answer to redeem would end
+		// the attempt instead of being retried.
+		return true, nil
+	case http.StatusForbidden:
+		// The only permanent answer to this call: a person decided against it.
+		return false, ErrRefused
+	case http.StatusNoContent:
+		// Not authorised yet, which is the usual answer.
+		return false, nil
+	case http.StatusNotFound:
+		// Not a refusal, which is what this used to be read as.
+		//
+		// The device shows its code before it has ever spoken to the service
+		// -- the point of deriving the ticket rather than being given one,
+		// because the network may be the thing somebody is in the room to fix.
+		// So the service has not heard of the ticket until somebody opens the
+		// link on their phone. Treating that as the end meant no attempt could
+		// live long enough to be authorised. It also covers a service that has
+		// not deployed the endpoint, whose router answers 404 to everything:
+		// that attempt should run out and say the code expired, which is true.
+		return false, nil
+	default:
+		return false, fmt.Errorf("link: the service answered %s", response.Status)
+	}
+}
+
+// redeem collects the credential. It is the only call that sends the verifier,
+// and it happens once per link.
+//
+// Safe to call again when the answer goes missing: the service returns the
+// same credential for the same ticket until it expires. Burning the ticket on
+// first success would mean a lost response locks out the device -- the one
+// party that is certainly not an attacker, being the only one that holds the
+// verifier at all.
+func (self *Linker) redeem(ctx context.Context, attempt *Ticket) (string, string, string, error) {
+	configuration := self.store.Current()
+
+	body, err := json.Marshal(redeemRequest{
+		Ticket:   attempt.Ticket,
+		Verifier: attempt.Verifier,
 	})
 	if err != nil {
 		return "", "", "", err
 	}
 
-	address, err := exchangeURL(configuration.Service.Address)
+	address, err := redeemURL(configuration.Service.Address)
 	if err != nil {
 		return "", "", "", err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, address, bytes.NewReader(body))
-	if err != nil {
-		return "", "", "", err
-	}
-	request.Header.Set("Content-Type", "application/json")
-
-	response, err := self.client.Do(request)
+	response, err := self.send(ctx, http.MethodPost, address, body, "")
 	if err != nil {
 		return "", "", "", err
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	switch {
-	case response.StatusCode == http.StatusNotFound:
-		// Not a refusal, which is what this used to be read as.
-		//
-		// The device shows its code before it has ever spoken to the service
-		// -- that is the point of deriving the ticket rather than being given
-		// one, because the network may be the thing somebody is in the room to
-		// fix. So the service has not heard of the ticket until somebody opens
-		// the link on their phone, and a service that says so with a 404
-		// answers the first poll of every attempt that way. Treating that as
-		// the end meant no attempt could ever survive long enough to be
-		// authorised.
-		//
-		// It also covers a service that has not deployed this endpoint yet,
-		// where every poll is a 404 from the router. That attempt should run
-		// out its ten minutes and say the code expired, which is true, rather
-		// than claim the service refused the device, which is not.
-		return "", "", "", nil
 	case response.StatusCode == http.StatusForbidden:
-		// A decision, rather than an absence: the verifier did not hash to the
-		// ticket, or the ticket has already been redeemed.
 		return "", "", "", ErrRefused
-	case response.StatusCode == http.StatusNoContent:
-		// Known, not authorised yet.
-		return "", "", "", nil
 	case response.StatusCode != http.StatusOK:
 		return "", "", "", fmt.Errorf("link: the service answered %s", response.Status)
 	}
@@ -373,11 +483,88 @@ func (self *Linker) exchange(ctx context.Context, attempt *Ticket) (string, stri
 	if err := json.NewDecoder(io.LimitReader(response.Body, maximumResponseBytes)).Decode(&answer); err != nil {
 		return "", "", "", fmt.Errorf("link: cannot read what the service said: %w", err)
 	}
+	if answer.Secret == "" {
+		return "", "", "", fmt.Errorf("link: the service handed back no credential")
+	}
 	return answer.Secret, answer.Account, answer.DeviceID, nil
+}
+
+// identity asks the service who this device is, using the credential it has
+// just been handed.
+//
+// This is what makes "linked" mean something. Until it answers, all the device
+// holds is a string the service said was a credential; a screen on a wall that
+// reports itself linked on the strength of that would be reporting a guess.
+// Answering proves the credential verifies, that the service knows this
+// device, and that it has not already been revoked.
+func (self *Linker) identity(ctx context.Context, credential string) (*Identity, error) {
+	configuration := self.store.Current()
+
+	address, err := identityURL(configuration.Service.Address)
+	if err != nil {
+		return nil, err
+	}
+	response, err := self.send(ctx, http.MethodGet, address, nil, credential)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	switch {
+	case response.StatusCode == http.StatusUnauthorized, response.StatusCode == http.StatusForbidden:
+		// The credential does not work. Not worth retrying: it will not start
+		// working, and the device must not claim to be linked with it.
+		return nil, ErrRefused
+	case response.StatusCode != http.StatusOK:
+		return nil, fmt.Errorf("link: the service answered %s", response.Status)
+	}
+
+	var answer Identity
+	if err := json.NewDecoder(io.LimitReader(response.Body, maximumResponseBytes)).Decode(&answer); err != nil {
+		return nil, fmt.Errorf("link: cannot read what the service said: %w", err)
+	}
+	if answer.ID == "" {
+		return nil, fmt.Errorf("link: the service did not say which device this is")
+	}
+	if answer.IsRevoked {
+		return nil, ErrRefused
+	}
+	return &answer, nil
+}
+
+// send makes one request, with the credential as a bearer token when there is
+// one to send.
+func (self *Linker) send(ctx context.Context, method, address string, body []byte, credential string) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, address, reader)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if credential != "" {
+		request.Header.Set("Authorization", "Bearer "+credential)
+	}
+	return self.client.Do(request)
 }
 
 // exchangeURL is where the device asks about its attempt. Not the address the
 // phone opens: that one is a page for a person, this one is for the daemon.
 func exchangeURL(service string) (string, error) {
 	return serviceURL(service, "api", "v1", "device", "link", "exchange")
+}
+
+// redeemURL is where the verifier goes, and the only place it goes.
+func redeemURL(service string) (string, error) {
+	return serviceURL(service, "api", "v1", "device", "link", "redeem")
+}
+
+// identityURL is where the device asks who it is, with the credential it has
+// been given. The answer is what turns a string into a link.
+func identityURL(service string) (string, error) {
+	return serviceURL(service, "api", "v1", "device", "self")
 }

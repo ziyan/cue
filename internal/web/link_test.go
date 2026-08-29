@@ -35,41 +35,67 @@ func newStubService(t *testing.T) *stubService {
 	stub.sawTicket.Store("")
 	stub.server = httptest.NewServer(http.HandlerFunc(
 		func(response http.ResponseWriter, request *http.Request) {
-			if request.URL.Path != "/api/v1/device/link/exchange" {
+			switch request.URL.Path {
+			case "/api/v1/device/link/exchange":
+				stub.exchanges.Add(1)
+				var asked struct {
+					Ticket     string `json:"ticket"`
+					Verifier   string `json:"verifier"`
+					Name       string `json:"name"`
+					Identifier string `json:"identifier"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&asked); err != nil {
+					response.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if asked.Verifier != "" {
+					t.Errorf("the verifier was sent to the polling call")
+				}
+				stub.sawTicket.Store(asked.Ticket)
+				if !stub.authorised.Load() {
+					response.WriteHeader(http.StatusNoContent)
+					return
+				}
+				response.WriteHeader(http.StatusAccepted)
+
+			case "/api/v1/device/link/redeem":
+				var asked struct {
+					Ticket   string `json:"ticket"`
+					Verifier string `json:"verifier"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&asked); err != nil {
+					response.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				// The pairing checked the way the service checks it, from the
+				// outside, rather than by calling the daemon's own function.
+				sum := sha256.Sum256([]byte(asked.Verifier))
+				if base64.RawURLEncoding.EncodeToString(sum[:]) != asked.Ticket {
+					t.Errorf("the verifier does not hash to the ticket")
+					response.WriteHeader(http.StatusForbidden)
+					return
+				}
+				response.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(response).Encode(map[string]string{
+					"secret":   "an example secret",
+					"account":  "s•••@example.com",
+					"deviceId": "device-1",
+				})
+
+			case "/api/v1/device/self":
+				if request.Header.Get("Authorization") != "Bearer an example secret" {
+					response.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				response.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(response).Encode(map[string]any{
+					"id": "device-1", "name": "Reception", "userId": "user-1",
+				})
+
+			default:
 				t.Errorf("the device asked for %q", request.URL.Path)
-				response.WriteHeader(http.StatusNotFound)
-				return
+				http.NotFound(response, request)
 			}
-			stub.exchanges.Add(1)
-
-			var asked struct {
-				Ticket     string `json:"ticket"`
-				Verifier   string `json:"verifier"`
-				Name       string `json:"name"`
-				Identifier string `json:"identifier"`
-			}
-			if err := json.NewDecoder(request.Body).Decode(&asked); err != nil {
-				response.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			stub.sawTicket.Store(asked.Ticket)
-
-			sum := sha256.Sum256([]byte(asked.Verifier))
-			if base64.RawURLEncoding.EncodeToString(sum[:]) != asked.Ticket {
-				t.Errorf("the verifier does not hash to the ticket")
-				response.WriteHeader(http.StatusForbidden)
-				return
-			}
-			if !stub.authorised.Load() {
-				response.WriteHeader(http.StatusNoContent)
-				return
-			}
-			response.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(response).Encode(map[string]string{
-				"secret":   "an example secret",
-				"account":  "somebody@example.com",
-				"deviceId": "device-1",
-			})
 		}))
 	t.Cleanup(stub.server.Close)
 	return stub
@@ -170,7 +196,7 @@ func TestLinkingThroughTheInterfaceEndToEnd(t *testing.T) {
 	if !final.Linked || final.Pending {
 		t.Fatalf("after authorising, the state is %+v", final)
 	}
-	if final.Account != "somebody@example.com" {
+	if final.Account != "s•••@example.com" {
 		t.Errorf("the account is %q", final.Account)
 	}
 

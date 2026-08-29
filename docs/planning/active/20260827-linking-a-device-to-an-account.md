@@ -82,30 +82,62 @@ not sit there displaying a linking code to a room full of strangers. The device
 also shows which account it ended up attached to, so a link to the wrong one is
 visible rather than silent.
 
-**What the service's answers mean.** Not written down when this was designed,
-and one of them was guessed wrong.
+**The exchange is two calls, not one.** The poll asks whether anybody has
+authorised the attempt; a second call redeems it. The split exists because the
+verifier is the half that redeems, and the poll runs every two seconds for ten
+minutes -- three hundred times per attempt, all but one of them redeeming
+nothing. Sending the secret on every one of them pushes it through every proxy
+and access log in front of the service to accomplish nothing. PKCE, which this
+is shaped after, sends the verifier exactly once, at redemption; this now does
+the same.
 
-    204  known, or not known -- either way, not authorised yet. Keep asking.
-    200  authorised: the credential, the account, and the device identifier.
-    403  a decision: the verifier does not hash to the ticket, or the ticket
-         has already been redeemed. The attempt ends.
-    404  the service has not heard of this ticket. Keep asking.
-    ---  anything else is a fault worth retrying on the next tick.
+    POST .../device/link/exchange   {ticket, name, identifier}
+      204  unknown, or not authorised yet. Keep asking.
+      202  authorised, or already redeemed. Go and collect it.
+      403  refused: a person decided against it. The attempt ends.
+      404  not heard of. Keep asking.
+      ---  anything else is a fault worth retrying on the next tick.
+
+    POST .../device/link/redeem     {ticket, verifier}
+      200  {secret, account, deviceId}
+      403  the verifier does not hash to the ticket, or it was never
+           authorised. The attempt ends.
+      ---  transient; asked again on the next tick.
 
 A 404 was originally read as a refusal, on the reasoning that a ticket the
-service has never heard of is one it will never hear of. That is backwards.
-The device shows its code *before* it has spoken to the service -- which is the
-whole reason the ticket is derived rather than issued -- so the service does
-not learn a ticket until somebody opens the link on their phone. A 404 is
-therefore the answer to the first poll of every attempt, and treating it as
-final meant no attempt could live long enough to be authorised. It also made a
-service that has not deployed the endpoint yet, whose router answers 404 to
-everything, look like a service that had refused this device.
+service has never heard of is one it will never hear of. That is backwards. The
+device shows its code *before* it has spoken to the service -- the whole reason
+the ticket is derived rather than issued -- so the service does not learn a
+ticket until somebody opens the link on their phone. A 404 is therefore the
+answer to the first poll of every attempt.
 
-The service is better off answering 204 for both "unknown" and "known but not
-authorised", which is what it will do: the two are indistinguishable to
-somebody probing for live tickets, and there is nothing a device would do
-differently between them.
+Two rules that look like details and are not:
+
+*Authorised and redeemed answer the same 202.* If redemption answered once and
+then refused, a lost response would leave the device unable to ask again and
+the link dead, with somebody standing in front of the screen. Redemption is
+idempotent until the ticket expires, and the poll cannot distinguish the two
+states, so a lost answer is simply retried. Returning the same credential twice
+grants nothing: redeeming requires the verifier, and the only party holding the
+verifier is the device. Burning the ticket would punish exactly the party that
+is not an attacker.
+
+*Only the first poll says what the device is.* Taking the verifier out of the
+poll removed the only thing that gated registration, so without this anybody
+who photographed the code could poll with a name of their choosing and rewrite
+what the authorisation page shows the person deciding. First write wins, and
+the legitimate values are always first because the device polls before the code
+has been rendered. The cost is that a device renamed mid-attempt keeps the old
+name on the page until the code is shown again.
+
+**A link is not a link until the credential has been used.** Redemption proves
+somebody authorised something; it does not prove that what came back works. So
+the device spends the credential once, asking the service who it is, and only
+an answer makes it a link -- the identity call must return this device and must
+not say it has been revoked. Until then the interface says it is checking
+rather than claiming to be linked. A screen on a wall reporting itself linked
+on the strength of an unexamined string is the kind of mistake nobody discovers
+until much later, in a room with no keyboard.
 
 **Where the secret lives.** In `cue.yaml`, in a new section, as a `Secret` —
 the same type the VNC password uses, which renders as a placeholder everywhere

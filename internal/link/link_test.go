@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +20,172 @@ import (
 
 // newStore returns a configuration store on a temporary file, pointed at the
 // given service.
+// A stub of the service side, implementing the contract the two sides agreed:
+//
+//	POST .../device/link/exchange  {ticket, name, identifier}
+//	  204  unknown, or pending      (the first poll registers, later ones do not)
+//	  202  authorised or redeemed   go and collect it
+//	  403  refused                  a person said no
+//	POST .../device/link/redeem     {ticket, verifier}
+//	  200  {secret, account, deviceId}, the same answer until the ticket expires
+//	  403  the verifier does not hash to the ticket, or it was never authorised
+//	GET  .../device/self            with the credential as a bearer token
+//	  200  {id, name, description, userId}
+//	  401  the credential does not verify
+//
+// It derives the ticket itself rather than calling the package's own
+// deriveTicket, so the two implementations cannot drift together unnoticed.
+type stubService struct {
+	server *httptest.Server
+
+	authorised atomic.Bool
+	refused    atomic.Bool
+	// Every request body, in order, so a test can assert where the verifier
+	// did and did not appear.
+	mutex    sync.Mutex
+	requests []stubRequest
+	// Set to answer everything with this status, for the failure cases.
+	trouble atomic.Int64
+	// Set to refuse the identity call, for a credential that does not work.
+	identityRefuses atomic.Bool
+
+	registeredName       string
+	registeredIdentifier string
+	redeemed             atomic.Bool
+}
+
+type stubRequest struct {
+	path string
+	body string
+}
+
+func newStubService(t *testing.T) *stubService {
+	t.Helper()
+	stub := &stubService{}
+
+	handler := func(response http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(request.Body, 1<<20))
+		stub.mutex.Lock()
+		stub.requests = append(stub.requests, stubRequest{path: request.URL.Path, body: string(body)})
+		stub.mutex.Unlock()
+
+		if code := stub.trouble.Load(); code != 0 {
+			response.WriteHeader(int(code))
+			return
+		}
+
+		switch request.URL.Path {
+		case "/api/v1/device/link/exchange":
+			var asked struct {
+				Ticket     string `json:"ticket"`
+				Verifier   string `json:"verifier"`
+				Name       string `json:"name"`
+				Identifier string `json:"identifier"`
+			}
+			_ = json.Unmarshal(body, &asked)
+			if asked.Verifier != "" {
+				t.Errorf("the verifier was sent to the polling call: %q", asked.Verifier)
+			}
+			// First write wins: only the first poll may say what this is.
+			stub.mutex.Lock()
+			if stub.registeredName == "" {
+				stub.registeredName = asked.Name
+				stub.registeredIdentifier = asked.Identifier
+			}
+			stub.mutex.Unlock()
+
+			switch {
+			case stub.refused.Load():
+				response.WriteHeader(http.StatusForbidden)
+			case stub.authorised.Load(), stub.redeemed.Load():
+				response.WriteHeader(http.StatusAccepted)
+			default:
+				response.WriteHeader(http.StatusNoContent)
+			}
+
+		case "/api/v1/device/link/redeem":
+			var asked struct {
+				Ticket   string `json:"ticket"`
+				Verifier string `json:"verifier"`
+			}
+			_ = json.Unmarshal(body, &asked)
+			sum := sha256.Sum256([]byte(asked.Verifier))
+			if base64.RawURLEncoding.EncodeToString(sum[:]) != asked.Ticket {
+				response.WriteHeader(http.StatusForbidden)
+				return
+			}
+			if !stub.authorised.Load() {
+				response.WriteHeader(http.StatusForbidden)
+				return
+			}
+			// Idempotent until the ticket expires: a lost answer must not lock
+			// out the one party holding the verifier.
+			stub.redeemed.Store(true)
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(exchangeResponse{
+				Secret:   "an-example-secret",
+				Account:  "s•••@example.com",
+				DeviceID: "device-1",
+			})
+
+		case "/api/v1/device/self":
+			if stub.identityRefuses.Load() {
+				response.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			if request.Header.Get("Authorization") != "Bearer an-example-secret" {
+				response.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(Identity{
+				ID: "device-1", Name: "Reception", Description: "an-example-identifier",
+				UserID: "user-1",
+			})
+
+		default:
+			http.NotFound(response, request)
+		}
+	}
+
+	stub.server = httptest.NewServer(http.HandlerFunc(handler))
+	t.Cleanup(stub.server.Close)
+	return stub
+}
+
+// bodiesFor returns every request body sent to one path.
+func (self *stubService) bodiesFor(path string) []string {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	var found []string
+	for _, one := range self.requests {
+		if one.path == path {
+			found = append(found, one.body)
+		}
+	}
+	return found
+}
+
+// timesTheVerifierWasSent counts every request whose body mentions it at all,
+// wherever it went.
+func (self *stubService) timesTheVerifierWasSent(verifier string) int {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	count := 0
+	for _, one := range self.requests {
+		if strings.Contains(one.body, verifier) {
+			count++
+		}
+	}
+	return count
+}
+
+func (self *stubService) registered() (string, string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.registeredName, self.registeredIdentifier
+}
+
 func newStore(t *testing.T, service string) *config.Store {
 	t.Helper()
 	configuration := config.Default()
@@ -92,39 +260,8 @@ func TestTheURLCarriesTheTicketAndNotTheVerifier(t *testing.T) {
 // The whole flow: a code is shown, somebody authorises it elsewhere, and the
 // device ends up holding the credential without anybody touching it.
 func TestAnAuthorisedAttemptStoresTheCredential(t *testing.T) {
-	var authorised atomic.Bool
-	var sawVerifier atomic.Value
-	sawVerifier.Store("")
-
-	service := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		var asked exchangeRequest
-		if err := json.NewDecoder(request.Body).Decode(&asked); err != nil {
-			t.Errorf("the device sent something undecodable: %s", err)
-			response.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		sawVerifier.Store(asked.Verifier)
-
-		// The service checks the pairing exactly as this package documents it.
-		if deriveTicket(asked.Verifier) != asked.Ticket {
-			t.Errorf("the verifier does not hash to the ticket")
-			response.WriteHeader(http.StatusForbidden)
-			return
-		}
-		if !authorised.Load() {
-			response.WriteHeader(http.StatusNoContent)
-			return
-		}
-		response.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(response).Encode(exchangeResponse{
-			Secret:   "an-example-secret",
-			Account:  "somebody@example.com",
-			DeviceID: "device-1",
-		})
-	}))
-	defer service.Close()
-
-	store := newStore(t, service.URL)
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
@@ -140,26 +277,25 @@ func TestAnAuthorisedAttemptStoresTheCredential(t *testing.T) {
 	}
 
 	// Nothing is stored while nobody has authorised it.
-	waitFor(t, time.Second, func() bool { return sawVerifier.Load().(string) != "" })
+	waitFor(t, time.Second, func() bool { return len(stub.bodiesFor("/api/v1/device/link/exchange")) > 0 })
 	if store.Current().Service.Secret.IsSet() {
 		t.Fatal("a credential was stored before the attempt was authorised")
 	}
 
-	authorised.Store(true)
+	stub.authorised.Store(true)
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
 
 	configuration := store.Current()
 	if secret := configuration.Service.Secret.Reveal(); secret != "an-example-secret" {
 		t.Errorf("the stored credential is %q", secret)
 	}
-	if configuration.Service.Account != "somebody@example.com" {
+	if configuration.Service.Account != "s•••@example.com" {
 		t.Errorf("the device recorded the account as %q", configuration.Service.Account)
 	}
 
-	// And the attempt is over: no code is left on the screen.
 	final := linker.State()
-	if final.Pending {
-		t.Error("the attempt is still pending after it succeeded")
+	if final.Pending || final.Checking {
+		t.Error("the attempt is still going after it succeeded")
 	}
 	if !final.Linked {
 		t.Error("the state does not report the device as linked")
@@ -170,53 +306,34 @@ func TestAnAuthorisedAttemptStoresTheCredential(t *testing.T) {
 // back. This is the case the program is built for, so a failure to reach the
 // service cannot end an attempt.
 func TestANetworkFailureDoesNotEndTheAttempt(t *testing.T) {
-	var reachable atomic.Bool
-	var calls atomic.Int32
+	stub := newStubService(t)
+	stub.trouble.Store(http.StatusBadGateway)
 
-	service := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		calls.Add(1)
-		if !reachable.Load() {
-			// What a service in the middle of a deploy looks like from here.
-			response.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		response.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(response).Encode(exchangeResponse{
-			Secret: "an-example-secret-that-arrived-late", Account: "somebody@example.com",
-		})
-	}))
-	defer service.Close()
-
-	store := newStore(t, service.URL)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
 	if _, err := linker.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-
-	// Several failures go by and the attempt is still alive.
-	waitFor(t, 5*time.Second, func() bool { return calls.Load() >= 2 })
-	if !linker.State().Pending {
-		t.Fatal("a network failure ended the attempt")
+	waitFor(t, 5*time.Second, func() bool { return len(stub.bodiesFor("/api/v1/device/link/exchange")) >= 2 })
+	if state := linker.State(); !state.Pending {
+		t.Fatalf("a failure to reach the service ended the attempt: %+v", state)
 	}
 
-	reachable.Store(true)
-	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
-	if secret := store.Current().Service.Secret.Reveal(); secret != "an-example-secret-that-arrived-late" {
-		t.Errorf("the stored credential is %q", secret)
-	}
+	// The network comes back, and somebody has authorised it in the meantime.
+	stub.authorised.Store(true)
+	stub.trouble.Store(0)
+	waitFor(t, 10*time.Second, func() bool { return store.Current().Service.IsLinked() })
 }
 
 // A refusal is different from a failure: the service has decided, and asking
 // again will not change its mind.
 func TestARefusalEndsTheAttempt(t *testing.T) {
-	service := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		response.WriteHeader(http.StatusForbidden)
-	}))
-	defer service.Close()
+	stub := newStubService(t)
+	stub.refused.Store(true)
 
-	store := newStore(t, service.URL)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
@@ -236,12 +353,8 @@ func TestARefusalEndsTheAttempt(t *testing.T) {
 
 // A code left on a screen by somebody who wandered off stops being useful.
 func TestAnExpiredAttemptEnds(t *testing.T) {
-	service := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		response.WriteHeader(http.StatusNoContent)
-	}))
-	defer service.Close()
-
-	store := newStore(t, service.URL)
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
@@ -253,7 +366,6 @@ func TestAnExpiredAttemptEnds(t *testing.T) {
 	if _, err := linker.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-
 	waitFor(t, 5*time.Second, func() bool { return !linker.State().Pending })
 	if state := linker.State(); state.Error == "" || state.Linked {
 		t.Errorf("an expired attempt ended as %+v", state)
@@ -263,12 +375,8 @@ func TestAnExpiredAttemptEnds(t *testing.T) {
 // Starting again abandons the first attempt, so there is never more than one
 // code that could be scanned.
 func TestStartingAgainAbandonsTheFirstAttempt(t *testing.T) {
-	service := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		response.WriteHeader(http.StatusNoContent)
-	}))
-	defer service.Close()
-
-	store := newStore(t, service.URL)
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
@@ -281,10 +389,10 @@ func TestStartingAgainAbandonsTheFirstAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if first.URL == second.URL {
-		t.Error("starting again showed the same code")
+		t.Error("starting again produced the same code")
 	}
 	if linker.State().URL != second.URL {
-		t.Error("the device is not showing the newest code")
+		t.Error("the code being shown is not the one from the latest attempt")
 	}
 }
 
@@ -407,23 +515,8 @@ func TestStartingAgainstAPlainAddressSaysSo(t *testing.T) {
 // possible if they really were both set -- so a failure here is always real,
 // and the CI machine runs it on every change.
 func TestNothingSeesADeviceBothLinkedAndPending(t *testing.T) {
-	var authorised atomic.Bool
-	service := httptest.NewServer(http.HandlerFunc(
-		func(response http.ResponseWriter, request *http.Request) {
-			if !authorised.Load() {
-				response.WriteHeader(http.StatusNoContent)
-				return
-			}
-			response.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(response).Encode(exchangeResponse{
-				Secret:   "an-example-secret",
-				Account:  "somebody@example.com",
-				DeviceID: "device-1",
-			})
-		}))
-	defer service.Close()
-
-	store := newStore(t, service.URL)
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
@@ -448,17 +541,14 @@ func TestNothingSeesADeviceBothLinkedAndPending(t *testing.T) {
 		}
 	}()
 
-	authorised.Store(true)
+	stub.authorised.Store(true)
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
-	// Kept sampling for a moment after the credential lands, because the write
-	// that clears the attempt is the one that comes second.
 	time.Sleep(100 * time.Millisecond)
 	close(stop)
 
 	if state, caught := <-done; caught {
 		t.Errorf("a device was seen linked and still showing a code: %+v", state)
 	}
-
 	if final := linker.State(); !final.Linked || final.Pending {
 		t.Errorf("the settled state is %+v", final)
 	}
@@ -474,28 +564,10 @@ func TestNothingSeesADeviceBothLinkedAndPending(t *testing.T) {
 // this behaved against a real service with the endpoint not yet deployed, where
 // the router answers 404 to everything.
 func TestATicketTheServiceHasNotHeardOfKeepsWaiting(t *testing.T) {
-	var known atomic.Bool
-	var polls atomic.Int64
+	stub := newStubService(t)
+	stub.trouble.Store(http.StatusNotFound)
 
-	service := httptest.NewServer(http.HandlerFunc(
-		func(response http.ResponseWriter, request *http.Request) {
-			polls.Add(1)
-			if !known.Load() {
-				// Nobody has opened the link yet, so this ticket means nothing
-				// here.
-				response.WriteHeader(http.StatusNotFound)
-				return
-			}
-			response.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(response).Encode(exchangeResponse{
-				Secret:   "an-example-secret",
-				Account:  "somebody@example.com",
-				DeviceID: "device-1",
-			})
-		}))
-	defer service.Close()
-
-	store := newStore(t, service.URL)
+	store := newStore(t, stub.server.URL)
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
@@ -503,8 +575,8 @@ func TestATicketTheServiceHasNotHeardOfKeepsWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// It has been told no such ticket, more than once, and is still waiting.
-	waitFor(t, 5*time.Second, func() bool { return polls.Load() >= 2 })
+	// Told no such ticket, more than once, and still waiting.
+	waitFor(t, 5*time.Second, func() bool { return len(stub.bodiesFor("/api/v1/device/link/exchange")) >= 2 })
 	if state := linker.State(); !state.Pending || state.Linked {
 		t.Fatalf("the attempt gave up on a ticket the service had not heard of: %+v", state)
 	}
@@ -513,9 +585,9 @@ func TestATicketTheServiceHasNotHeardOfKeepsWaiting(t *testing.T) {
 	}
 
 	// Then somebody opens the link on their phone and authorises it.
-	known.Store(true)
+	stub.trouble.Store(0)
+	stub.authorised.Store(true)
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
-
 	if state := linker.State(); !state.Linked || state.Pending {
 		t.Errorf("after authorising, the state is %+v", state)
 	}
@@ -594,5 +666,164 @@ func TestTheDerivationIsFixed(t *testing.T) {
 		if len(value) != 43 {
 			t.Errorf("the %s is %d characters, want 43", what, len(value))
 		}
+	}
+}
+
+// The whole point of splitting the poll from the redemption.
+//
+// The verifier is the half that redeems. Sending it on every poll -- 2s apart
+// for up to ten minutes, three hundred times, all but one of them redeeming
+// nothing -- pushes the secret through every proxy and access log in front of
+// the service to accomplish nothing. PKCE, which this is shaped after, sends
+// it exactly once, at redemption.
+func TestTheVerifierIsSentOnceAndOnlyToRedeem(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Several polls before anybody authorises, so there is a real opportunity
+	// to leak it.
+	waitFor(t, 8*time.Second, func() bool {
+		return len(stub.bodiesFor("/api/v1/device/link/exchange")) >= 3
+	})
+
+	verifier := linker.attempt.Verifier
+
+	stub.authorised.Store(true)
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+
+	// Not once in a poll, whatever else those polls carried.
+	for index, body := range stub.bodiesFor("/api/v1/device/link/exchange") {
+		if strings.Contains(body, verifier) {
+			t.Errorf("poll %d carried the verifier: %s", index, body)
+		}
+		if strings.Contains(body, `"verifier"`) {
+			t.Errorf("poll %d carries a verifier field at all: %s", index, body)
+		}
+	}
+
+	// And exactly once in total, across every request of any kind.
+	if times := stub.timesTheVerifierWasSent(verifier); times != 1 {
+		t.Errorf("the verifier crossed the wire %d times, want exactly 1", times)
+	}
+	if bodies := stub.bodiesFor("/api/v1/device/link/redeem"); len(bodies) != 1 {
+		t.Errorf("redeem was called %d times", len(bodies))
+	}
+}
+
+// Linked has to mean the credential works.
+//
+// Everything up to redemption proves somebody authorised something. It does
+// not prove that what came back is usable, and a screen on a wall reporting
+// itself linked on the strength of an unexamined string is a lie nobody finds
+// out about until much later, with no keyboard in the room.
+func TestACredentialThatDoesNotWorkIsNotALink(t *testing.T) {
+	stub := newStubService(t)
+	stub.identityRefuses.Store(true)
+	stub.authorised.Store(true)
+
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return !linker.State().Pending })
+
+	if store.Current().Service.Secret.IsSet() {
+		t.Error("a credential the service would not honour was stored anyway")
+	}
+	if state := linker.State(); state.Linked {
+		t.Error("the device reported itself linked with a credential that does not work")
+	}
+	if state := linker.State(); state.Error == "" {
+		t.Error("nothing was shown to the person waiting")
+	}
+}
+
+// The credential is proved by using it, with the credential as a bearer token.
+func TestTheCredentialIsProvedBeforeItIsBelieved(t *testing.T) {
+	stub := newStubService(t)
+	stub.authorised.Store(true)
+
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+
+	// It asked who it was, and only stored anything afterwards.
+	asked := false
+	stub.mutex.Lock()
+	for _, one := range stub.requests {
+		if one.path == "/api/v1/device/self" {
+			asked = true
+		}
+	}
+	stub.mutex.Unlock()
+	if !asked {
+		t.Error("the device never asked the service who it was")
+	}
+}
+
+// A lost answer to redeem must not lose the link. The device is the only party
+// holding the verifier, so it is the wrong one to lock out.
+func TestRedeemingAgainAfterALostAnswerStillLinks(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	// Authorised, but every answer is lost on the way back.
+	stub.authorised.Store(true)
+	stub.trouble.Store(http.StatusGatewayTimeout)
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 8*time.Second, func() bool { return len(stub.bodiesFor("/api/v1/device/link/exchange")) >= 2 })
+	if store.Current().Service.IsLinked() {
+		t.Fatal("linked despite never receiving an answer")
+	}
+
+	// The network recovers. The ticket has been marked redeemed on the service
+	// by then in the real one; here the point is that the device asks again
+	// and completes rather than having given up.
+	stub.trouble.Store(0)
+	waitFor(t, 10*time.Second, func() bool { return store.Current().Service.IsLinked() })
+	if state := linker.State(); !state.Linked {
+		t.Errorf("the attempt did not recover: %+v", state)
+	}
+}
+
+// Only the first poll may say what the device is called. Dropping the verifier
+// from the poll removed the only thing that gated registration, so without
+// first-write-wins anybody holding a photograph of the code could rewrite what
+// the authorisation page shows the person deciding.
+func TestOnlyTheFirstPollSaysWhatThisDeviceIs(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return len(stub.bodiesFor("/api/v1/device/link/exchange")) >= 1 })
+
+	name, identifier := stub.registered()
+	if name != store.Current().Device.Name {
+		t.Errorf("the service registered the name %q", name)
+	}
+	if identifier != store.Current().Device.Identifier {
+		t.Errorf("the service registered the identifier %q", identifier)
 	}
 }

@@ -110,6 +110,10 @@ export interface LinkState {
   pending: boolean;
   url?: string;
   expiresAt?: string;
+  // Somebody has authorised it and the device is collecting the credential and
+  // proving it works. A different thing to be waiting for: the code has done
+  // its job and the phone can be put away.
+  checking?: boolean;
   error?: string;
 }
 

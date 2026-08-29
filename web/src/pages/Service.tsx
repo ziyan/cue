@@ -137,6 +137,20 @@ export function Service() {
                   Unlink
                 </Button>
               </Section>
+            ) : state.pending && state.checking ? (
+              <Section title="Checking">
+                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+                  <CircularProgress size={18} />
+                  <Typography>
+                    Authorised. Collecting the credential and checking it works.
+                  </Typography>
+                </Stack>
+                <Typography variant="body2" color="text.secondary">
+                  The code has done its job — you can put your phone away. This device
+                  does not call itself linked until the service has answered to the
+                  credential it was given.
+                </Typography>
+              </Section>
             ) : state.pending ? (
               <Section title="Scan to link">
                 <Typography sx={{ mb: 2 }}>
