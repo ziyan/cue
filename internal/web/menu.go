@@ -111,6 +111,20 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 	}
 	held := true
 	switch {
+	case strings.HasSuffix(request.URL.Path, "/back"):
+		// Put the tab back where it was, and let the playlist go, in one call.
+		// The page cannot be relied on to navigate itself: a tab whose history
+		// has been reset has nothing to go back to.
+		browser.Release()
+		held = false
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		go func() {
+			defer cancel()
+			if err := browser.ShowCurrentAgain(ctx); err != nil {
+				log.Debugf("cannot put the screen back: %s", err)
+			}
+			browser.RefreshAll(ctx)
+		}()
 	case strings.HasSuffix(request.URL.Path, "/refresh"):
 		// Not waited for: this is asked for as the menu closes, and the caller
 		// is a page that is navigating away in the same breath.
@@ -270,10 +284,16 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
      is the one place it cannot be relied on: the panel scrolls when the
      network form is open, so on a short screen the way out sat below the fold
      exactly when somebody most wanted it. */
-  #dismiss { padding: calc(var(--step) * 0.7); color: #9fb0c5; background: #131920;
-    display: grid; place-items: center; flex: none; }
+  #dismiss { padding: calc(var(--step) * 1.1); color: #9fb0c5; background: #131920;
+    display: grid; place-items: center; flex: none; cursor: pointer;
+    min-width: 7vmin; min-height: 7vmin; touch-action: manipulation; }
   #dismiss:hover { color: #ffc9d1; border-color: #ffc9d1; }
-  #dismiss svg { width: 2.6vmin; height: 2.6vmin; display: block; }
+  /* Pressed is worth showing. Closing takes a moment -- the daemon is told
+     to put the tab back, and only then does anything move -- and without
+     this the press looked like it had been missed, so it was pressed
+     again. */
+  #dismiss:active, #dismiss[aria-disabled="true"] { color: #ffc9d1; background: #1f2731; }
+  #dismiss svg { width: 3.2vmin; height: 3.2vmin; display: block; pointer-events: none; }
 
   #working { color: #9fb0c5; margin: 0; }
 </style>
@@ -639,6 +659,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   document.addEventListener("click", () => showLanguages(false));
   languages.addEventListener("click", (event) => event.stopPropagation());
 
+  const dismiss = document.getElementById("dismiss");
   const actions = document.getElementById("actions");
   const confirm = document.getElementById("confirm");
   const question = document.getElementById("question");
@@ -734,7 +755,15 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     setTimeout(() => word.focus(), 50);
   }
 
+  let closing = false;
+
   function close() {
+    // Pressed twice is one close. The second press used to send the whole
+    // set of calls again and reset the way out, which made a slow close
+    // slower.
+    if (closing) return;
+    closing = true;
+    dismiss.setAttribute("aria-disabled", "true");
     clearInterval(keepHolding);
     // keepalive, both of them, and this is the whole reason the screen froze
     // the first time: closing the tab in the next breath cancels a request
@@ -749,22 +778,24 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     // freshen the playlist first: somebody who has just been in here may have
     // changed the network or the screen, and a page that loaded before those
     // changed is showing an answer from the old world.
-    send("/api/v1/playlist/refresh", { method: "POST", keepalive: true }).catch(() => {});
+    // The daemon puts the tab back, lets the playlist go and freshens the
+    // other pages, in one call. The page used to steer itself -- back through
+    // its own history, or to an address the page it came from had put on the
+    // query string -- and neither is reliable: a tab whose history has been
+    // reset has nothing to go back to, and pressing the X then did nothing at
+    // all. The daemon knows what this tab is for.
+    send("/api/v1/playlist/back", { method: "POST", keepalive: true }).catch(() => {});
 
-    // Back to the page this tab was showing. The address came in on the query
-    // string from the page itself, so it is checked before it is used: an
-    // http or https address and nothing else. Without that check a page could
-    // send the menu to a javascript: address, and the menu is served by the
-    // daemon -- which would be a page on the screen running its own code with
-    // the daemon's origin.
-    const from = new URLSearchParams(location.search).get("from") || "";
-    if (/^https?:\/\//i.test(from)) {
-      location.replace(from);
-    } else if (history.length > 1) {
-      history.back();
-    } else {
-      location.replace("/");
-    }
+    // If the daemon cannot answer, the page still has to leave, or the menu
+    // stays up with nothing behind it. The address came from the page this
+    // tab was showing, so it is checked first: an http or https address and
+    // nothing else, because a javascript: one would run with the daemon's own
+    // origin.
+    setTimeout(() => {
+      const from = new URLSearchParams(location.search).get("from") || "";
+      if (/^https?:\/\//i.test(from)) location.replace(from);
+      else if (history.length > 1) history.back();
+    }, 1500);
   }
 
   function openNetwork() {
@@ -1034,7 +1065,11 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       .finally(() => setTimeout(close, 1200));
   }
 
-  document.getElementById("dismiss").addEventListener("click", close);
+  // Both, because a click needs the press and the release to land on the same
+  // thing and a pointer being driven from a phone over VNC drifts between the
+  // two. Closing twice is guarded against, so the pair is harmless.
+  dismiss.addEventListener("click", close);
+  dismiss.addEventListener("pointerup", close);
   window.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
 
   speak();

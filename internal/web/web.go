@@ -12,9 +12,9 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,8 +35,16 @@ import (
 
 var log = logging.MustGetLogger("web")
 
-//go:embed all:static
-var staticFiles embed.FS
+// The interface: React and MUI from web/, built by Vite. It is embedded, so
+// the daemon ships as one executable with nothing to fetch at runtime.
+//
+// Built by `make web`, which writes it here because Go's embed cannot reach
+// outside the directory of the package that declares it. A checkout that has
+// not run it has an empty directory and says so at runtime rather than
+// failing to compile, which is what the .gitkeep is for.
+//
+//go:embed all:dist
+var builtFiles embed.FS
 
 // Device is what the web interface needs from the rest of the daemon. It is
 // an interface so that this package can be tested without starting an X
@@ -316,6 +324,7 @@ func (self *Server) addRoutes() {
 	api.Path("/playlist/release").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/playlist/keep").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/playlist/refresh").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
+	api.Path("/playlist/back").Methods(http.MethodPost).HandlerFunc(self.localOrSession(self.holdPlaylist))
 	api.Path("/menu/reload").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuReload))
 	api.Path("/menu/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuRestart))
 	api.Path("/menu/network").Methods(http.MethodGet).HandlerFunc(self.localOrSession(self.menuNetwork))
@@ -328,35 +337,11 @@ func (self *Server) addRoutes() {
 	api.Path("/menu/display").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuSetDisplay))
 
 	// Everything else is the interface itself.
-	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.static)
+	self.router.PathPrefix("/").Methods(http.MethodGet, http.MethodHead).HandlerFunc(self.built)
 }
 
 // static serves the embedded interface, falling back to the single page for
 // any path the interface routes itself.
-func (self *Server) static(response http.ResponseWriter, request *http.Request) {
-	content, err := fs.Sub(staticFiles, "static")
-	if err != nil {
-		http.Error(response, "the interface is missing from this build", http.StatusInternalServerError)
-		return
-	}
-
-	path := request.URL.Path
-	if path == "/" {
-		path = "/index.html"
-	}
-	file, err := content.Open(path[1:])
-	if err != nil {
-		// A path the interface handles itself: serve the shell and let it
-		// route. A reload of /content must not be a 404.
-		request.URL.Path = "/"
-		http.FileServerFS(content).ServeHTTP(response, request)
-		return
-	}
-	_ = file.Close()
-
-	http.FileServerFS(content).ServeHTTP(response, request)
-}
-
 func describeAddress(address net.Addr) string {
 	text := address.String()
 	host, port, err := net.SplitHostPort(text)
@@ -389,4 +374,37 @@ func primaryAddress() string {
 		return ""
 	}
 	return host
+}
+
+// built serves the bundle from web/.
+//
+// Anything it does not have is answered with index.html, because the routing
+// is in the browser: /device is a page React knows about and not a file.
+func (self *Server) built(response http.ResponseWriter, request *http.Request) {
+	path := strings.TrimPrefix(request.URL.Path, "/")
+	if path == "" {
+		path = "index.html"
+	}
+
+	if file := builtFileAt(path); file != nil {
+		file.send(response, request, path)
+		return
+	}
+
+	// Only a path that could be a page falls through to the shell. A request
+	// for something with an extension is asking for a file, and answering
+	// that with HTML means a missing script gets a page instead of a 404 --
+	// which the browser then fails to parse, somewhere far away from the
+	// missing file.
+	if strings.Contains(strings.TrimPrefix(path, "assets/"), ".") {
+		http.NotFound(response, request)
+		return
+	}
+
+	shell := builtFileAt("index.html")
+	if shell == nil {
+		http.Error(response, "this build has no interface in it; run make web", http.StatusNotFound)
+		return
+	}
+	shell.send(response, request, "index.html")
 }

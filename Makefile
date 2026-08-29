@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := all
 
 .PHONY: all help build test benchmark coverage format check lint lint-ci mulint \
-	check-secrets check-packages clean docker docker-smoke deploy dev dev-config watch vendor
+	check-secrets check-packages clean docker docker-smoke deploy dev dev-config watch vendor web web-dev
 
 GO ?= go
 BUILD_DIR ?= build
@@ -95,6 +95,12 @@ dev-config: build ## Create dev/cue.yaml if it is not there yet
 
 dev: dev-config ## Run the daemon locally against a virtual screen
 	@./$(BINARY) run --config dev/cue.yaml
+
+web: ## Build the management interface into internal/web/dist
+	@cd web && npm ci --no-audit --no-fund && npm run build
+
+web-dev: ## Run the interface against a device (CUE=http://host:8080)
+	@cd web && npm run dev
 
 docker: ## Build the container image
 	@docker build -t $(DOCKER_TAG) -f Dockerfile \
