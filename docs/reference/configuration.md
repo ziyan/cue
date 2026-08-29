@@ -424,7 +424,18 @@ Where this device reports to, and the credential it holds once it is attached.
 All of it is empty on a device that has never been linked, which is the normal
 state: a device works entirely on its own with none of this set.
 
-`address` is the only field an operator sets. The rest are written by the
+`address` is the only field an operator sets, and it is set here or not at
+all: it has no control in the web interface, and a save from there cannot
+change it. Every device reports to the same place, so a box on the page would
+be an invitation to type something that could only be wrong. Left out, it is
+`https://cue.sh`. Naming a different one — a staging service, a deployment that
+is not the public one — is a decision for whoever installs the device.
+
+There is no way to say "no service". An empty address is filled in rather than
+meaning off, and nothing is given away by having one: a device contacts the
+service only when somebody presses Link, so what keeps a device to itself is
+being unlinked.
+ The rest are written by the
 device when a link completes and are read back only to be shown: `secret` is
 what it presents when it connects, and is never sent to the interface or
 written to the log; `account`, `deviceId` and `name` are what the service said

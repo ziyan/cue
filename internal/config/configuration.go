@@ -81,13 +81,17 @@ type Device struct {
 // something an operator chooses, from the menu or the interface, and it adds
 // somewhere to report to rather than somewhere to be run from.
 type Service struct {
-	// Address is where the service lives, as a URL a phone could open. Empty
-	// disables linking entirely, and the interface says so rather than
-	// offering a button that cannot work.
+	// Address is where the service lives, as a URL a phone could open.
+	// DefaultServiceAddress unless this file says otherwise.
 	//
-	// Configurable rather than compiled in so that a device can be pointed at
-	// a staging service, or at a deployment that is not the public one,
-	// without a different image.
+	// Settable in the file but not from the web interface, and the difference
+	// is deliberate. Ordinary operators have one service and no reason to name
+	// it; offering the field made an empty box the first thing on the page and
+	// invited somebody to type something that could only be wrong. It stays in
+	// the file because a device does sometimes need pointing at a staging
+	// service or a deployment that is not the public one, and that is a
+	// decision made by whoever installs the device rather than by whoever
+	// finds the page.
 	Address string `yaml:"address,omitempty" json:"address"`
 
 	// Secret is what the service issued when this device was linked, and what
@@ -114,6 +118,12 @@ type Service struct {
 	// is kept and shown rather than assuming the local name carried.
 	Name string `yaml:"name,omitempty" json:"name"`
 }
+
+// DefaultServiceAddress is where a device reports to unless its file says
+// otherwise. Compiled in rather than asked for: it is the same for every
+// device anybody will ever install, and a setting whose right answer is always
+// the same is a setting that only offers a way to be wrong.
+const DefaultServiceAddress = "https://cue.sh"
 
 // IsConfigured reports whether there is a service to link to at all.
 func (self *Service) IsConfigured() bool {

@@ -174,7 +174,16 @@ func renderQR(matrix [][]bool, label string) template.HTML {
 	}
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, `<svg viewBox="0 0 %d %d" role="img" aria-label="%s" shape-rendering="crispEdges">`,
+	// The namespace is not optional, and leaving it out fails in exactly one
+	// of the two places this is used. Inline in a page, the HTML parser puts
+	// the element in the SVG namespace itself and everything works. Served on
+	// its own as image/svg+xml and loaded through an <img>, it is parsed as
+	// XML, where a root element with no namespace is not an SVG at all -- so
+	// the setup code drew perfectly while the linking code was a broken
+	// image, which is a difference no amount of looking at the setup page
+	// would have shown.
+	fmt.Fprintf(&builder,
+		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" role="img" aria-label="%s" shape-rendering="crispEdges">`,
 		len(matrix), len(matrix), template.HTMLEscapeString(label))
 	// A white ground under the code. Scanners read dark-on-light, and the page
 	// behind this is nearly black.

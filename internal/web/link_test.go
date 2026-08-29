@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -305,18 +306,132 @@ func TestAbandoningALinkStopsTheAsking(t *testing.T) {
 	}
 }
 
-// A device with nowhere to link to says so, rather than offering a button that
-// cannot work.
-func TestLinkingWithNoServiceAddressIsRefused(t *testing.T) {
+// Every device knows where to report, so the old "nowhere to link to" state is
+// gone: an empty address in a file is filled in rather than meaning off.
+//
+// Nothing is given away by having an address. A device contacts the service
+// only when somebody presses Link, so what makes a device private is being
+// unlinked, not being unaddressed.
+func TestADeviceAlwaysKnowsWhereToReport(t *testing.T) {
 	server := newTestServer(t, config.Default())
 	defer func() { _ = server.device.Linker().Close() }()
 	session := setUp(t, server)
 
-	response := do(server, http.MethodPost, "/api/v1/link", nil, session)
-	if response.Code != http.StatusConflict {
-		t.Errorf("linking with no address answered %d, want 409", response.Code)
+	if address := server.store.Current().Service.Address; address != config.DefaultServiceAddress {
+		t.Errorf("a device with nothing in its file points at %q", address)
 	}
-	if do(server, http.MethodGet, "/api/v1/link/code.svg", nil, session).Code != http.StatusNotFound {
-		t.Error("a code picture was served with nothing to link to")
+	if state := linkStateOf(t, server, session); state.Linked || state.Pending {
+		t.Errorf("a device that has never linked says %+v", state)
+	}
+}
+
+// The picture has to be an SVG a browser will actually draw.
+//
+// It was not. The same helper draws the setup code inline in a page and this
+// one on its own, and only the standalone case needs an XML namespace: inline,
+// the HTML parser supplies it. So the setup code drew correctly while this one
+// was a broken image on a phone, and no amount of looking at the setup page
+// would have shown the difference.
+//
+// Checked by parsing it as XML, the way a browser loading an <img> does,
+// rather than by looking at the bytes. The mistake that hid this the first
+// time was reading naturalWidth of 0 as "an SVG has no intrinsic size" when it
+// is also exactly what a browser reports for a picture it could not decode.
+func TestTheLinkingCodeIsAnSVGABrowserWillDraw(t *testing.T) {
+	stub := newStubService(t)
+	configuration := config.Default()
+	configuration.Service.Address = stub.server.URL
+	server := newTestServer(t, configuration)
+	defer func() { _ = server.device.Linker().Close() }()
+	session := setUp(t, server)
+
+	if code := do(server, http.MethodPost, "/api/v1/link", nil, session).Code; code != http.StatusOK {
+		t.Fatal("could not start a link")
+	}
+	picture := do(server, http.MethodGet, "/api/v1/link/code.svg", nil, session)
+	if picture.Code != http.StatusOK {
+		t.Fatalf("the code picture answered %d", picture.Code)
+	}
+
+	var drawing struct {
+		XMLName xml.Name `xml:"svg"`
+		ViewBox string   `xml:"viewBox,attr"`
+		Rects   []struct {
+			Fill string `xml:"fill,attr"`
+		} `xml:"rect"`
+	}
+	if err := xml.Unmarshal(picture.Body.Bytes(), &drawing); err != nil {
+		t.Fatalf("the picture is not well-formed XML: %s", err)
+	}
+	// The namespace is the thing that was missing, and an XML parser is what
+	// notices: without it the root element is "svg" in no namespace, which is
+	// not an SVG.
+	if drawing.XMLName.Space != "http://www.w3.org/2000/svg" {
+		t.Errorf("the root element is in the namespace %q, so a browser will not draw it",
+			drawing.XMLName.Space)
+	}
+	if drawing.ViewBox == "" {
+		t.Error("the picture has no viewBox, so it has no size to be drawn at")
+	}
+	if len(drawing.Rects) < 2 {
+		t.Errorf("the picture has %d rectangles, which is not a code", len(drawing.Rects))
+	}
+}
+
+// The service address is the file's to decide, and the interface saves the
+// whole document — so hiding the control is not enough on its own. A save that
+// carries a different address must leave the device pointing where it pointed.
+func TestTheInterfaceCannotChangeTheServiceAddress(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	defer func() { _ = server.device.Linker().Close() }()
+	session := setUp(t, server)
+
+	was := server.store.Current().Service.Address
+	if was != config.DefaultServiceAddress {
+		t.Fatalf("a device with nothing in its file points at %q", was)
+	}
+
+	current := do(server, http.MethodGet, "/api/v1/configuration", nil, session)
+	var document map[string]any
+	if err := json.Unmarshal(current.Body.Bytes(), &document); err != nil {
+		t.Fatalf("cannot read the configuration: %s", err)
+	}
+	service, _ := document["service"].(map[string]any)
+	if service == nil {
+		t.Fatal("the configuration has no service section")
+	}
+	service["address"] = "https://somewhere-else.example.com"
+
+	saved := do(server, http.MethodPut, "/api/v1/configuration", document, session)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("saving answered %d: %s", saved.Code, saved.Body)
+	}
+	if now := server.store.Current().Service.Address; now != was {
+		t.Errorf("the interface moved the device from %q to %q", was, now)
+	}
+
+	// And the answer it gets back says so, rather than echoing what it sent.
+	var returned map[string]any
+	if err := json.Unmarshal(saved.Body.Bytes(), &returned); err != nil {
+		t.Fatalf("cannot read what was saved: %s", err)
+	}
+	if section, _ := returned["service"].(map[string]any); section["address"] != was {
+		t.Errorf("the interface was told the address is now %v", section["address"])
+	}
+}
+
+// A device with nothing in its file still knows where to report.
+func TestAServiceAddressIsFilledInRatherThanRequired(t *testing.T) {
+	configuration := config.Default()
+	if configuration.Service.Address != config.DefaultServiceAddress {
+		t.Errorf("a default configuration points at %q", configuration.Service.Address)
+	}
+
+	// A file that names one keeps what it names.
+	chosen := &config.Configuration{}
+	chosen.Service.Address = "https://staging.example.com"
+	chosen.Normalize()
+	if chosen.Service.Address != "https://staging.example.com" {
+		t.Errorf("a configured address became %q", chosen.Service.Address)
 	}
 }

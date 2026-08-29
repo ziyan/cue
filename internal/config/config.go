@@ -114,6 +114,14 @@ func (self *Configuration) Normalize() {
 		self.Device.Identifier = security.NewIdentifier()
 	}
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
+
+	// Filled in rather than required. A file that names a service keeps what
+	// it names, including through a save from the interface, which cannot
+	// change this one.
+	self.Service.Address = strings.TrimSpace(self.Service.Address)
+	if self.Service.Address == "" {
+		self.Service.Address = DefaultServiceAddress
+	}
 	self.Log.Level = strings.ToUpper(strings.TrimSpace(self.Log.Level))
 
 	// "video:" is what "media:" used to be called. A file written by an older
@@ -251,6 +259,20 @@ func (self *Configuration) Clone() *Configuration {
 		panic(fmt.Sprintf("config: cannot clone: %s", err))
 	}
 	return clone
+}
+
+// RestoreFileOnlySettings puts back the settings only the file may decide.
+//
+// The interface saves the whole document, so a field it does not show still
+// makes the round trip -- and whatever it happened to send back would be
+// written. That is fine for most things and wrong for these: the service
+// address is not offered as a control, so a save must not be able to change it
+// by accident, and must not be able to change it on purpose either.
+//
+// The file remains authoritative. Editing it and reloading is how this
+// changes; nothing that goes through Update can.
+func RestoreFileOnlySettings(updated, previous *Configuration) {
+	updated.Service.Address = previous.Service.Address
 }
 
 // RestoreSecrets copies every secret that arrived as the redacted placeholder

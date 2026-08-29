@@ -9,7 +9,6 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { Section } from "../components/Section";
 import { Readout } from "../components/Readout";
-import { Row, Text } from "../components/Fields";
 import { SettingsPage, useSettings } from "../settings";
 import { api, type LinkState } from "../api";
 
@@ -89,25 +88,19 @@ export function Service() {
     <SettingsPage settings={settings}>
       {(configuration) => {
         const service = configuration.service ?? { address: "" };
-        // What the daemon has, not what is in the box. An address typed and
-        // not yet saved is not an address the device can link to, and offering
-        // the button on the strength of it produced a refusal from the daemon
-        // that read as a fault.
-        const configured = (service.address ?? "").trim() !== "" && !settings.changed;
+        const configured = (service.address ?? "").trim() !== "";
         return (
           <>
             <Section title="Service">
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                Where this device reports to. Leave it empty and the device works entirely
-                on its own, which is the normal state.
+                Where this device reports to.
               </Typography>
-              <Row>
-                <Text label="Address" type="url" value={service.address ?? ""}
-                  hint="For example https://example.com"
-                  onChange={(value) => settings.change((draft) => {
-                    draft.service = { ...(draft.service ?? { address: "" }), address: value };
-                  })} />
-              </Row>
+              {/* Shown, not offered. Every device reports to the same place,
+                  and a box here would be an invitation to type something that
+                  could only be wrong -- on a page whose whole job is to attach
+                  this screen to an account. Pointing a device somewhere else
+                  is a decision for whoever installs it, made in cue.yaml. */}
+              <Readout label="Address" mono>{service.address}</Readout>
             </Section>
 
             {said && <Alert severity="success" sx={{ mb: 2 }}>{said}</Alert>}
@@ -196,9 +189,7 @@ export function Service() {
                 <Typography sx={{ mb: 2 }}>
                   {configured
                     ? "Linking this device attaches it to an account, so it can be watched from there."
-                    : settings.changed
-                      ? "Save the address above before linking."
-                      : "Set an address above, and save, before linking."}
+                    : "This device has no service address, so there is nothing to link it to."}
                 </Typography>
                 <Button variant="contained" disabled={!configured || working}
                   onClick={() => void act(api.startLink)}>
