@@ -56,6 +56,14 @@ type stubService struct {
 	// What /self answers with. Defaults are set in newStubService.
 	identityId   string
 	identityName string
+	// Closed to let a held identity call finish, so a test can look at the
+	// state while the device is midway through proving the credential. Always
+	// released when the test ends, whatever happened: a handler left blocked
+	// here holds the linker's goroutine, which Close waits for, so forgetting
+	// would turn a failure into a hang -- and a test that hangs in CI is worse
+	// than one that fails.
+	holdIdentity chan struct{}
+	releaseOnce  sync.Once
 }
 
 type stubRequest struct {
@@ -133,6 +141,9 @@ func newStubService(t *testing.T) *stubService {
 			})
 
 		case "/api/v1/device/self":
+			if stub.holdIdentity != nil {
+				<-stub.holdIdentity
+			}
 			if stub.identityRefuses.Load() {
 				response.WriteHeader(http.StatusUnauthorized)
 				return
@@ -153,8 +164,20 @@ func newStubService(t *testing.T) *stubService {
 	}
 
 	stub.server = httptest.NewServer(http.HandlerFunc(handler))
-	t.Cleanup(stub.server.Close)
+	t.Cleanup(func() {
+		stub.release()
+		stub.server.Close()
+	})
 	return stub
+}
+
+// release lets any held identity call through. Safe to call twice.
+func (self *stubService) release() {
+	self.releaseOnce.Do(func() {
+		if self.holdIdentity != nil {
+			close(self.holdIdentity)
+		}
+	})
 }
 
 // bodiesFor returns every request body sent to one path.
@@ -884,5 +907,48 @@ func TestACredentialForADifferentDeviceIsRefused(t *testing.T) {
 	}
 	if state := linker.State(); state.Error == "" {
 		t.Error("nothing was shown to the person waiting")
+	}
+}
+
+// The stage between "somebody pressed it" and "this is real" is shown.
+//
+// It matters because it is a different thing to be waiting for: once the
+// device is checking, the code has done its job and whoever is holding a phone
+// up at the screen can stop. On a fast network it passes in a couple of
+// milliseconds -- in a run against the real service, redeem and the identity
+// call landed 2ms apart and nothing polling ever saw it -- so it is held open
+// here deliberately rather than hoped for.
+func TestTheDeviceSaysWhenItIsCheckingRatherThanWaiting(t *testing.T) {
+	stub := newStubService(t)
+	stub.holdIdentity = make(chan struct{})
+	stub.authorised.Store(true)
+
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Held inside the identity call, which is after redemption and before
+	// anything is stored.
+	waitFor(t, 5*time.Second, func() bool { return linker.State().Checking })
+
+	state := linker.State()
+	if !state.Pending {
+		t.Error("the attempt is not pending while it is being checked")
+	}
+	if state.Linked {
+		t.Error("the device called itself linked before the credential was proved")
+	}
+	if store.Current().Service.Secret.IsSet() {
+		t.Error("the credential was stored before it was proved")
+	}
+
+	stub.release()
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+	if final := linker.State(); final.Checking || final.Pending {
+		t.Errorf("the checking state outlived the attempt: %+v", final)
 	}
 }
