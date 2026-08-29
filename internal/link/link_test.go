@@ -551,3 +551,48 @@ func TestAServiceWithoutTheEndpointExpiresRatherThanRefuses(t *testing.T) {
 		t.Errorf("the attempt ended as %q, which does not say the code ran out", state.Error)
 	}
 }
+
+// The derivation, pinned to a fixed vector.
+//
+// There is a second implementation of this now -- the service checks the
+// pairing by computing the same thing -- so deriveTicket is no longer an
+// internal detail this package may change its mind about. Two mistakes are
+// easy and both are silent: hashing the decoded 32 bytes rather than the
+// verifier as it is sent, and emitting base64 with padding. Either produces a
+// ticket the other side cannot match, and the only symptom is that every link
+// is refused for ever.
+func TestTheDerivationIsFixed(t *testing.T) {
+	raw := make([]byte, 32)
+	for index := range raw {
+		raw[index] = byte(index)
+	}
+	verifier := base64.RawURLEncoding.EncodeToString(raw)
+
+	if verifier != "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8" {
+		t.Fatalf("the verifier encoding changed: %q", verifier)
+	}
+	if ticket := deriveTicket(verifier); ticket != "6oZqdX5MOLq_qBJ8vppAnT4fk6AP8UiP9zX8-Rev_9A" {
+		t.Errorf("the ticket for a known verifier is %q, which the service will not match", ticket)
+	}
+
+	// The mistake worth naming: hashing the bytes the verifier encodes rather
+	// than the verifier itself. It produces a perfectly good-looking ticket.
+	wrong := sha256.Sum256(raw)
+	if base64.RawURLEncoding.EncodeToString(wrong[:]) == deriveTicket(verifier) {
+		t.Error("hashing the raw bytes and hashing the verifier agree, so this test proves nothing")
+	}
+
+	// Neither half may carry padding: it travels in a URL and in a QR code.
+	attempt, err := newTicket(time.Now(), ticketLifetime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, value := range map[string]string{"verifier": attempt.Verifier, "ticket": attempt.Ticket} {
+		if strings.Contains(value, "=") {
+			t.Errorf("the %s carries base64 padding: %q", what, value)
+		}
+		if len(value) != 43 {
+			t.Errorf("the %s is %d characters, want 43", what, len(value))
+		}
+	}
+}
