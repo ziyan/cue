@@ -20,19 +20,19 @@ const choices = [
   { key: "system" as const, name: "Same as this device", Icon: DesktopWindowsOutlinedIcon },
 ];
 
-export function AppearanceMenu({ appearance, onChange }: {
+export function AppearanceMenu({ appearance, mode, onChange }: {
   appearance: Appearance;
+  mode: "light" | "dark";
   onChange: (next: Appearance) => void;
 }) {
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
-  const showing = choices.find((one) => one.key === appearance) ?? choices[2]!;
 
   return (
     <>
       <Tooltip title="Light or dark">
         <IconButton onClick={(event: MouseEvent<HTMLElement>) => setAnchor(event.currentTarget)}
           aria-label="Light or dark">
-          <showing.Icon />
+          {mode === "dark" ? <DarkModeOutlinedIcon /> : <LightModeOutlinedIcon />}
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>

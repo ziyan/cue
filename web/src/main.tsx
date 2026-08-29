@@ -94,6 +94,7 @@ function App() {
               <Shell
                 state={state}
                 appearance={appearance}
+                mode={mode}
                 onAppearance={chooseAppearance}
                 onSignedOut={() => setState({ ...state, signedIn: false })}
               />

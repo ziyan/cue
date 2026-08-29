@@ -37,9 +37,10 @@ const railWidth = 72;
 
 const remembered = "cue.sidebar";
 
-export function Shell({ state, appearance, onAppearance, onSignedOut }: {
+export function Shell({ state, appearance, mode, onAppearance, onSignedOut }: {
   state: SetupState;
   appearance: Appearance;
+  mode: "light" | "dark";
   onAppearance: (next: Appearance) => void;
   onSignedOut: () => void;
 }) {
@@ -174,7 +175,9 @@ export function Shell({ state, appearance, onAppearance, onSignedOut }: {
           <Toolbar sx={{ height: barHeight, minHeight: barHeight, gap: 1 }}>
             <Tooltip title={rail ? "Show the names" : wide ? "Just the icons" : "Menu"}>
               <IconButton edge="start" onClick={toggle} aria-label="Menu">
-                {rail ? <MenuIcon /> : <MenuOpenIcon />}
+                {!wide
+                  ? <Box component="img" src="/favicon.svg" alt="" sx={{ width: 24, height: 24 }} />
+                  : rail ? <MenuIcon /> : <MenuOpenIcon />}
               </IconButton>
             </Tooltip>
 
@@ -189,7 +192,7 @@ export function Shell({ state, appearance, onAppearance, onSignedOut }: {
             </Stack>
 
             <LanguageMenu language={state.device.language ?? ""} />
-            <AppearanceMenu appearance={appearance} onChange={onAppearance} />
+            <AppearanceMenu appearance={appearance} mode={mode} onChange={onAppearance} />
             <AccountMenu state={state} onSignedOut={onSignedOut} />
           </Toolbar>
         </AppBar>

@@ -6,7 +6,7 @@ import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
 import CheckIcon from "@mui/icons-material/Check";
-import TranslateIcon from "@mui/icons-material/Translate";
+import LanguageIcon from "@mui/icons-material/Language";
 import { api } from "./api";
 
 // The language the screen speaks -- the one shown in the menu somebody opens
@@ -40,7 +40,7 @@ export function LanguageMenu({ language }: { language: string }) {
       <Tooltip title="Language on the screen">
         <IconButton onClick={(event: MouseEvent<HTMLElement>) => setAnchor(event.currentTarget)}
           aria-label="Language on the screen">
-          <TranslateIcon />
+          <LanguageIcon />
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)}>
