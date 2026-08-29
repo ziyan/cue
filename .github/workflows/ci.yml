@@ -73,6 +73,17 @@ jobs:
           go-version: '1.25'
           cache: false
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The test binaries are compiled here and only run inside the image, so
+      # this job needs the interface as much as the other one does.
+      - name: Build the interface
+        run: make web
+
       # Building the image on every change catches the two ways it silently
       # breaks: a package that has been renamed, and the collection step
       # dropping a library nothing noticed was missing until the X server
