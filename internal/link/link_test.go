@@ -952,3 +952,82 @@ func TestTheDeviceSaysWhenItIsCheckingRatherThanWaiting(t *testing.T) {
 		t.Errorf("the checking state outlived the attempt: %+v", final)
 	}
 }
+
+// A request the service will not accept ends the attempt at once.
+//
+// This should never fire: it means the device sent something it should not
+// have, and the case it exists for is the service refusing a poll that carries
+// a verifier. The point is that it must not be retried. A malformed body will
+// still be malformed on the next tick, and treating it as a network wobble
+// means three hundred rejected requests followed by "the code expired", which
+// says nothing about what actually happened.
+func TestARequestTheServiceWillNotAcceptEndsTheAttempt(t *testing.T) {
+	var polls atomic.Int64
+	service := httptest.NewServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			polls.Add(1)
+			response.WriteHeader(http.StatusBadRequest)
+			_, _ = response.Write([]byte(`{"error":"the verifier belongs on /redeem, not on a poll"}`))
+		}))
+	defer service.Close()
+
+	store := newStore(t, service.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return !linker.State().Pending })
+
+	if asked := polls.Load(); asked != 1 {
+		t.Errorf("the device asked %d times; a request the service will not accept "+
+			"should not be repeated", asked)
+	}
+	state := linker.State()
+	if state.Linked {
+		t.Error("a rejected request linked the device anyway")
+	}
+	if state.Error == "" {
+		t.Error("nothing was shown to the person waiting")
+	}
+	if strings.Contains(state.Error, "expired") {
+		t.Errorf("a rejected request was reported as an expiry: %q", state.Error)
+	}
+}
+
+// The service's own explanation is carried, bounded, into the log rather than
+// replaced by a guess.
+func TestTheServicesReasonIsKeptAndBounded(t *testing.T) {
+	long := strings.Repeat("a very long explanation ", 40)
+	for _, one := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"a JSON error object", `{"error":"the verifier belongs on /redeem"}`,
+			"the verifier belongs on /redeem"},
+		{"plain text", "the verifier belongs on /redeem", "the verifier belongs on /redeem"},
+		{"newlines flattened", "one\ntwo\n\tthree", "one two three"},
+	} {
+		t.Run(one.name, func(t *testing.T) {
+			response := &http.Response{
+				Status: "400 Bad Request",
+				Body:   io.NopCloser(strings.NewReader(one.body)),
+			}
+			if got := reasonFrom(response); got != one.want {
+				t.Errorf("read %q, want %q", got, one.want)
+			}
+		})
+	}
+
+	response := &http.Response{Status: "400 Bad Request", Body: io.NopCloser(strings.NewReader(long))}
+	if got := reasonFrom(response); len(got) > 160 {
+		t.Errorf("a service was allowed %d characters of the interface", len(got))
+	}
+
+	empty := &http.Response{Status: "400 Bad Request", Body: io.NopCloser(strings.NewReader(""))}
+	if got := reasonFrom(empty); got != "400 Bad Request" {
+		t.Errorf("a service that explained nothing produced %q", got)
+	}
+}

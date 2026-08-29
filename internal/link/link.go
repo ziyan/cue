@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,14 @@ const (
 // Distinct from a network failure on purpose: one is worth retrying and the
 // other is not.
 var ErrRefused = errors.New("link: the service refused the attempt")
+
+// ErrRejected means the service would not accept the request itself: not a
+// decision anybody made, but a call this device should not have made. Separate
+// from ErrRefused because it says something different to whoever is looking --
+// one is "somebody said no", the other is "this is a bug" -- and separate from
+// a network failure because a body that is wrong now will still be wrong on
+// the next tick.
+var ErrRejected = errors.New("link: the service would not accept the request")
 
 // State is what the interface shows about linking.
 type State struct {
@@ -232,6 +241,10 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 
 		authorised, err := self.ask(ctx, attempt)
 		switch {
+		case errors.Is(err, ErrRejected):
+			log.Errorf("the service would not accept this device's request: %s", err)
+			self.finish(attempt, "this device asked the service for something it would not accept")
+			return
 		case errors.Is(err, ErrRefused):
 			self.finish(attempt, "the service refused this device")
 			return
@@ -249,6 +262,10 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 		self.beginChecking(attempt)
 		secret, account, deviceId, err := self.redeem(ctx, attempt)
 		switch {
+		case errors.Is(err, ErrRejected):
+			log.Errorf("the service would not accept this device's request: %s", err)
+			self.finish(attempt, "this device asked the service for something it would not accept")
+			return
 		case errors.Is(err, ErrRefused):
 			self.finish(attempt, "the service refused this device")
 			return
@@ -437,6 +454,11 @@ func (self *Linker) ask(ctx context.Context, attempt *Ticket) (bool, error) {
 	case http.StatusNoContent:
 		// Not authorised yet, which is the usual answer.
 		return false, nil
+	case http.StatusBadRequest:
+		// Should never happen, and if it does it is this device's fault. The
+		// service says why, so that is carried through rather than replaced
+		// with a guess.
+		return false, fmt.Errorf("%w: %s", ErrRejected, reasonFrom(response))
 	case http.StatusNotFound:
 		// Not a refusal, which is what this used to be read as.
 		//
@@ -486,6 +508,8 @@ func (self *Linker) redeem(ctx context.Context, attempt *Ticket) (string, string
 	switch {
 	case response.StatusCode == http.StatusForbidden:
 		return "", "", "", ErrRefused
+	case response.StatusCode == http.StatusBadRequest:
+		return "", "", "", fmt.Errorf("%w: %s", ErrRejected, reasonFrom(response))
 	case response.StatusCode != http.StatusOK:
 		return "", "", "", fmt.Errorf("link: the service answered %s", response.Status)
 	}
@@ -541,6 +565,34 @@ func (self *Linker) identity(ctx context.Context, credential string) (*Identity,
 		return nil, ErrRefused
 	}
 	return &answer, nil
+}
+
+// reasonFrom reads the short explanation a service puts in the body of a
+// refusal. Bounded and flattened: it is written into a state the interface
+// shows, and an unbounded one would be a service deciding how much of a screen
+// it gets.
+func reasonFrom(response *http.Response) string {
+	body, err := io.ReadAll(io.LimitReader(response.Body, 512))
+	if err != nil {
+		return response.Status
+	}
+	// A JSON error object, which is what this project's own API answers with,
+	// or plain text from something else.
+	var carried struct {
+		Error string `json:"error"`
+	}
+	reason := string(body)
+	if err := json.Unmarshal(body, &carried); err == nil && carried.Error != "" {
+		reason = carried.Error
+	}
+	reason = strings.Join(strings.Fields(reason), " ")
+	if reason == "" {
+		return response.Status
+	}
+	if len(reason) > 160 {
+		reason = reason[:160]
+	}
+	return reason
 }
 
 // send makes one request, with the credential as a bearer token when there is

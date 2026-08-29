@@ -96,6 +96,11 @@ the same.
       202  authorised, or already redeemed. Go and collect it.
       403  refused: a person decided against it. The attempt ends.
       404  not heard of. Keep asking.
+      400  the request itself was not acceptable -- which today means a poll
+           carrying a verifier. Not retried: a body that is wrong now will be
+           wrong on the next tick, and three hundred rejected requests
+           followed by "the code expired" says nothing about what happened.
+           The service's own explanation is carried through.
       ---  anything else is a fault worth retrying on the next tick.
 
     POST .../device/link/redeem     {ticket, verifier}
