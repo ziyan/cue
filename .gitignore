@@ -23,3 +23,11 @@
 
 build/
 probe
+
+# The built interface. Made by `make web`, from web/. Not committed: it is
+# derived, it is large, and a stale one in a diff tells nobody anything.
+# The directory itself stays, with a .gitkeep, because internal/web embeds it
+# and an embed of a directory that does not exist will not compile.
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+/web/node_modules/

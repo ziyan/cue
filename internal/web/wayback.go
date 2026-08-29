@@ -61,7 +61,19 @@ const wayBackScriptTemplate = `
   var MENU = "__MENU__";
   var MARK = "__MARK__";
 
-  var mark = null, frame = null, idle = null;
+  // Not on the daemon's own pages that are not playlist items. The mark is put
+  // on every page the browser shows, and the menu is a page the browser shows,
+  // so the menu got one too -- and pressing it opened a second menu on top of
+  // the first. The page that says the screen is being updated is excluded for
+  // the same reason: there is nothing useful to do from it, and it is about to
+  // be taken away.
+  var OWN = MENU.replace(/\/menu$/, "");
+  if (location.href.indexOf(OWN + "/menu") === 0 ||
+      location.href.indexOf(OWN + "/upgrading") === 0) {
+    return;
+  }
+
+  var mark = null, idle = null;
 
   function make() {
     if (mark) return;
@@ -102,7 +114,6 @@ const wayBackScriptTemplate = `
 
   function show() {
     make();
-    if (frame) return;
     mark.style.opacity = "1";
     mark.style.pointerEvents = "auto";
     if (idle) clearTimeout(idle);
@@ -110,39 +121,38 @@ const wayBackScriptTemplate = `
   }
 
   function hide() {
-    if (!mark || frame) return;
+    if (!mark) return;
     mark.style.opacity = "0";
     mark.style.pointerEvents = "none";
   }
 
   function open() {
-    if (frame) return;
     if (idle) clearTimeout(idle);
     hide();
 
-    frame = document.createElement("iframe");
-    frame.src = MENU;
-    frame.style.cssText = [
-      "position:fixed", "inset:0", "z-index:2147483647",
-      "width:100%", "height:100%", "border:0", "background:transparent",
-    ].join(";");
-    document.documentElement.appendChild(frame);
+    // This tab goes to the menu. Not a frame over the page, and not a tab of
+    // its own: both were tried on a real screen and both were wrong.
+    //
+    // A frame made the menu a subresource of whatever page was showing,
+    // fetched from an address on the local network -- so Chrome asked the
+    // viewer to approve it, on a wall, where there is nobody to ask.
+    //
+    // A tab of its own solved that and broke something worse. The daemon knows
+    // the tabs it opened and nothing about one a page opens for itself: it
+    // swept it up as a stray window, and when the tab closed itself the
+    // browser stopped answering the daemon at all -- Runtime.evaluate timing
+    // out, the watchdog escalating, and a frozen display on the wall.
+    //
+    // Navigating this tab is neither. It is a top-level navigation, so no
+    // permission is involved and the menu is same-origin with the daemon that
+    // serves it. And no tab is created or destroyed, so the daemon's idea of
+    // its own tabs never stops being true -- which is the property that was
+    // actually load-bearing.
+    // Where to come back to, so that closing the menu does not depend on the
+    // browser's history having survived. The menu checks it is an ordinary web
+    // address before going anywhere near it.
+    location.href = MENU + "?from=" + encodeURIComponent(location.href);
   }
-
-  function close() {
-    if (!frame) return;
-    frame.remove();
-    frame = null;
-    show();
-  }
-
-  // The menu is a page of its own and cannot reach into this one, so closing
-  // is a message rather than a call. Nothing but closing is accepted, and the
-  // message carries no authority: a page could send it, and all that happens
-  // is that a frame it did not open goes away.
-  window.addEventListener("message", function (event) {
-    if (event.data === "cue:close-menu") close();
-  });
 
   ["mousemove", "mousedown", "touchstart", "keydown"].forEach(function (name) {
     window.addEventListener(name, show, { passive: true, capture: true });
@@ -150,15 +160,21 @@ const wayBackScriptTemplate = `
 })();
 `
 
+// MenuAddress is where the on-screen menu answers. The browser needs it to
+// recognise the tab the control opens as one of its own rather than a stray
+// window to be closed.
+func (self *Server) MenuAddress() string {
+	if _, port, err := net.SplitHostPort(self.Address()); err == nil && port != "" {
+		return "http://127.0.0.1:" + port + "/menu"
+	}
+	return "http://127.0.0.1:8080/menu"
+}
+
 // WayBackScript is the control, for the browser to put on pages this daemon
 // did not write. The address of the menu is filled in here because only the
 // server knows which port it answers on.
 func (self *Server) WayBackScript() string {
-	menu := "http://127.0.0.1:8080/menu"
-	if _, port, err := net.SplitHostPort(self.Address()); err == nil && port != "" {
-		menu = "http://127.0.0.1:" + port + "/menu"
-	}
-	script := strings.ReplaceAll(wayBackScriptTemplate, "__MENU__", menu)
+	script := strings.ReplaceAll(wayBackScriptTemplate, "__MENU__", self.MenuAddress())
 	return strings.ReplaceAll(script, "__MARK__", "data:image/png;base64,"+smallMark())
 }
 

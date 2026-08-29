@@ -45,6 +45,8 @@ recovering.
     DELETE /api/v1/link              abandon the attempt, leaving any existing link alone
     POST   /api/v1/link/forget       forget the credential, so the device answers to nobody
     GET    /api/v1/link/code.svg     the code in progress, as a picture
+    GET    /api/v1/upgrade           whether a newer release exists, and its notes
+    POST   /api/v1/upgrade           take it, on a device set up to allow that
     DELETE /api/v1/session           sign out
 
 ### Status
@@ -63,6 +65,39 @@ seconds is eight times as likely to show a mixture of two moments. It contains:
 - `outputs` and `screen` — what the X server is actually driving
 - `clock` — whether the time is synchronised and how far out it is
 - `sound` — the machine's sound cards
+
+### Upgrading
+
+`GET /api/v1/upgrade` answers with the version this device is running, the
+newest published release, that release's notes as Markdown, and whether this
+device can install it:
+
+    {
+      "running": "0.1.0",
+      "latest": "0.2.0",
+      "notes": "### Fixed\n\n- ...",
+      "publishedAt": "2026-08-28T00:35:50Z",
+      "url": "https://github.com/ziyan/cue/releases/tag/v0.2.0",
+      "newer": true,
+      "checkedAt": "2026-08-28T01:37:51Z",
+      "canApply": false,
+      "whyNot": "upgrade.allowApply is not set in cue.yaml",
+      "image": "ghcr.io/ziyan/cue:0.2.0"
+    }
+
+`trouble` appears instead of a fresh `checkedAt` when the last check failed —
+a device with no route out says so and goes on reporting the release it last
+heard about, rather than reporting nothing, which reads as being up to date.
+
+`POST /api/v1/upgrade` answers `202` and replaces this container with one built
+from `image`. It refuses with `403` unless both `upgrade.allowApply` is set and
+`/var/run/docker.sock` is mounted — see `docs/reference/configuration.md` for
+why that is two deliberate acts — and with `409` when there is nothing newer or
+an upgrade is already under way.
+
+The screen shows what is happening, goes blank for about a minute, and comes
+back. If the new version does not answer, the device puts the old one back and
+starts it again.
 
 ### Secrets
 

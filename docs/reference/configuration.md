@@ -433,6 +433,35 @@ Linking is started from the menu at the screen or from the Service page of the
 web interface, and finished on a phone. See `docs/planning/active/`. The
 address is configurable rather than compiled in so that a device can be pointed
 at a staging service without a different image.
+## upgrade
+
+    upgrade:
+      allowApply: false
+
+Whether this device may replace its own container with one built from a newer
+release. Off unless you turn it on, and useless on its own: the daemon also has
+to be able to reach `/var/run/docker.sock`, which means starting the container
+with
+
+    -v /var/run/docker.sock:/var/run/docker.sock
+
+Two separate acts, both required, and neither can be done from the web
+interface — including this setting, which is the one thing on this page with no
+control in the interface. That is deliberate. The socket is not a small
+permission: the other capabilities cue asks for let it do more to the machine
+it is already on, while the socket lets it become any process on that machine.
+A screen in a lobby has a web interface reachable by everybody on the network,
+and granting this makes that interface's password the password to the host. If
+the interface could grant it, the password would be protecting nothing.
+
+Finding out whether a newer release exists is not configurable and is always
+on. It reads a public API, changes nothing, and needs no account: a screen that
+cannot tell you it is out of date is a screen nobody upgrades. A device with no
+route to the internet says so on the Upgrade page rather than looking current.
+
+With this off — which is every device by default — the Upgrade page still names
+the newest release and shows what changed in it, and gives you the command to
+run on the machine yourself.
 
 ## When nothing is plugged in
 

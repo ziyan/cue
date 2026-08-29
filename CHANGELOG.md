@@ -6,6 +6,19 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-28
+
+### Added
+
+The web interface says when a newer release of cue exists and shows what changed in it. A screen that has been on a wall for a year has had no way to tell you that a fix for the thing wrong with it shipped months ago. A device that cannot reach GitHub says so, and goes on showing the last release it heard about with the date it heard — rather than showing nothing, which reads as being up to date. The check runs once a day and when the page is opened, and needs no account or token. (#4)
+A device can take the upgrade itself, if it is set up to. Set `upgrade.allowApply` in `cue.yaml` and start the container with `-v /var/run/docker.sock:/var/run/docker.sock`, and the Upgrade page offers a button: it fetches the new image and replaces the container, keeping the playlist, the password, and every flag it was started with. The screen says what is happening, goes blank for about a minute, and comes back. If the new version will not start, or starts and never answers, the device puts the old one back and starts it again by itself. Both are needed and neither is the default. The socket is root on the host, and a screen in a lobby has a web interface reachable by everybody on the network. Without them the page still names the release, shows its notes, and gives you the command to run yourself. (#4)
+## [0.2.0] - 2026-08-28
+
+### Added
+
+The image says where it came from. It carried no metadata at all, so a registry had nothing to tie it back to this repository and a person holding it had no way to find the source. It now carries the standard OCI labels, including `org.opencontainers.image.source`, which is the one a registry reads to link the package to its repository — and a linked package can take the repository's visibility instead of being published private, which is how the first release ended up with an image nobody following the README could pull. (#1)
+## [0.1.0] - 2026-08-28
+
 ### Added
 
 - The image says where it came from. It carried no metadata at all, so a

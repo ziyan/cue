@@ -30,8 +30,10 @@ import (
 	"github.com/ziyan/cue/internal/onboarding"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
+	"github.com/ziyan/cue/internal/upgrade"
 	"github.com/ziyan/cue/internal/util/deferutil"
 	"github.com/ziyan/cue/internal/util/reaper"
+	"github.com/ziyan/cue/internal/version"
 	"github.com/ziyan/cue/internal/vncserver"
 	"github.com/ziyan/cue/internal/watchdog"
 	"github.com/ziyan/cue/internal/web"
@@ -52,6 +54,7 @@ type Daemon struct {
 	onboarding *onboarding.Onboarding
 	uploads    *media.Store
 	linker     *link.Linker
+	upgrades   *upgrade.Checker
 
 	// When this device last had an address that reached something, and when
 	// it last stopped offering setup to try the real network again. Both are
@@ -264,6 +267,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// whatever page is showing. It has to be set after the web server exists,
 	// because only the server knows which port the menu answers on.
 	self.browser.OnEveryPage = self.web.WayBackScript()
+	// So that the tab the control opens is not swept up as a window nobody
+	// asked for. Same reason the script is set here: only the server knows
+	// which port it answers on.
+	self.browser.OwnMenu = self.web.MenuAddress()
 	// The wireless configurations used to sit loose in the state directory.
 	// wpa_supplicant saves the networks it has joined into them, so leaving
 	// them behind is a device that forgets every network it knew.
@@ -279,6 +286,20 @@ func (self *Daemon) Run(ctx context.Context) error {
 		self.web = self.web.WithUploads(uploads)
 		self.sweepUploads()
 	}
+
+	// Whether a newer release exists. Checked in the background from here on,
+	// once a day, and whenever somebody opens the page. It reads a public API
+	// and changes nothing; replacing this container with a newer one is a
+	// separate thing that most devices are not set up to do.
+	self.upgrades = upgrade.NewChecker(upgrade.Repository, version.Version())
+	self.web = self.web.WithUpgrades(self.upgrades)
+	go self.upgrades.Run(ctx)
+
+	// Clear away the container that replaced this one, if that is how this
+	// daemon came to be running. The helper is left behind on purpose so that
+	// a failed upgrade can be asked why; after a successful one, the daemon it
+	// installed is the thing that tidies up.
+	go upgrade.SweepHelpers(ctx, upgrade.SocketPath)
 	// The setup page has to be reachable on port 80 of the setup network,
 	// because that is the only place a phone looks.
 	self.onboarding.ServePortalWith(self.web.ServeSetupPort)

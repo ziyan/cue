@@ -58,6 +58,7 @@ func main() {
 			cmd.NewConfigCommand(),
 			cmd.NewDisplayCommand(),
 			cmd.NewHealthCommand(),
+			cmd.NewUpgradeSwapCommand(),
 			cmd.NewVersionCommand(),
 		},
 	}

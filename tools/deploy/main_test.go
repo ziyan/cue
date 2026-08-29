@@ -12,7 +12,7 @@ func TestTheContainerGetsTheConsoleItIsToldToDrawOn(t *testing.T) {
 	// This is the pairing that was got wrong once and produced a black screen
 	// with a message naming neither half: the X server is told to use console
 	// N, and the container has to be given /dev/ttyN.
-	arguments := containerArguments("cue:dev", "cue", 5, nil)
+	arguments := containerArguments("cue:dev", "cue", 5, nil, false)
 	joined := strings.Join(arguments, " ")
 
 	if !strings.Contains(joined, "--device /dev/tty5:/dev/tty5") {
@@ -27,7 +27,7 @@ func TestTheContainerCanManageTheMachinesNetwork(t *testing.T) {
 	// The machine's interfaces live in the host's network namespace and
 	// nowhere else, so managing them needs that namespace and the capability
 	// to change what is in it.
-	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil, false), " ")
 	for _, expected := range []string{"--network host", "--cap-add NET_ADMIN"} {
 		if !strings.Contains(joined, expected) {
 			t.Errorf("%q is missing:\n%s", expected, joined)
@@ -36,7 +36,7 @@ func TestTheContainerCanManageTheMachinesNetwork(t *testing.T) {
 }
 
 func TestTheGraphicsDeviceAndTheStateAreAlwaysThere(t *testing.T) {
-	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil, false), " ")
 	for _, expected := range []string{
 		"--device /dev/dri:/dev/dri",
 		"-v /etc/cue:/etc/cue",
@@ -58,7 +58,7 @@ func TestTheGraphicsDeviceAndTheStateAreAlwaysThere(t *testing.T) {
 func TestTheConfigurationDirectoryIsMountedNotTheFile(t *testing.T) {
 	// Mounting the file makes every save fail with "device or resource busy",
 	// because a rename cannot replace a bind mount.
-	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil, false), " ")
 	if strings.Contains(joined, "cue.yaml") {
 		t.Errorf("the configuration file is mounted individually:\n%s", joined)
 	}
@@ -67,12 +67,12 @@ func TestTheConfigurationDirectoryIsMountedNotTheFile(t *testing.T) {
 func TestOptionalDevicesAreOnlyPassedWhenTheyExist(t *testing.T) {
 	// Naming a device that is not on the machine is an error from Docker, and
 	// a screen nobody touches and nobody listens to is perfectly ordinary.
-	without := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+	without := strings.Join(containerArguments("cue:dev", "cue", 2, nil, false), " ")
 	if strings.Contains(without, "/dev/snd") || strings.Contains(without, "/dev/input") {
 		t.Errorf("a device that was not offered was passed anyway:\n%s", without)
 	}
 
-	with := strings.Join(containerArguments("cue:dev", "cue", 2, []string{"/dev/input", "/dev/snd"}), " ")
+	with := strings.Join(containerArguments("cue:dev", "cue", 2, []string{"/dev/input", "/dev/snd"}, false), " ")
 	for _, expected := range []string{"--device /dev/input:/dev/input", "--device /dev/snd:/dev/snd"} {
 		if !strings.Contains(with, expected) {
 			t.Errorf("%q is missing:\n%s", expected, with)
@@ -83,7 +83,7 @@ func TestOptionalDevicesAreOnlyPassedWhenTheyExist(t *testing.T) {
 func TestTheImageAndTheCommandComeLast(t *testing.T) {
 	// Docker takes its own flags before the image and the container's
 	// arguments after it; getting that order wrong is a confusing failure.
-	arguments := containerArguments("ghcr.io/ziyan/cue:latest", "cue", 2, []string{"/dev/snd"})
+	arguments := containerArguments("ghcr.io/ziyan/cue:latest", "cue", 2, []string{"/dev/snd"}, false)
 	if arguments[len(arguments)-1] != "run" {
 		t.Errorf("the last argument is %q, want the daemon's subcommand", arguments[len(arguments)-1])
 	}
@@ -98,7 +98,7 @@ func TestTheLogIsBounded(t *testing.T) {
 	// programs repeats runs until the disk is full and the machine stops
 	// doing anything at all — which is not a hypothetical: the device this
 	// project replaces turned over 50 MB of browser log in a day.
-	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil), " ")
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, nil, false), " ")
 
 	for _, wanted := range []string{"--log-opt max-size=", "--log-opt max-file="} {
 		if !strings.Contains(joined, wanted) {
@@ -113,7 +113,7 @@ func TestTheMachinesDeviceDatabaseIsMounted(t *testing.T) {
 	// database gets a screen with no keyboard and no mouse, and nothing
 	// anywhere that looks like an error — the X server asked and the answer
 	// was none.
-	joined := strings.Join(containerArguments("cue:dev", "cue", 2, []string{"/dev/input"}), " ")
+	joined := strings.Join(containerArguments("cue:dev", "cue", 2, []string{"/dev/input"}, false), " ")
 
 	if !strings.Contains(joined, "/run/udev:/run/udev:ro") {
 		t.Errorf("the machine's udev database is not mounted, so the screen will have no input:\n%s", joined)
@@ -194,4 +194,20 @@ func TestASendIntoNothingFailsAndFailsQuickly(t *testing.T) {
 		t.Errorf("the send took %s to fail; it is hanging rather than failing", elapsed.Round(time.Second))
 	}
 	t.Logf("failed in %s: %s", elapsed.Round(time.Millisecond), err)
+}
+
+// The Docker socket is the one mount that is not about making the daemon work.
+// It is what the upgrade button needs, and it is root on the host: anything
+// that can write to it can start a container that mounts the host's root
+// filesystem. So it is absent unless asked for, and this says so.
+func TestTheDockerSocketIsNotMountedUnlessAskedFor(t *testing.T) {
+	without := strings.Join(containerArguments("cue:dev", "cue", 2, nil, false), " ")
+	if strings.Contains(without, "docker.sock") {
+		t.Error("the Docker socket is mounted by default, which is root on the host for every device")
+	}
+
+	with := strings.Join(containerArguments("cue:dev", "cue", 2, nil, true), " ")
+	if !strings.Contains(with, "/var/run/docker.sock:/var/run/docker.sock") {
+		t.Errorf("asking for the socket did not mount it: %s", with)
+	}
 }

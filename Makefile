@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := all
 
 .PHONY: all help build test benchmark coverage format check lint lint-ci mulint \
-	check-secrets check-packages clean docker docker-smoke deploy dev dev-config watch vendor
+	check-secrets check-packages clean docker docker-smoke deploy dev dev-config watch vendor web web-dev
 
 GO ?= go
 BUILD_DIR ?= build
@@ -96,6 +96,12 @@ dev-config: build ## Create dev/cue.yaml if it is not there yet
 dev: dev-config ## Run the daemon locally against a virtual screen
 	@./$(BINARY) run --config dev/cue.yaml
 
+web: ## Build the management interface into internal/web/dist
+	@cd web && npm ci --no-audit --no-fund && npm run build
+
+web-dev: ## Run the interface against a device (CUE=http://host:8080)
+	@cd web && npm run dev
+
 docker: ## Build the container image
 	@docker build -t $(DOCKER_TAG) -f Dockerfile \
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) .
@@ -130,11 +136,12 @@ docker-test: docker ## Run the tests inside the image, where the programs they n
 # The packages whose tests depend on something only the image has.
 IMAGE_TESTED_PACKAGES = internal/browser internal/network internal/display internal/web internal/vncserver
 
-deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...])
+deploy: docker ## Send this build to a machine and start it (HOST=... [WAIT=2h] [DISPLAY_MANAGER=stop] [CONFIG=...] [DOCKER_SOCKET=yes])
 	@$(GO) run -mod=vendor ./tools/deploy -host $(HOST) -image $(DOCKER_TAG) \
 		$(if $(WAIT),-wait $(WAIT),) \
 		$(if $(CONFIG),-config $(CONFIG),) \
-		$(if $(filter stop,$(DISPLAY_MANAGER)),-stop-display-manager,)
+		$(if $(filter stop,$(DISPLAY_MANAGER)),-stop-display-manager,) \
+		$(if $(filter yes,$(DOCKER_SOCKET)),-docker-socket,)
 
 watch: ## Rebuild on source change (requires inotifywait)
 	@set -e; \

@@ -14,6 +14,24 @@
 # ---------------------------------------------------------------------------
 # The daemon.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# The management interface: React and MUI, built by Vite into a bundle the
+# daemon embeds. Node is here and only here -- the image that goes on a device
+# has no JavaScript toolchain in it, only the bundle this stage produced.
+# ---------------------------------------------------------------------------
+FROM node:22-trixie-slim AS interface
+
+WORKDIR /web
+
+# The manifests alone first, so that a change to the source does not refetch
+# every dependency.
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY web/ ./
+RUN npm run build
+
+# ---------------------------------------------------------------------------
 FROM golang:1.25-trixie AS daemon
 
 # Passed by the release workflow so the binary can say what it is. Without
@@ -23,6 +41,12 @@ ARG COMMIT=unknown
 
 WORKDIR /src
 COPY . .
+
+# The interface, from the stage above, into the directory the daemon embeds.
+# It has to be here before the build: go:embed reads the tree as it stands when
+# the compiler runs, and a missing bundle is a binary that serves nothing.
+COPY --from=interface /internal/web/dist/ ./internal/web/dist/
+
 RUN CGO_ENABLED=0 go build -mod=vendor \
     -ldflags "-s -w -extldflags \"-static\" \
       -X github.com/ziyan/cue/internal/version.version=${VERSION} \

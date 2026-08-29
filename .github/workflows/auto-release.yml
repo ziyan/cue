@@ -20,6 +20,10 @@ concurrency:
 
 permissions:
   contents: write
+  # Reading the changelog blocks out of merged pull request descriptions.
+  # Without this the entries are simply not there, and the release is not that
+  # something failed but that there was nothing to release.
+  pull-requests: read
 
 jobs:
   cut:
@@ -45,6 +49,15 @@ jobs:
 
       - name: Work out the version and date the changelog
         id: cut
+        # Half the entries live in pull request descriptions, and reading those
+        # takes a token. Actions does not put one in the environment by itself,
+        # so without this line the descriptions are never read -- and because
+        # a release with no entries is a legitimate outcome, nothing fails. The
+        # first pull request merged after this repository moved to them
+        # released nothing at all and said "nothing under Unreleased", which
+        # was true and not the reason.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: go run ./tools/cut --write
 
       - name: Check the notes read back
@@ -70,5 +83,5 @@ jobs:
           if [ "${{ steps.cut.outputs.released }}" = "true" ]; then
             echo "Released ${{ steps.cut.outputs.tag }}." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Nothing under Unreleased, so nothing was released." >> "$GITHUB_STEP_SUMMARY"
+            echo "No entries in the changelog or in the pull requests merged since the last tag, so nothing was released." >> "$GITHUB_STEP_SUMMARY"
           fi

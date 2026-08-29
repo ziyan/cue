@@ -32,6 +32,9 @@ func main() {
 	wait := flag.Duration("wait", 0,
 		"wait this long for the machine to appear before giving up, instead of failing immediately when it is off")
 	terminal := flag.Int("virtual-terminal", 2, "the console the X server draws on; must match display.virtualTerminal")
+	dockerSocket := flag.Bool("docker-socket", false,
+		"mount /var/run/docker.sock so the daemon can replace this container when somebody presses the upgrade button; "+
+			"this is root on the host, and upgrade.allowApply must be set as well before it does anything")
 	flag.Parse()
 
 	if *host == "" {
@@ -46,7 +49,7 @@ func main() {
 		}
 	}
 
-	if err := deploy(*host, *image, *name, *configFile, *terminal, *stopDisplayManager); err != nil {
+	if err := deploy(*host, *image, *name, *configFile, *terminal, *stopDisplayManager, *dockerSocket); err != nil {
 		fmt.Fprintf(os.Stderr, "\ndeploy: FAILED: %s\n", err)
 		os.Exit(1)
 	}
@@ -82,7 +85,7 @@ func waitForHost(host string, limit time.Duration) error {
 	return fmt.Errorf("%s did not answer within %s; it is switched off, or on another network", host, limit)
 }
 
-func deploy(host, image, name, configFile string, terminal int, stopDisplayManager bool) error {
+func deploy(host, image, name, configFile string, terminal int, stopDisplayManager, dockerSocket bool) error {
 	step("checking that %s is reachable and has Docker", host)
 	version, err := remoteOutput(host, "docker", "version", "--format", "{{.Server.Version}}")
 	if err != nil {
@@ -211,7 +214,7 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 		}
 	}
 
-	if err := remote(host, containerArguments(image, name, terminal, optional)...); err != nil {
+	if err := remote(host, containerArguments(image, name, terminal, optional, dockerSocket)...); err != nil {
 		// Say this before returning: by now the previous deployment has been
 		// stopped, so the failure below has left a blank screen behind it, and
 		// somebody reading only the error would not know that.
@@ -246,7 +249,7 @@ func deploy(host, image, name, configFile string, terminal int, stopDisplayManag
 // machine somebody has to drive to. The device list in particular has to agree
 // with display.virtualTerminal, and the reason each entry is there is in
 // deploy/docker-compose.yml, which this mirrors.
-func containerArguments(image, name string, terminal int, optionalDevices []string) []string {
+func containerArguments(image, name string, terminal int, optionalDevices []string, dockerSocket bool) []string {
 	arguments := []string{
 		"docker", "run", "-d",
 		"--name", name,
@@ -306,6 +309,16 @@ func containerArguments(image, name string, terminal int, optionalDevices []stri
 		// and the daemon rewrites its configuration atomically.
 		"-v", "/etc/cue:/etc/cue",
 		"-v", "/var/lib/cue:/var/lib/cue",
+	}
+
+	// Asked for explicitly, never by default. This one is not like the
+	// capabilities above: those let the daemon do more to the machine it is
+	// already on, while the socket lets it become any process on that machine.
+	// It is what the upgrade button needs, and it does nothing on its own --
+	// upgrade.allowApply has to be set in cue.yaml as well, so that granting
+	// it is two deliberate acts rather than one forgotten flag.
+	if dockerSocket {
+		arguments = append(arguments, "-v", "/var/run/docker.sock:/var/run/docker.sock")
 	}
 	for _, device := range optionalDevices {
 		arguments = append(arguments, "--device", device+":"+device)
