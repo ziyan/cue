@@ -121,7 +121,7 @@ func (self *Server) linkCode(response http.ResponseWriter, request *http.Request
 	// The code changes whenever an attempt does, and a cached one is a code
 	// that no longer works.
 	response.Header().Set("Cache-Control", "no-store")
-	if _, err := response.Write([]byte(renderQR(matrix))); err != nil {
+	if _, err := response.Write([]byte(renderQR(matrix, "Code to scan to link this device"))); err != nil {
 		log.Debugf("cannot write the linking code: %s", err)
 	}
 }

@@ -61,7 +61,7 @@ func (self *Server) welcome(response http.ResponseWriter, request *http.Request)
 	}
 	if contents != "" {
 		if matrix, err := qr.Encode(contents); err == nil {
-			code = renderQR(matrix)
+			code = renderQR(matrix, "Setup code")
 		} else {
 			log.Debugf("cannot encode the welcome QR code: %s", err)
 		}
@@ -164,14 +164,18 @@ func machineAddresses() []string {
 //
 // Each dark module becomes one <rect>. The viewBox is the module count, so the
 // page can size the whole thing in whatever units it likes.
-func renderQR(matrix [][]bool) template.HTML {
+// The label is a parameter because two different codes are drawn by this: the
+// one that sets a device up and the one that links it to an account. A screen
+// reader announcing "setup code" over the linking code is telling somebody who
+// cannot see it the wrong thing about the only part of the page that matters.
+func renderQR(matrix [][]bool, label string) template.HTML {
 	if len(matrix) == 0 {
 		return ""
 	}
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, `<svg viewBox="0 0 %d %d" role="img" aria-label="Setup code" shape-rendering="crispEdges">`,
-		len(matrix), len(matrix))
+	fmt.Fprintf(&builder, `<svg viewBox="0 0 %d %d" role="img" aria-label="%s" shape-rendering="crispEdges">`,
+		len(matrix), len(matrix), template.HTMLEscapeString(label))
 	// A white ground under the code. Scanners read dark-on-light, and the page
 	// behind this is nearly black.
 	fmt.Fprintf(&builder, `<rect width="%d" height="%d" fill="#fff"/>`, len(matrix), len(matrix))
