@@ -30,12 +30,22 @@ const (
 	// this program exists to avoid.
 	firstRetry   = 2 * time.Second
 	longestRetry = time.Minute
+
+	// What the service accepts as a description of a screen. Generous for
+	// JSON naming what is showing; this device sends a small fraction of it.
+	maximumStateBytes = 64 << 10
 )
 
 // Picture is what the reporter sends. Taken as a function rather than a
 // dependency so that this package does not need to know about X, and so a test
 // can hand it a picture without one.
 type Picture func(ctx context.Context) (body []byte, contentType string, err error)
+
+// Describe says what this screen is showing, in whatever shape the daemon
+// chooses. The service stores it without interpreting it, so the shape is
+// this device's to decide and can gain a field without the service learning
+// about it first.
+type Describe func(ctx context.Context) (any, error)
 
 // Reporter keeps a connection to the service open and tells it what this
 // screen is showing.
@@ -45,8 +55,9 @@ type Picture func(ctx context.Context) (body []byte, contentType string, err err
 // for reporting: being linked is the choice, and a second switch would be one
 // more thing to check when a picture is missing.
 type Reporter struct {
-	store   *config.Store
-	picture Picture
+	store    *config.Store
+	picture  Picture
+	describe Describe
 
 	mutex     sync.Mutex
 	attached  bool
@@ -69,8 +80,8 @@ type State struct {
 	Trouble string `json:"trouble,omitempty"`
 }
 
-func New(store *config.Store, picture Picture) *Reporter {
-	return &Reporter{store: store, picture: picture}
+func New(store *config.Store, picture Picture, describe Describe) *Reporter {
+	return &Reporter{store: store, picture: picture, describe: describe}
 }
 
 // State reports what the interface should show.
@@ -204,6 +215,9 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 		if err := self.reportOnce(ctx, client); err != nil {
 			return err
 		}
+		if err := self.describeOnce(ctx, client); err != nil {
+			return err
+		}
 		if !connection.alive() {
 			return fmt.Errorf("service: the connection went away")
 		}
@@ -254,6 +268,61 @@ func (self *Reporter) reportOnce(ctx context.Context, client *http.Client) error
 	self.lastSent = time.Now()
 	self.trouble = ""
 	self.mutex.Unlock()
+	return nil
+}
+
+// describeOnce sends what this screen is showing.
+//
+// Sent alongside the picture rather than on its own timer. It is small, it
+// rides a stream that is already open, and two cadences would mean two things
+// to reason about when one of them stops.
+func (self *Reporter) describeOnce(ctx context.Context, client *http.Client) error {
+	if self.describe == nil {
+		return nil
+	}
+
+	sending, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	described, err := self.describe(sending)
+	if err != nil {
+		// The same reasoning as a photograph that cannot be taken: a browser
+		// that will not answer is not a reason to drop the connection.
+		log.Debugf("cannot describe what is on the screen: %s", err)
+		return nil
+	}
+	body, err := json.Marshal(described)
+	if err != nil {
+		log.Debugf("cannot encode what is on the screen: %s", err)
+		return nil
+	}
+	// The service refuses anything larger and stores what it is given without
+	// reading it, so an oversized report is this device's mistake to catch.
+	if len(body) > maximumStateBytes {
+		log.Warningf("what this screen is showing is %d bytes, which is too much to report", len(body))
+		return nil
+	}
+
+	request, err := http.NewRequestWithContext(sending, http.MethodPost,
+		"http://"+tunnelHost+"/api/v1/device/state", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+
+	switch {
+	case response.StatusCode == http.StatusUnauthorized:
+		return fmt.Errorf("service: this device is no longer accepted")
+	case response.StatusCode >= 300:
+		return fmt.Errorf("service: the service answered %s", response.Status)
+	}
 	return nil
 }
 

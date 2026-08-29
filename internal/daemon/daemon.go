@@ -304,7 +304,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// linked to an account. A device that is not linked has no credential and
 	// nothing to say, and this sits idle: there is no separate setting,
 	// because being linked is the choice somebody already made.
-	self.reporter = service.New(self.store, self.photograph)
+	self.reporter = service.New(self.store, self.photograph, self.describe)
 	self.reporter.Start(ctx)
 	self.web = self.web.WithReporter(self.reporter)
 
@@ -912,6 +912,46 @@ func (self *Daemon) Reporter() *service.Reporter {
 // has, and the picture is looked at in a list beside other devices rather
 // than read.
 const reportedScreenshotWidth = 960
+
+// describe says what this screen is showing, for the account that owns it.
+//
+// Deliberately small. The service stores this without reading it, so it could
+// carry everything the status page knows -- and then every field this device
+// ever reports would be something somebody could come to depend on. What is
+// here is what an owner looking at a list of screens wants: which one this is,
+// what it is showing, whether it is well, and what it is running.
+func (self *Daemon) describe(ctx context.Context) (any, error) {
+	configuration := self.store.Current()
+
+	// The browser is asked, and asking involves talking to it, so it gets a
+	// deadline of its own: a wedged browser must not stop a device reporting
+	// that it is wedged.
+	browserContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	showing := self.browser.State(browserContext)
+
+	description := map[string]any{
+		"version":  version.Version(),
+		"name":     configuration.Device.Name,
+		"location": configuration.Device.Location,
+		"uptime":   time.Since(self.startedAt).Round(time.Second).String(),
+		"showing": map[string]any{
+			"item":  showing.Current,
+			"title": showing.CurrentTitle,
+			"url":   showing.CurrentURL,
+			"since": showing.CurrentSince,
+			"ready": showing.Ready,
+		},
+	}
+	// The screen's shape, when the X server will say. Opening a connection for
+	// it is cheap next to the photograph that goes with this report.
+	if connection, err := display.Open(ctx, configuration.Display.Number, self.xserver.Cookie()); err == nil {
+		screen := connection.Screen()
+		connection.Close()
+		description["screen"] = map[string]any{"width": screen.Width, "height": screen.Height}
+	}
+	return description, nil
+}
 
 // photograph takes the picture the reporter sends.
 //

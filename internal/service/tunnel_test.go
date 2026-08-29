@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -29,10 +30,12 @@ type stubService struct {
 	*servicetest.Stub
 
 	screenshots atomic.Int64
+	states      atomic.Int64
 
 	mutex     sync.Mutex
 	lastImage []byte
 	lastType  string
+	lastState []byte
 }
 
 func newStubService(t *testing.T) *stubService {
@@ -47,6 +50,20 @@ func newStubService(t *testing.T) *stubService {
 		stub.lastType = request.Header.Get("Content-Type")
 		stub.mutex.Unlock()
 		stub.screenshots.Add(1)
+		response.WriteHeader(http.StatusNoContent)
+	})
+	routes.HandleFunc("/api/v1/device/state", func(response http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(request.Body, 128<<10))
+		if !json.Valid(body) {
+			// The service refuses anything that is not JSON, so this must too
+			// or a device could send rubbish and the test would not notice.
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		stub.mutex.Lock()
+		stub.lastState = body
+		stub.mutex.Unlock()
+		stub.states.Add(1)
 		response.WriteHeader(http.StatusNoContent)
 	})
 	routes.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
@@ -88,7 +105,7 @@ func TestAPictureReachesTheServiceOverTheTunnel(t *testing.T) {
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("not really a jpeg, but bytes"), "image/jpeg", nil
-	})
+	}, nil)
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
@@ -118,7 +135,7 @@ func TestAnUnlinkedDeviceDoesNotReport(t *testing.T) {
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
-	})
+	}, nil)
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
@@ -146,7 +163,7 @@ func TestAPictureThatCannotBeTakenKeepsTheConnection(t *testing.T) {
 			return nil, "", io.ErrUnexpectedEOF
 		}
 		return []byte("a picture"), "image/jpeg", nil
-	})
+	}, nil)
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
@@ -168,7 +185,7 @@ func TestTheDeviceOnlyOpensTheServiceItself(t *testing.T) {
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
-	})
+	}, nil)
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
@@ -188,7 +205,7 @@ func TestARefusedStreamIsRecoveredFrom(t *testing.T) {
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
-	})
+	}, nil)
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
@@ -198,4 +215,59 @@ func TestARefusedStreamIsRecoveredFrom(t *testing.T) {
 	waitFor(t, 20*time.Second, "a picture to arrive once streams are allowed", func() bool {
 		return stub.screenshots.Load() > 0
 	})
+}
+
+// What the screen is showing goes up beside the picture, so an account can
+// read it without looking at one.
+func TestWhatTheScreenIsShowingIsReported(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	reporter := New(store,
+		func(context.Context) ([]byte, string, error) {
+			return []byte("a picture"), "image/jpeg", nil
+		},
+		func(context.Context) (any, error) {
+			return map[string]any{"showing": map[string]any{"title": "Reception dashboard"}}, nil
+		})
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "a description to arrive", func() bool {
+		return stub.states.Load() > 0
+	})
+
+	stub.mutex.Lock()
+	described := string(stub.lastState)
+	stub.mutex.Unlock()
+	if !strings.Contains(described, "Reception dashboard") {
+		t.Errorf("the service received %q", described)
+	}
+	if !json.Valid([]byte(described)) {
+		t.Error("what was sent is not valid JSON, which the service refuses")
+	}
+
+	// It rides the stream the picture is already using.
+	if opened := stub.Opens.Load(); opened != 1 {
+		t.Errorf("%d streams were opened; the description should share one", opened)
+	}
+}
+
+// A device that cannot say what it is showing still sends pictures.
+func TestADescriptionThatCannotBeMadeDoesNotStopPictures(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	reporter := New(store,
+		func(context.Context) ([]byte, string, error) {
+			return []byte("a picture"), "image/jpeg", nil
+		},
+		func(context.Context) (any, error) { return nil, io.ErrUnexpectedEOF })
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "a picture", func() bool { return stub.screenshots.Load() > 0 })
+	if state := reporter.State(); !state.Attached {
+		t.Error("a description that could not be made dropped the connection")
+	}
 }

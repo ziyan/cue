@@ -140,16 +140,37 @@ would be a second thing to check when the picture is missing.
 
 - [x] Milestone 1: the connection — *done 2026-08-29*
 - [x] Milestone 2: one request over the tunnel — *done 2026-08-29*
-- [x] Milestone 3: screenshots — *built 2026-08-29, not yet proved against
-      the real service*
-- [ ] Milestone 4: state
+- [x] Milestone 3: screenshots — *done 2026-08-29, proved against production*
+- [x] Milestone 4: state — *built 2026-08-29, not yet seen arrive*
 
-Remaining before this can be called done: a run against the real service. The
-framing is proved against a stub that serves the real device routes with Go's
-own HTTP server on the other end, which is a strong test of the framing and no
-test at all of the service actually accepting what this sends.
+Proved against the real service rather than a stub: a device linked from a
+phone attached to `https://cue.sh`, was told its own identity over the tunnel,
+and sent pictures for six minutes on one connection without reconnecting. The
+service's own side confirmed the picture independently -- a real JPEG at
+960x540, 109,743 bytes, checked by parsing its start-of-frame marker rather
+than by trusting the content type this device set.
+
+Remaining: nobody has watched a state report arrive, and nothing has tested
+what a revoked device does. The second needs a device somebody is willing to
+revoke.
 
 ## Surprises and discoveries
+
+**2026-08-29 — Sizing writes from the service's limit was the wrong idea
+entirely.** Frames were half a megabyte because the service's limit was a
+megabyte. The first screenshot to a real device closed the connection: the
+limit had been raised recently and the deployed service still had the old
+32 KB one. A device on a wall meets whatever is deployed, possibly years after
+the source somebody read, and the limit is not advertised anywhere. Frames are
+16 KB now, below anything the service has ever had, which costs nothing over a
+websocket.
+
+**2026-08-29 — Go's HTTP client does not always buffer a body.** The reasoning
+that made a large frame seem safe was that bodies go through a four kilobyte
+buffer. They do not when the body is already in memory: a *bytes.Reader
+implements io.WriterTo, so io.Copy hands the whole thing to one Write. Posting
+a picture you already have is the ordinary case, not an unusual one.
+
 
 **2026-08-29 — The websocket read limit is enforced by closing the
 connection.** The service's limit was the library default of 32 KB and has
