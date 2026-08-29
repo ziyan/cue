@@ -12,8 +12,6 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"strings"
@@ -339,7 +337,7 @@ func (self *Server) addRoutes() {
 	api.Path("/menu/display").Methods(http.MethodPost).HandlerFunc(self.screenAction(self.menuSetDisplay))
 
 	// Everything else is the interface itself.
-	self.router.PathPrefix("/").Methods(http.MethodGet).HandlerFunc(self.built)
+	self.router.PathPrefix("/").Methods(http.MethodGet, http.MethodHead).HandlerFunc(self.built)
 }
 
 // static serves the embedded interface, falling back to the single page for
@@ -383,20 +381,13 @@ func primaryAddress() string {
 // Anything it does not have is answered with index.html, because the routing
 // is in the browser: /device is a page React knows about and not a file.
 func (self *Server) built(response http.ResponseWriter, request *http.Request) {
-	content, err := fs.Sub(builtFiles, "dist")
-	if err != nil {
-		http.Error(response, "the interface is missing from this build", http.StatusInternalServerError)
-		return
-	}
-
 	path := strings.TrimPrefix(request.URL.Path, "/")
 	if path == "" {
 		path = "index.html"
 	}
 
-	if file, err := content.Open(path); err == nil {
-		_ = file.Close()
-		http.FileServerFS(content).ServeHTTP(response, request)
+	if file := builtFileAt(path); file != nil {
+		file.send(response, request, path)
 		return
 	}
 
@@ -410,14 +401,10 @@ func (self *Server) built(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	shell, err := content.Open("index.html")
-	if err != nil {
+	shell := builtFileAt("index.html")
+	if shell == nil {
 		http.Error(response, "this build has no interface in it; run make web", http.StatusNotFound)
 		return
 	}
-	defer func() { _ = shell.Close() }()
-
-	response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	response.Header().Set("Cache-Control", "no-store")
-	_, _ = io.Copy(response, shell)
+	shell.send(response, request, "index.html")
 }
