@@ -49,6 +49,16 @@ export function Service() {
 
   useEffect(() => { void ask(); }, [ask]);
 
+  // Linking writes the account and the identifier the service gave into the
+  // configuration, and this page loaded its copy before any of that existed.
+  // Without reading it again the page says "Linked" over an empty space.
+  const wasLinked = useRef(false);
+  useEffect(() => {
+    if (!state) return;
+    if (state.linked && !wasLinked.current) void settings.reload();
+    wasLinked.current = state.linked;
+  }, [state?.linked, settings.reload]);
+
   // Only while a code is up. The thing being waited for happens on somebody's
   // phone, and nothing here would otherwise notice; once it has happened, or
   // once there is no code, there is nothing to watch.
@@ -79,7 +89,11 @@ export function Service() {
     <SettingsPage settings={settings}>
       {(configuration) => {
         const service = configuration.service ?? { address: "" };
-        const configured = (service.address ?? "").trim() !== "";
+        // What the daemon has, not what is in the box. An address typed and
+        // not yet saved is not an address the device can link to, and offering
+        // the button on the strength of it produced a refusal from the daemon
+        // that read as a fault.
+        const configured = (service.address ?? "").trim() !== "" && !settings.changed;
         return (
           <>
             <Section title="Service">
@@ -115,7 +129,11 @@ export function Service() {
                   name, its screens and everything it is showing.
                 </Typography>
                 <Button color="error" variant="outlined" disabled={working}
-                  onClick={() => void act(api.forgetLink, "This device is no longer linked.")}>
+                  onClick={() => void act(async () => {
+                    const after = await api.forgetLink();
+                    await settings.reload();
+                    return after;
+                  }, "This device is no longer linked.")}>
                   Unlink
                 </Button>
               </Section>
@@ -154,7 +172,9 @@ export function Service() {
                 <Typography sx={{ mb: 2 }}>
                   {configured
                     ? "Linking this device attaches it to an account, so it can be watched from there."
-                    : "Set an address above, and save, before linking."}
+                    : settings.changed
+                      ? "Save the address above before linking."
+                      : "Set an address above, and save, before linking."}
                 </Typography>
                 <Button variant="contained" disabled={!configured || working}
                   onClick={() => void act(api.startLink)}>

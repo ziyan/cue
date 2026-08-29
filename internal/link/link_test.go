@@ -29,7 +29,7 @@ func newStore(t *testing.T, service string) *config.Store {
 // leaves the device. It is the whole reason a photograph of the screen is not
 // enough to finish a link.
 func TestTheTicketIsTheHashOfTheVerifier(t *testing.T) {
-	attempt, err := newTicket(time.Now())
+	attempt, err := newTicket(time.Now(), ticketLifetime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestTheTicketIsTheHashOfTheVerifier(t *testing.T) {
 	}
 
 	// And two attempts do not collide.
-	other, err := newTicket(time.Now())
+	other, err := newTicket(time.Now(), ticketLifetime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestTheTicketIsTheHashOfTheVerifier(t *testing.T) {
 // The URL is what a phone opens, so it has to carry the ticket and never the
 // verifier.
 func TestTheURLCarriesTheTicketAndNotTheVerifier(t *testing.T) {
-	attempt, err := newTicket(time.Now())
+	attempt, err := newTicket(time.Now(), ticketLifetime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,13 +245,14 @@ func TestAnExpiredAttemptEnds(t *testing.T) {
 	linker := New(store)
 	defer func() { _ = linker.Close() }()
 
+	// Born expired, rather than waiting ten minutes -- and rather than ageing
+	// a live attempt, which meant writing to a ticket another goroutine was
+	// already reading.
+	linker.lifetime = -time.Second
+
 	if _, err := linker.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	// Reach in and age the attempt, rather than waiting ten minutes.
-	linker.mutex.Lock()
-	linker.attempt.ExpiresAt = time.Now().Add(-time.Second)
-	linker.mutex.Unlock()
 
 	waitFor(t, 5*time.Second, func() bool { return !linker.State().Pending })
 	if state := linker.State(); state.Error == "" || state.Linked {
@@ -336,4 +337,129 @@ func waitFor(t *testing.T, within time.Duration, condition func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("condition was not met within %s", within)
+}
+
+// A plain address is refused, because the exchange carries the verifier up and
+// the credential back down. Over http anybody on the same network gets both,
+// which undoes the whole reason a photographed code is harmless.
+func TestAPlainAddressIsRefused(t *testing.T) {
+	for _, address := range []string{
+		"http://example.com",
+		"http://example.com:8080/cue",
+		"http://192.0.2.10:8080",
+	} {
+		if _, err := serviceURL(address, "link", "a-ticket"); err == nil {
+			t.Errorf("%s was accepted, and would send the credential in the clear", address)
+		}
+	}
+
+	// https is the ordinary case.
+	if _, err := serviceURL("https://example.com", "link", "a-ticket"); err != nil {
+		t.Errorf("https://example.com was refused: %s", err)
+	}
+
+	// And a stub on this machine still works, which is what anybody building
+	// against the service side runs.
+	for _, address := range []string{
+		"http://127.0.0.1:8080",
+		"http://localhost:8080",
+		"http://[::1]:8080",
+	} {
+		if _, err := serviceURL(address, "link", "a-ticket"); err != nil {
+			t.Errorf("%s was refused: %s", address, err)
+		}
+	}
+}
+
+// Refused where somebody sees it, not silently at the next exchange.
+func TestStartingAgainstAPlainAddressSaysSo(t *testing.T) {
+	store := newStore(t, "http://example.com")
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	_, err := linker.Start(context.Background())
+	if err == nil {
+		t.Fatal("linking to a plain address was allowed")
+	}
+	if !strings.Contains(err.Error(), "https") && !strings.Contains(err.Error(), "in the clear") {
+		t.Errorf("the refusal does not say why: %s", err)
+	}
+	if linker.State().Pending {
+		t.Error("a code is being shown for an attempt that cannot work")
+	}
+}
+
+// A device is never both linked and still showing a code.
+//
+// The credential used to be written to the configuration and the attempt
+// cleared afterwards, so anything asking in between saw a device that was
+// linked and still advertising a live code to scan -- and the picture endpoint
+// went on serving one for an attempt that was already over.
+//
+// Caught by sampling the state as fast as it can be read, across the moment it
+// changes and for a while after, rather than by looking once when the
+// credential appears.
+//
+// It does not catch it every time: with the two writes put back the wrong way
+// round this fails about half of its runs, because the window between them is
+// short and a sampling goroutine is not always scheduled inside it. It cannot
+// report one that is not there, though -- seeing both flags at once is only
+// possible if they really were both set -- so a failure here is always real,
+// and the CI machine runs it on every change.
+func TestNothingSeesADeviceBothLinkedAndPending(t *testing.T) {
+	var authorised atomic.Bool
+	service := httptest.NewServer(http.HandlerFunc(
+		func(response http.ResponseWriter, request *http.Request) {
+			if !authorised.Load() {
+				response.WriteHeader(http.StatusNoContent)
+				return
+			}
+			response.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(response).Encode(exchangeResponse{
+				Secret:   "an-example-secret",
+				Account:  "somebody@example.com",
+				DeviceID: "device-1",
+			})
+		}))
+	defer service.Close()
+
+	store := newStore(t, service.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	stop := make(chan struct{})
+	done := make(chan State, 1)
+	go func() {
+		defer close(done)
+		for {
+			if state := linker.State(); state.Linked && state.Pending {
+				done <- state
+				return
+			}
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	}()
+
+	authorised.Store(true)
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+	// Kept sampling for a moment after the credential lands, because the write
+	// that clears the attempt is the one that comes second.
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+
+	if state, caught := <-done; caught {
+		t.Errorf("a device was seen linked and still showing a code: %+v", state)
+	}
+
+	if final := linker.State(); !final.Linked || final.Pending {
+		t.Errorf("the settled state is %+v", final)
+	}
 }

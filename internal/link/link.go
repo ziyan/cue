@@ -74,6 +74,10 @@ type Linker struct {
 	store  *config.Store
 	client *http.Client
 
+	// How long one attempt is good for. Fixed at construction; a field rather
+	// than the constant so a test can watch an attempt expire.
+	lifetime time.Duration
+
 	mutex   sync.Mutex
 	attempt *Ticket
 	failure string
@@ -85,7 +89,8 @@ type Linker struct {
 // New returns a linker over the given configuration store.
 func New(store *config.Store) *Linker {
 	return &Linker{
-		store: store,
+		store:    store,
+		lifetime: ticketLifetime,
 		client: &http.Client{
 			Timeout: exchangeTimeout,
 		},
@@ -126,7 +131,7 @@ func (self *Linker) Start(ctx context.Context) (State, error) {
 		return State{}, fmt.Errorf("link: no service address is configured")
 	}
 
-	attempt, err := newTicket(time.Now())
+	attempt, err := newTicket(time.Now(), self.lifetime)
 	if err != nil {
 		return State{}, err
 	}
@@ -211,7 +216,7 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 		}
 
 		if attempt.IsExpired(time.Now()) {
-			self.finish(attempt, "", "", "the code expired before it was authorised")
+			self.finish(attempt, "the code expired before it was authorised")
 			return
 		}
 
@@ -221,7 +226,7 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 			// Not authorised yet, which is the usual answer.
 			continue
 		case errors.Is(err, ErrRefused):
-			self.finish(attempt, "", "", "the service refused this device")
+			self.finish(attempt, "the service refused this device")
 			return
 		case err != nil:
 			// Worth a line but not the end: the next tick tries again.
@@ -229,25 +234,53 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 			continue
 		}
 
-		if err := self.store.Update(func(configuration *config.Configuration) error {
-			configuration.Service.Secret = config.Secret(secret)
-			configuration.Service.Account = account
-			configuration.Service.DeviceID = deviceId
-			return nil
-		}); err != nil {
+		if err := self.complete(attempt, secret, account, deviceId); err != nil {
 			log.Errorf("cannot save the credential the service issued: %s", err)
-			self.finish(attempt, "", "", "the credential could not be saved")
 			return
 		}
 		log.Noticef("this device is now linked to %s", account)
-		self.finish(attempt, account, deviceId, "")
 		return
 	}
 }
 
+// complete stores the credential and ends the attempt as one step.
+//
+// One step because the two orders are both wrong separately. Saving first
+// leaves a moment where the device is linked and still showing a live code --
+// which anything polling can see, and which serves a QR code for an attempt
+// that is already over. Ending first and then failing to save loses the reason
+// it failed. So the attempt is cleared and the credential written while the
+// same lock is held, and whoever asks next sees one state or the other.
+func (self *Linker) complete(attempt *Ticket, secret, account, deviceId string) error {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
+	// A later attempt started while this one was in flight owns the state now,
+	// and its code is the one on the screen.
+	if self.attempt != attempt {
+		return nil
+	}
+
+	err := self.store.Update(func(configuration *config.Configuration) error {
+		configuration.Service.Secret = config.Secret(secret)
+		configuration.Service.Account = account
+		configuration.Service.DeviceID = deviceId
+		return nil
+	})
+
+	self.attempt = nil
+	self.cancel = nil
+	if err != nil {
+		self.failure = "the credential could not be saved"
+		return err
+	}
+	self.failure = ""
+	return nil
+}
+
 // finish clears the attempt, provided it is still the one running. A later
 // attempt started while this one was in flight owns the state now.
-func (self *Linker) finish(attempt *Ticket, account, deviceId, failure string) {
+func (self *Linker) finish(attempt *Ticket, failure string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	if self.attempt != attempt {
@@ -255,9 +288,7 @@ func (self *Linker) finish(attempt *Ticket, account, deviceId, failure string) {
 	}
 	self.attempt = nil
 	self.failure = failure
-	if self.cancel != nil {
-		self.cancel = nil
-	}
+	self.cancel = nil
 }
 
 type exchangeRequest struct {

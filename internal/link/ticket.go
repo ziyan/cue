@@ -31,6 +31,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -62,7 +63,14 @@ func (self *Ticket) IsExpired(now time.Time) bool {
 }
 
 // newTicket mints a verifier and derives its ticket.
-func newTicket(now time.Time) (*Ticket, error) {
+//
+// A ticket is not written to again once it exists. It is handed to the
+// goroutine that does the asking, and that goroutine reads it without taking
+// the lock -- which is only safe because there is nothing to read that could
+// still change. The lifetime is a parameter rather than the constant so that a
+// test can have one expire without reaching in and mutating a live attempt,
+// which is exactly the write this comment exists to forbid.
+func newTicket(now time.Time, lifetime time.Duration) (*Ticket, error) {
 	buffer := make([]byte, 32)
 	if _, err := rand.Read(buffer); err != nil {
 		return nil, fmt.Errorf("link: cannot generate a verifier: %w", err)
@@ -71,7 +79,7 @@ func newTicket(now time.Time) (*Ticket, error) {
 	return &Ticket{
 		Ticket:    deriveTicket(verifier),
 		Verifier:  verifier,
-		ExpiresAt: now.Add(ticketLifetime),
+		ExpiresAt: now.Add(lifetime),
 	}, nil
 }
 
@@ -91,16 +99,47 @@ func (self *Ticket) URL(service string) (string, error) {
 	return serviceURL(service, "link", self.Ticket)
 }
 
+// isLoopback reports whether an address goes no further than this machine.
+//
+// The one place a plain address is not a mistake: a stub of the service run on
+// the same machine while somebody is building against it, where there is no
+// network to listen on.
+func isLoopback(host string) bool {
+	name := host
+	if split, _, err := net.SplitHostPort(host); err == nil {
+		name = split
+	}
+	if name == "localhost" {
+		return true
+	}
+	address := net.ParseIP(strings.Trim(name, "[]"))
+	return address != nil && address.IsLoopback()
+}
+
 // serviceURL builds an address on the configured service.
 //
 // One place understands what a service address looks like, so a device can be
 // pointed at a service somewhere else -- a staging one, or a deployment that
 // is not the public one -- without a different build, and without two
 // functions disagreeing about trailing slashes.
+//
+// It also insists on https, which is not a detail. The exchange carries the
+// verifier up and the credential back down; over a plain connection anybody on
+// the same network gets both, and the ticket-and-verifier construction that
+// makes a photographed code useless is undone by the one connection that
+// carries both halves. A device pointed at a plain address would be linked to
+// somebody else's account without anything looking wrong. So it is refused
+// here rather than warned about, in the one function both the phone's address
+// and the daemon's own go through.
 func serviceURL(service string, segments ...string) (string, error) {
 	base, err := url.Parse(strings.TrimSuffix(strings.TrimSpace(service), "/"))
 	if err != nil || base.Scheme == "" || base.Host == "" {
 		return "", fmt.Errorf("link: %q is not an address a phone could open", service)
+	}
+	if base.Scheme != "https" && !isLoopback(base.Host) {
+		return "", fmt.Errorf(
+			"link: %q is not https, and linking would send this device's credential in the clear",
+			service)
 	}
 	parts := make([]string, 0, len(segments)+1)
 	if trimmed := strings.Trim(base.Path, "/"); trimmed != "" {
