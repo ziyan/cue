@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
-import Typography from "@mui/material/Typography";
 import { useBeforeUnload } from "react-router";
 
 import { api, type Configuration } from "./api";
@@ -81,22 +81,35 @@ export type Settings = ReturnType<typeof useSettings>;
 // page itself, and the two buttons.
 export function SettingsPage({ settings, children }: {
   settings: Settings;
-  children: (configuration: Configuration, status: Status) => ReactNode;
+  children: (configuration: Configuration, status: Status | null) => ReactNode;
 }) {
   const { configuration, status, problem, saved, changed, save, reload } = settings;
 
   if (problem && !configuration) return <Alert severity="error">{problem}</Alert>;
-  if (!configuration || !status) return <Typography color="text.secondary">Loading…</Typography>;
+
+  // Only the settings are waited for. The status is a second request, and
+  // holding an otherwise ready page back for it left the word "Loading" on
+  // screen for something all but one of these pages never reads.
+  if (!configuration) {
+    return (
+      <Stack spacing={1.5}>
+        <Skeleton variant="rounded" height={28} width="40%" />
+        <Skeleton variant="rounded" height={56} />
+        <Skeleton variant="rounded" height={56} />
+        <Skeleton variant="rounded" height={56} width="70%" />
+      </Stack>
+    );
+  }
 
   return (
     <Box>
       {problem && <Alert severity="error" sx={{ mb: 2 }}>{problem}</Alert>}
       {saved && <Alert severity="success" sx={{ mb: 2 }}>{saved}</Alert>}
-      {(status.ignoredSettings ?? []).length > 0 && (
+      {(status?.ignoredSettings ?? []).length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           The configuration file has settings this version does not have. They are ignored, and
           will be removed from the file the next time it is written:{" "}
-          {(status.ignoredSettings ?? []).join(", ")}. If one of these is a key you meant to set,
+          {(status?.ignoredSettings ?? []).join(", ")}. If one of these is a key you meant to set,
           it is mistyped — from in front of the screen a mistyped key and a setting that does
           nothing look exactly the same.
         </Alert>

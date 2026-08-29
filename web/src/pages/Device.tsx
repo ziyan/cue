@@ -20,9 +20,9 @@ export function Device() {
             The language the screen itself speaks is in the top bar; the timezone is on the
             Time page.
           </Typography>
-          <Readout label="Identifier" mono>{status.device.identifier}</Readout>
-          <Readout label="Version">{status.device.version}</Readout>
-          <Readout label="Daemon up">{status.device.uptime}</Readout>
+          <Readout label="Identifier" mono>{status ? status.device.identifier : "…"}</Readout>
+          <Readout label="Version">{status ? status.device.version : "…"}</Readout>
+          <Readout label="Daemon up">{status ? status.device.uptime : "…"}</Readout>
         </Section>
       )}
     </SettingsPage>
