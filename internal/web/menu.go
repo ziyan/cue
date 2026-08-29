@@ -284,10 +284,16 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
      is the one place it cannot be relied on: the panel scrolls when the
      network form is open, so on a short screen the way out sat below the fold
      exactly when somebody most wanted it. */
-  #dismiss { padding: calc(var(--step) * 0.7); color: #9fb0c5; background: #131920;
-    display: grid; place-items: center; flex: none; }
+  #dismiss { padding: calc(var(--step) * 1.1); color: #9fb0c5; background: #131920;
+    display: grid; place-items: center; flex: none; cursor: pointer;
+    min-width: 7vmin; min-height: 7vmin; touch-action: manipulation; }
   #dismiss:hover { color: #ffc9d1; border-color: #ffc9d1; }
-  #dismiss svg { width: 2.6vmin; height: 2.6vmin; display: block; }
+  /* Pressed is worth showing. Closing takes a moment -- the daemon is told
+     to put the tab back, and only then does anything move -- and without
+     this the press looked like it had been missed, so it was pressed
+     again. */
+  #dismiss:active, #dismiss[aria-disabled="true"] { color: #ffc9d1; background: #1f2731; }
+  #dismiss svg { width: 3.2vmin; height: 3.2vmin; display: block; pointer-events: none; }
 
   #working { color: #9fb0c5; margin: 0; }
 </style>
@@ -653,6 +659,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   document.addEventListener("click", () => showLanguages(false));
   languages.addEventListener("click", (event) => event.stopPropagation());
 
+  const dismiss = document.getElementById("dismiss");
   const actions = document.getElementById("actions");
   const confirm = document.getElementById("confirm");
   const question = document.getElementById("question");
@@ -748,7 +755,15 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     setTimeout(() => word.focus(), 50);
   }
 
+  let closing = false;
+
   function close() {
+    // Pressed twice is one close. The second press used to send the whole
+    // set of calls again and reset the way out, which made a slow close
+    // slower.
+    if (closing) return;
+    closing = true;
+    dismiss.setAttribute("aria-disabled", "true");
     clearInterval(keepHolding);
     // keepalive, both of them, and this is the whole reason the screen froze
     // the first time: closing the tab in the next breath cancels a request
@@ -1050,7 +1065,11 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       .finally(() => setTimeout(close, 1200));
   }
 
-  document.getElementById("dismiss").addEventListener("click", close);
+  // Both, because a click needs the press and the release to land on the same
+  // thing and a pointer being driven from a phone over VNC drifts between the
+  // two. Closing twice is guarded against, so the pair is harmless.
+  dismiss.addEventListener("click", close);
+  dismiss.addEventListener("pointerup", close);
   window.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
 
   speak();
