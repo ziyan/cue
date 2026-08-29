@@ -159,6 +159,9 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			// changed the network or the screen leaves dashboards behind that
 			// loaded before any of it.
 			call == "/api/v1/playlist/refresh",
+			// Closing: the daemon puts the tab back where it was, rather than
+			// the page steering itself through a history it may not have.
+			call == "/api/v1/playlist/back",
 			call == "/api/v1/wireless/reset":
 		default:
 			t.Errorf("the menu calls %q, which is neither an action nor the network", call)

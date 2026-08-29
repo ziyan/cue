@@ -35,7 +35,14 @@ export function Screen() {
     // element's bounding box, so every tap would land a quarter turn from
     // where the finger went.
 
-    const connected = () => setLink("connected");
+    const connected = () => {
+      setLink("connected");
+      // Asked for again now there is something to ask. Setting it on a fresh
+      // RFB refreshes a cursor that does not exist yet; an X server started
+      // with no cursor sends no cursor image, so without this the pointer
+      // would seem not to move at all.
+      connection.showDotCursor = true;
+    };
     const gone = (event: CustomEvent<{ clean: boolean }>) =>
       setLink(event.detail.clean ? "disconnected" : "lost");
 

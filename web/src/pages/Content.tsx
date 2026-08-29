@@ -16,6 +16,8 @@ import Typography from "@mui/material/Typography";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
@@ -196,11 +198,30 @@ function ItemCard({ item, index, total, set }: {
       <CardContent>
         <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
           <Typography color="text.secondary">{index + 1}.</Typography>
-          <Typography noWrap sx={{ fontWeight: 600, minWidth: 0, flex: 1 }}>
+          <Typography noWrap sx={{
+            fontWeight: 600, minWidth: 0, flex: 1,
+            // A skipped item is still in the list and is not in the rotation,
+            // and should look like it at a glance rather than only in a
+            // control somebody has to find.
+            opacity: item.disabled ? 0.5 : 1,
+            textDecoration: item.disabled ? "line-through" : undefined,
+          }}>
             {item.title || media?.name || item.url || "New page"}
           </Typography>
           {media && <Chip size="small" variant="outlined"
             label={media.kind === "picture" ? "Picture" : "Video"} />}
+          <Tooltip title={item.disabled ? "Skipped — show it again" : "Skip this for now"}>
+            <IconButton
+              size="small"
+              color={item.disabled ? "warning" : "default"}
+              aria-label={item.disabled ? "Show it again" : "Skip this for now"}
+              onClick={() => change((draft) => { draft.disabled = !draft.disabled; })}
+            >
+              {item.disabled
+                ? <VisibilityOffOutlinedIcon fontSize="small" />
+                : <VisibilityOutlinedIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
           {item.identifier && (
             <Tooltip title="Show now">
               <IconButton size="small" onClick={() => void api.show(item.identifier!).catch(() => {})}>
@@ -233,17 +254,12 @@ function ItemCard({ item, index, total, set }: {
                   onChange={(value) => change((draft) => { draft.duration = asSeconds(value, 0); })} />
               )}
             </Row>
-            <Row>
-              {media.kind !== "picture" && (
+            {media.kind !== "picture" && (
+              <Row>
                 <Toggle label="Play this video with its sound" checked={!!media.sound}
                   onChange={(value) => change((draft) => { draft.media!.sound = value; })} />
-              )}
-              <Toggle
-                label={media.kind === "picture" ? "Skip this picture for now" : "Skip this video for now"}
-                checked={!!item.disabled}
-                onChange={(value) => change((draft) => { draft.disabled = value; })}
-              />
-            </Row>
+              </Row>
+            )}
             <Typography variant="body2" color="text.secondary">
               {media.kind === "picture"
                 ? "It fills the screen for its time and then the screen moves on, like any other item."
@@ -265,8 +281,6 @@ function ItemCard({ item, index, total, set }: {
               <Toggle label="Reload each time it comes round" checked={!!item.reload}
                 hint="For a dashboard that stops refreshing itself after a few hours"
                 onChange={(value) => change((draft) => { draft.reload = value; })} />
-              <Toggle label="Skip this page for now" checked={!!item.disabled}
-                onChange={(value) => change((draft) => { draft.disabled = value; })} />
             </Row>
 
             <Advanced item={item} change={change} />

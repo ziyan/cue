@@ -744,6 +744,39 @@ func (self *Browser) ShowNext(ctx context.Context) error {
 	return self.showNext(ctx)
 }
 
+// ShowCurrentAgain puts the tab that is on screen back on the item it belongs
+// to.
+//
+// The menu takes over a tab that was showing something, and when it closes
+// something has to put that tab back. The page did that from its own history,
+// which is not reliable: a tab whose history has been reset -- by a browser
+// restart, or by the daemon navigating it somewhere -- has nothing to go back
+// to, and pressing the X then appeared to do nothing at all. The daemon knows
+// what each tab is for and does not have to guess.
+func (self *Browser) ShowCurrentAgain(ctx context.Context) error {
+	self.mutex.Lock()
+	identifier := self.current
+	target, found := self.tabs[identifier]
+	self.mutex.Unlock()
+	if !found {
+		return fmt.Errorf("browser: there is no tab on the screen to put back")
+	}
+
+	item, found := self.itemFor(identifier)
+	if !found {
+		return fmt.Errorf("browser: the tab on the screen belongs to no item")
+	}
+
+	address := item.URL
+	if item.Media != nil {
+		address = self.playerURL(identifier)
+	}
+	if address == "" {
+		return fmt.Errorf("browser: that item has no address")
+	}
+	return self.navigateTab(ctx, target, address)
+}
+
 // playerURL is the daemon's own page for playing one video item.
 func (self *Browser) playerURL(identifier string) string {
 	port := "8080"

@@ -111,6 +111,20 @@ func (self *Server) holdPlaylist(response http.ResponseWriter, request *http.Req
 	}
 	held := true
 	switch {
+	case strings.HasSuffix(request.URL.Path, "/back"):
+		// Put the tab back where it was, and let the playlist go, in one call.
+		// The page cannot be relied on to navigate itself: a tab whose history
+		// has been reset has nothing to go back to.
+		browser.Release()
+		held = false
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		go func() {
+			defer cancel()
+			if err := browser.ShowCurrentAgain(ctx); err != nil {
+				log.Debugf("cannot put the screen back: %s", err)
+			}
+			browser.RefreshAll(ctx)
+		}()
 	case strings.HasSuffix(request.URL.Path, "/refresh"):
 		// Not waited for: this is asked for as the menu closes, and the caller
 		// is a page that is navigating away in the same breath.
@@ -749,22 +763,24 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     // freshen the playlist first: somebody who has just been in here may have
     // changed the network or the screen, and a page that loaded before those
     // changed is showing an answer from the old world.
-    send("/api/v1/playlist/refresh", { method: "POST", keepalive: true }).catch(() => {});
+    // The daemon puts the tab back, lets the playlist go and freshens the
+    // other pages, in one call. The page used to steer itself -- back through
+    // its own history, or to an address the page it came from had put on the
+    // query string -- and neither is reliable: a tab whose history has been
+    // reset has nothing to go back to, and pressing the X then did nothing at
+    // all. The daemon knows what this tab is for.
+    send("/api/v1/playlist/back", { method: "POST", keepalive: true }).catch(() => {});
 
-    // Back to the page this tab was showing. The address came in on the query
-    // string from the page itself, so it is checked before it is used: an
-    // http or https address and nothing else. Without that check a page could
-    // send the menu to a javascript: address, and the menu is served by the
-    // daemon -- which would be a page on the screen running its own code with
-    // the daemon's origin.
-    const from = new URLSearchParams(location.search).get("from") || "";
-    if (/^https?:\/\//i.test(from)) {
-      location.replace(from);
-    } else if (history.length > 1) {
-      history.back();
-    } else {
-      location.replace("/");
-    }
+    // If the daemon cannot answer, the page still has to leave, or the menu
+    // stays up with nothing behind it. The address came from the page this
+    // tab was showing, so it is checked first: an http or https address and
+    // nothing else, because a javascript: one would run with the daemon's own
+    // origin.
+    setTimeout(() => {
+      const from = new URLSearchParams(location.search).get("from") || "";
+      if (/^https?:\/\//i.test(from)) location.replace(from);
+      else if (history.length > 1) history.back();
+    }, 1500);
   }
 
   function openNetwork() {
