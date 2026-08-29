@@ -52,6 +52,10 @@ export interface Configuration {
     address: string;
     account?: string;
     deviceId?: string;
+    // What the service calls this device, which is not always what it calls
+    // itself: an account cannot hold two devices of one name, so a second
+    // screen called "carbon" is recorded there as "carbon 2".
+    name?: string;
   };
   [section: string]: unknown;
 }

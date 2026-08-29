@@ -52,6 +52,10 @@ type stubService struct {
 	registeredName       string
 	registeredIdentifier string
 	redeemed             atomic.Bool
+
+	// What /self answers with. Defaults are set in newStubService.
+	identityId   string
+	identityName string
 }
 
 type stubRequest struct {
@@ -61,7 +65,7 @@ type stubRequest struct {
 
 func newStubService(t *testing.T) *stubService {
 	t.Helper()
-	stub := &stubService{}
+	stub := &stubService{identityId: "device-1", identityName: "Reception"}
 
 	handler := func(response http.ResponseWriter, request *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(request.Body, 1<<20))
@@ -139,8 +143,8 @@ func newStubService(t *testing.T) *stubService {
 			}
 			response.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(response).Encode(Identity{
-				ID: "device-1", Name: "Reception", Description: "an-example-identifier",
-				UserID: "user-1",
+				ID: stub.identityId, Name: stub.identityName,
+				Description: "an-example-identifier", UserID: "user-1",
 			})
 
 		default:
@@ -825,5 +829,60 @@ func TestOnlyTheFirstPollSaysWhatThisDeviceIs(t *testing.T) {
 	}
 	if identifier != store.Current().Device.Identifier {
 		t.Errorf("the service registered the identifier %q", identifier)
+	}
+}
+
+// The service's name for a device is not always the device's own.
+//
+// An account cannot hold two devices of one name, so a second screen calling
+// itself "carbon" is recorded there as "carbon 2". The row is the truth, and
+// it is what matches the two systems up, so the device keeps what the service
+// says rather than assuming its own name carried.
+func TestTheNameTheServiceUsesIsKept(t *testing.T) {
+	stub := newStubService(t)
+	stub.identityName = "carbon 2"
+	stub.authorised.Store(true)
+
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+
+	configuration := store.Current()
+	if configuration.Service.Name != "carbon 2" {
+		t.Errorf("the device recorded the service's name as %q, want %q",
+			configuration.Service.Name, "carbon 2")
+	}
+	if configuration.Device.Name == "carbon 2" {
+		t.Error("the service's name overwrote the device's own")
+	}
+}
+
+// A credential that works but describes a different device is not this
+// device's credential, and carrying on with it would attach a screen to a row
+// that is not about it.
+func TestACredentialForADifferentDeviceIsRefused(t *testing.T) {
+	stub := newStubService(t)
+	stub.identityId = "somebody-elses-device"
+	stub.authorised.Store(true)
+
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return !linker.State().Pending })
+
+	if store.Current().Service.IsLinked() {
+		t.Error("a credential describing a different device was stored")
+	}
+	if state := linker.State(); state.Error == "" {
+		t.Error("nothing was shown to the person waiting")
 	}
 }

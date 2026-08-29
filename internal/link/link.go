@@ -189,6 +189,7 @@ func (self *Linker) Unlink() error {
 		configuration.Service.Secret = ""
 		configuration.Service.Account = ""
 		configuration.Service.DeviceID = ""
+		configuration.Service.Name = ""
 		return nil
 	})
 }
@@ -272,6 +273,13 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 		case errors.Is(err, ErrRefused):
 			self.finish(attempt, "the service issued a credential that does not work")
 			return
+		case err == nil && deviceId != "" && who.ID != deviceId:
+			// The credential works but describes a different device than the
+			// one this link was for. Nothing good follows from carrying on.
+			log.Errorf("the service issued a credential for %s but says this device is %s",
+				deviceId, who.ID)
+			self.finish(attempt, "the service disagreed about which device this is")
+			return
 		case err != nil:
 			// The credential may be perfectly good and the network not. Keep
 			// the attempt alive and try again; redeem will hand back the same
@@ -280,11 +288,12 @@ func (self *Linker) exchangeUntilLinked(ctx context.Context, attempt *Ticket) {
 			continue
 		}
 
-		if err := self.complete(attempt, secret, account, deviceId); err != nil {
+		if err := self.complete(attempt, secret, account, who); err != nil {
 			log.Errorf("cannot save the credential the service issued: %s", err)
 			return
 		}
-		log.Noticef("this device is now linked to %s, known there as %s", account, who.ID)
+		log.Noticef("this device is now linked to %s, known there as %s (%s)",
+			account, who.Name, who.ID)
 		return
 	}
 }
@@ -307,7 +316,7 @@ func (self *Linker) beginChecking(attempt *Ticket) {
 // that is already over. Ending first and then failing to save loses the reason
 // it failed. So the attempt is cleared and the credential written while the
 // same lock is held, and whoever asks next sees one state or the other.
-func (self *Linker) complete(attempt *Ticket, secret, account, deviceId string) error {
+func (self *Linker) complete(attempt *Ticket, secret, account string, who *Identity) error {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 
@@ -320,7 +329,9 @@ func (self *Linker) complete(attempt *Ticket, secret, account, deviceId string) 
 	err := self.store.Update(func(configuration *config.Configuration) error {
 		configuration.Service.Secret = config.Secret(secret)
 		configuration.Service.Account = account
-		configuration.Service.DeviceID = deviceId
+		configuration.Service.DeviceID = who.ID
+		// What the service calls it, which is not always what it calls itself.
+		configuration.Service.Name = who.Name
 		return nil
 	})
 

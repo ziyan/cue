@@ -418,16 +418,25 @@ client on it.
       secret: ""
       account: ""
       deviceId: ""
+      name: ""
 
 Where this device reports to, and the credential it holds once it is attached.
 All of it is empty on a device that has never been linked, which is the normal
 state: a device works entirely on its own with none of this set.
 
-`address` is the only field an operator sets. The other three are written by
-the device when a link completes and are read back only to be shown: `secret`
-is what it presents when it connects, and is never sent to the interface or
-written to the log; `account` and `deviceId` are what the service said this
-device became.
+`address` is the only field an operator sets. The rest are written by the
+device when a link completes and are read back only to be shown: `secret` is
+what it presents when it connects, and is never sent to the interface or
+written to the log; `account`, `deviceId` and `name` are what the service said
+this device became.
+
+`account` arrives already masked — `s•••@example.com` — because it is
+displayed on the screen itself, and a wall in a lobby is no place for
+somebody's email address. `name` is what the service calls this device, which
+is not always what the device calls itself: an account cannot hold two devices
+of one name, so a second screen calling itself `carbon` is recorded there as
+`carbon 2`. The service's name is the one that matches the two systems up, so
+it is kept and shown.
 
 Linking is started from the menu at the screen or from the Service page of the
 web interface, and finished on a phone. See `docs/planning/active/`. The

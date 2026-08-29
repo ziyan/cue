@@ -100,8 +100,19 @@ type Service struct {
 	// are held for the interface to show -- somebody who has just linked a
 	// screen wants to see which account it went to, and somebody looking at it
 	// a year later wants to know before they unlink it.
+	//
+	// Account is masked by the service before it is sent, because this one is
+	// displayed on the screen itself: a wall in a lobby is no place for
+	// somebody's email address.
 	Account  string `yaml:"account,omitempty" json:"account"`
 	DeviceID string `yaml:"deviceId,omitempty" json:"deviceId"`
+
+	// Name is what the service calls this device, which is not always what
+	// this device calls itself. An account cannot have two devices of the same
+	// name, so a second screen called "carbon" is recorded there as "carbon
+	// 2". The service's name is the one that matches the two systems up, so it
+	// is kept and shown rather than assuming the local name carried.
+	Name string `yaml:"name,omitempty" json:"name"`
 }
 
 // IsConfigured reports whether there is a service to link to at all.

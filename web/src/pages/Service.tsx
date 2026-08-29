@@ -121,6 +121,16 @@ export function Service() {
                 <Typography sx={{ mb: 1 }}>
                   This device is attached to {state.account || "an account"}.
                 </Typography>
+                {service.name && (
+                  <Readout label="Called there">
+                    {service.name}
+                    {service.name !== configuration.device.name && (
+                      <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                        — this screen calls itself {configuration.device.name}
+                      </Typography>
+                    )}
+                  </Readout>
+                )}
                 {service.deviceId && (
                   <Readout label="Known there as" mono>{service.deviceId}</Readout>
                 )}
