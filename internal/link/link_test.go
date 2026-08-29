@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/service/servicetest"
 )
 
 // newStore returns a configuration store on a temporary file, pointed at the
@@ -37,6 +38,7 @@ import (
 // deriveTicket, so the two implementations cannot drift together unnoticed.
 type stubService struct {
 	server *httptest.Server
+	tunnel *servicetest.Stub
 
 	authorised atomic.Bool
 	refused    atomic.Bool
@@ -46,8 +48,6 @@ type stubService struct {
 	requests []stubRequest
 	// Set to answer everything with this status, for the failure cases.
 	trouble atomic.Int64
-	// Set to refuse the identity call, for a credential that does not work.
-	identityRefuses atomic.Bool
 
 	registeredName       string
 	registeredIdentifier string
@@ -56,6 +56,8 @@ type stubService struct {
 	// What /self answers with. Defaults are set in newStubService.
 	identityId   string
 	identityName string
+	// How many times the device asked, over the tunnel.
+	identityAsks atomic.Int64
 	// Closed to let a held identity call finish, so a test can look at the
 	// state while the device is midway through proving the credential. Always
 	// released when the test ends, whatever happened: a handler left blocked
@@ -140,34 +142,31 @@ func newStubService(t *testing.T) *stubService {
 				DeviceID: "device-1",
 			})
 
-		case "/api/v1/device/self":
-			if stub.holdIdentity != nil {
-				<-stub.holdIdentity
-			}
-			if stub.identityRefuses.Load() {
-				response.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			if request.Header.Get("Authorization") != "Bearer an-example-secret" {
-				response.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			response.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(response).Encode(Identity{
-				ID: stub.identityId, Name: stub.identityName,
-				Description: "an-example-identifier", UserID: "user-1",
-			})
-
 		default:
 			http.NotFound(response, request)
 		}
 	}
 
-	stub.server = httptest.NewServer(http.HandlerFunc(handler))
-	t.Cleanup(func() {
-		stub.release()
-		stub.server.Close()
+	// What the device reaches over the tunnel once it holds a credential.
+	overTheTunnel := http.NewServeMux()
+	overTheTunnel.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
+		if stub.holdIdentity != nil {
+			<-stub.holdIdentity
+		}
+		stub.identityAsks.Add(1)
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(Identity{
+			ID: stub.identityId, Name: stub.identityName,
+			Description: "an-example-identifier", UserID: "user-1",
+		})
 	})
+
+	tunnel := servicetest.New(t, overTheTunnel, http.HandlerFunc(handler))
+	// The credential this stub issues is the one it will accept back.
+	tunnel.Credential = "an-example-secret"
+	stub.tunnel = tunnel
+	stub.server = tunnel.Server
+	t.Cleanup(stub.release)
 	return stub
 }
 
@@ -750,7 +749,9 @@ func TestTheVerifierIsSentOnceAndOnlyToRedeem(t *testing.T) {
 // out about until much later, with no keyboard in the room.
 func TestACredentialThatDoesNotWorkIsNotALink(t *testing.T) {
 	stub := newStubService(t)
-	stub.identityRefuses.Store(true)
+	// A credential the service will not honour: the tunnel turns it away at
+	// the handshake, which is what a revoked device meets in practice.
+	stub.tunnel.Credential = "some-other-credential"
 	stub.authorised.Store(true)
 
 	store := newStore(t, stub.server.URL)
@@ -787,17 +788,18 @@ func TestTheCredentialIsProvedBeforeItIsBelieved(t *testing.T) {
 	}
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
 
-	// It asked who it was, and only stored anything afterwards.
-	asked := false
-	stub.mutex.Lock()
-	for _, one := range stub.requests {
-		if one.path == "/api/v1/device/self" {
-			asked = true
-		}
-	}
-	stub.mutex.Unlock()
-	if !asked {
+	// It asked who it was, over the tunnel, and only stored anything
+	// afterwards. Over the tunnel is the point: the credential is proved by
+	// being used the way it will be used from now on, rather than against a
+	// second door built for the question.
+	if stub.identityAsks.Load() == 0 {
 		t.Error("the device never asked the service who it was")
+	}
+	if stub.tunnel.Attaches.Load() == 0 {
+		t.Error("the device never attached, so it cannot have proved anything")
+	}
+	if opened := stub.tunnel.Opens.Load(); opened == 0 {
+		t.Error("the device never opened a stream")
 	}
 }
 

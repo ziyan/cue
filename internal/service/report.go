@@ -302,3 +302,33 @@ func sleep(ctx context.Context, howLong time.Duration) bool {
 		return true
 	}
 }
+
+// Confirm asks the service who this device is, over a connection opened for
+// the purpose and closed again.
+//
+// Used when a device has just been handed a credential and needs to know
+// whether it works before calling itself linked. It goes over the tunnel
+// rather than to a public endpoint, because the tunnel is the thing the
+// credential is for: proving a credential by using it the way it will actually
+// be used is worth more than proving it against a second door built for the
+// question. It also means there need not be a second door.
+func Confirm(ctx context.Context, address, credential string) (map[string]any, error) {
+	connection, err := dial(ctx, address, credential)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = connection.Close() }()
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(dialing context.Context, _, _ string) (net.Conn, error) {
+				return connection.open(dialing)
+			},
+		},
+		Timeout: 30 * time.Second,
+	}
+	defer client.CloseIdleConnections()
+
+	reporter := &Reporter{}
+	return reporter.identity(ctx, client)
+}

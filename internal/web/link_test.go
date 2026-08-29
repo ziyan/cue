@@ -14,6 +14,7 @@ import (
 
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/link"
+	"github.com/ziyan/cue/internal/service/servicetest"
 )
 
 // A stub of the service side, implementing the protocol as the plan describes
@@ -34,7 +35,18 @@ func newStubService(t *testing.T) *stubService {
 	t.Helper()
 	stub := &stubService{}
 	stub.sawTicket.Store("")
-	stub.server = httptest.NewServer(http.HandlerFunc(
+	// What the device reaches once it holds a credential, over the tunnel.
+	// There is no public route for this any more: every device API but the
+	// linking bootstrap goes through the websocket.
+	overTheTunnel := http.NewServeMux()
+	overTheTunnel.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(map[string]any{
+			"id": "device-1", "name": "Reception", "userId": "user-1",
+		})
+	})
+
+	public := http.HandlerFunc(
 		func(response http.ResponseWriter, request *http.Request) {
 			switch request.URL.Path {
 			case "/api/v1/device/link/exchange":
@@ -83,22 +95,15 @@ func newStubService(t *testing.T) *stubService {
 					"deviceId": "device-1",
 				})
 
-			case "/api/v1/device/self":
-				if request.Header.Get("Authorization") != "Bearer an example secret" {
-					response.WriteHeader(http.StatusUnauthorized)
-					return
-				}
-				response.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(response).Encode(map[string]any{
-					"id": "device-1", "name": "Reception", "userId": "user-1",
-				})
-
 			default:
 				t.Errorf("the device asked for %q", request.URL.Path)
 				http.NotFound(response, request)
 			}
-		}))
-	t.Cleanup(stub.server.Close)
+		})
+
+	tunnel := servicetest.New(t, overTheTunnel, public)
+	tunnel.Credential = "an example secret"
+	stub.server = tunnel.Server
 	return stub
 }
 

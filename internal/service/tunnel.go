@@ -54,9 +54,27 @@ const (
 	// How long to wait for the service to accept or refuse a stream.
 	openTimeout = 30 * time.Second
 
-	// What one message may carry. The service's limit is a megabyte and it
-	// enforces it by closing the connection, so this is deliberately under it.
-	maximumFrameBytes = 512 << 10
+	// What one message may carry.
+	//
+	// Sixteen kilobytes, which is far below any limit the service has had.
+	// The first version used half a megabyte on the strength of the service's
+	// current limit being a megabyte, and it failed against the real service
+	// within a minute: that limit is recent and the deployed one was still
+	// 32 KB, so the first screenshot closed the connection with "message too
+	// big" and the reporter never got a picture through.
+	//
+	// The reasoning that produced the larger number was wrong twice. It
+	// assumed the service a device meets is the service in front of me, and a
+	// device on a wall meets whatever is deployed, possibly for years. And it
+	// assumed Go's HTTP client would never hand this a large write, because
+	// it buffers bodies at four kilobytes -- but a *bytes.Reader implements
+	// WriteTo, so io.Copy bypasses the buffer entirely and delivers the whole
+	// image in one call.
+	//
+	// Small frames cost almost nothing over a websocket and remove the whole
+	// class of failure, which on a screen presents as the connection dying
+	// with nothing anywhere naming a size.
+	maximumFrameBytes = 16 << 10
 )
 
 type controlFrame struct {
@@ -112,7 +130,10 @@ func dial(ctx context.Context, address, credential string) (*tunnel, error) {
 		}
 		return nil, fmt.Errorf("service: cannot attach: %w", err)
 	}
-	connection.SetReadLimit(maximumFrameBytes)
+	// What may be read is separate from what may be written: the service
+	// writes responses at whatever size it likes, and this is only a guard
+	// against a reply nothing asked for.
+	connection.SetReadLimit(1 << 20)
 
 	self := &tunnel{connection: connection, streams: map[string]*stream{}}
 	go self.read()

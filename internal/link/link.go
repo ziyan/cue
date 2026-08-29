@@ -15,6 +15,7 @@ import (
 	"github.com/op/go-logging"
 
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/util/deferutil"
 )
 
@@ -530,41 +531,56 @@ func (self *Linker) redeem(ctx context.Context, attempt *Ticket) (string, string
 // This is what makes "linked" mean something. Until it answers, all the device
 // holds is a string the service said was a credential; a screen on a wall that
 // reports itself linked on the strength of that would be reporting a guess.
-// Answering proves the credential verifies, that the service knows this
-// device, and that it has not already been revoked.
+//
+// It goes over the tunnel -- the outward websocket this device will hold open
+// for as long as it is linked -- rather than to a public address. Proving a
+// credential by using it exactly the way it will be used from now on is worth
+// more than proving it against a second door built for the question, and it
+// means the service need not have a second door at all.
 func (self *Linker) identity(ctx context.Context, credential string) (*Identity, error) {
 	configuration := self.store.Current()
 
-	address, err := identityURL(configuration.Service.Address)
+	answer, err := service.Confirm(ctx, configuration.Service.Address, credential)
 	if err != nil {
+		// A credential that cannot attach is not one this device should call
+		// itself linked with. The service refuses a revoked or unknown one
+		// with 401 during the handshake, which arrives here as a failure to
+		// attach rather than as an answer.
+		if isRefusal(err) {
+			return nil, ErrRefused
+		}
 		return nil, err
 	}
-	response, err := self.send(ctx, http.MethodGet, address, nil, credential)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = response.Body.Close() }()
 
-	switch {
-	case response.StatusCode == http.StatusUnauthorized, response.StatusCode == http.StatusForbidden:
-		// The credential does not work. Not worth retrying: it will not start
-		// working, and the device must not claim to be linked with it.
+	identity := &Identity{}
+	if value, _ := answer["id"].(string); value != "" {
+		identity.ID = value
+	}
+	if value, _ := answer["name"].(string); value != "" {
+		identity.Name = value
+	}
+	if value, _ := answer["description"].(string); value != "" {
+		identity.Description = value
+	}
+	if value, _ := answer["userId"].(string); value != "" {
+		identity.UserID = value
+	}
+	if revoked, _ := answer["isRevoked"].(bool); revoked {
 		return nil, ErrRefused
-	case response.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("link: the service answered %s", response.Status)
 	}
-
-	var answer Identity
-	if err := json.NewDecoder(io.LimitReader(response.Body, maximumResponseBytes)).Decode(&answer); err != nil {
-		return nil, fmt.Errorf("link: cannot read what the service said: %w", err)
-	}
-	if answer.ID == "" {
+	if identity.ID == "" {
 		return nil, fmt.Errorf("link: the service did not say which device this is")
 	}
-	if answer.IsRevoked {
-		return nil, ErrRefused
-	}
-	return &answer, nil
+	return identity, nil
+}
+
+// isRefusal reports whether the service turned the credential away rather than
+// being unreachable. One is final and the other is worth trying again.
+func isRefusal(err error) bool {
+	return strings.Contains(err.Error(), "401") ||
+		strings.Contains(err.Error(), "403") ||
+		strings.Contains(err.Error(), "Unauthorized") ||
+		strings.Contains(err.Error(), "Forbidden")
 }
 
 // reasonFrom reads the short explanation a service puts in the body of a
@@ -624,10 +640,4 @@ func exchangeURL(service string) (string, error) {
 // redeemURL is where the verifier goes, and the only place it goes.
 func redeemURL(service string) (string, error) {
 	return serviceURL(service, "api", "v1", "device", "link", "redeem")
-}
-
-// identityURL is where the device asks who it is, with the credential it has
-// been given. The answer is what turns a string into a link.
-func identityURL(service string) (string, error) {
-	return serviceURL(service, "api", "v1", "device", "self")
 }
