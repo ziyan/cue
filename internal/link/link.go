@@ -195,6 +195,17 @@ func (self *Linker) Abandon() {
 // and not about what it is.
 func (self *Linker) Unlink() error {
 	self.Abandon()
+
+	// Said out loud, because a device that has quietly stopped belonging to
+	// anybody is hard to explain afterwards. This happened once during
+	// development and there was no way to tell what had asked for it: nothing
+	// wrote a line, and the only evidence was a section missing from a file.
+	before := self.store.Current().Service
+	if before.IsLinked() {
+		log.Noticef("this device is no longer linked to %s (was known there as %s)",
+			before.Account, before.DeviceID)
+	}
+
 	return self.store.Update(func(configuration *config.Configuration) error {
 		configuration.Service.Secret = ""
 		configuration.Service.Account = ""

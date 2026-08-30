@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/op/go-logging"
+
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/service/servicetest"
 )
@@ -1075,5 +1077,43 @@ func TestStartingAgainReplacesTheCodeWithoutLosingTheAttempt(t *testing.T) {
 	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
 	if state := linker.State(); !state.Linked || state.Pending {
 		t.Errorf("after authorising the replacement, the state is %+v", state)
+	}
+}
+
+// Unlinking says so. A device that has quietly stopped belonging to anybody is
+// hard to explain afterwards, and during development one did: the only
+// evidence was a section missing from a file, with nothing in the log to say
+// what had asked for it or when.
+func TestUnlinkingIsRecorded(t *testing.T) {
+	var said strings.Builder
+	logging.SetBackend(logging.AddModuleLevel(
+		logging.NewLogBackend(&said, "", 0)))
+
+	stub := newStubService(t)
+	stub.authorised.Store(true)
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	if _, err := linker.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+
+	if err := linker.Unlink(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(said.String(), "no longer linked") {
+		t.Errorf("unlinking wrote nothing worth reading: %q", said.String())
+	}
+
+	// And unlinking a device that was not linked says nothing, so the line
+	// means what it says when it appears.
+	said.Reset()
+	if err := linker.Unlink(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(said.String(), "no longer linked") {
+		t.Error("a device that was not linked reported being unlinked")
 	}
 }

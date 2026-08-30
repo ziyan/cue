@@ -48,6 +48,10 @@ func (self *Server) linkAbandon(response http.ResponseWriter, request *http.Requ
 // the consequence of a stranger doing it is a device that quietly stops
 // reporting. It is a decision for the interface, where there is a session.
 func (self *Server) linkForget(response http.ResponseWriter, request *http.Request) {
+	// Who asked, as well as that somebody did. Unlinking is one of the few
+	// things here that quietly undoes a decision somebody made deliberately,
+	// and the question afterwards is always which page it came from.
+	log.Noticef("the interface at %s asked to forget this device's link", request.RemoteAddr)
 	if err := self.device.Linker().Unlink(); err != nil {
 		writeError(response, http.StatusInternalServerError, "cannot forget the link")
 		return
