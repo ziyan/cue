@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -294,48 +295,110 @@ func RestoreFileOnlySettings(updated, previous *Configuration) {
 }
 
 // RestoreSecrets copies every secret that arrived as the redacted placeholder
-// back from the previous configuration. The web interface is never shown a
-// password, so when it posts a form back it sends the placeholder; without
-// this, opening the settings page and saving it would erase every credential
-// on the device.
+// back from the configuration already in force.
+//
+// The interface is never shown a secret: it reads the configuration, gets
+// "********" where each one is, and posts the whole document back. Taken
+// literally that writes the placeholder into the file as though it were the
+// password, and the thing it guarded stops working.
+//
+// Done by walking the two documents rather than naming each secret, and that
+// is the whole point. It used to be a list -- VNC's password, the service
+// credential, each playlist login -- and the list fell behind the struct: the
+// wireless passphrase is a Secret and was not on it, so saving anything at all
+// from any page replaced a device's wifi password with "********" and took it
+// off the network at the next reconcile. A wireless-only device would have
+// been unreachable, from a save on a page that has nothing to do with wifi.
+//
+// The failure is invisible in review, which is what makes a list the wrong
+// shape: the code compiles, the save succeeds, the interface says "Saved.",
+// and the credential is gone. Every Secret has the same rule, so the rule is
+// applied to every Secret rather than to the ones somebody remembered.
 func RestoreSecrets(updated, previous *Configuration) {
-	if updated.VNC.Password.IsRedacted() {
-		updated.VNC.Password = previous.VNC.Password
-	}
-	// The credential the service issued. The interface is never shown it, so
-	// a form posted back carries the placeholder, and taking that literally
-	// would unlink a device every time somebody changed its name.
-	if updated.Service.Secret.IsRedacted() {
-		updated.Service.Secret = previous.Service.Secret
-	}
-	// Playlist items are matched by identifier rather than by position,
-	// because the interface can reorder them in the same request that saves
-	// them.
-	previousLogins := map[string]*Login{}
-	for index := range previous.Playlist.Items {
-		item := &previous.Playlist.Items[index]
-		if item.Login != nil {
-			previousLogins[item.Identifier] = item.Login
-		}
-	}
-	for index := range updated.Playlist.Items {
-		item := &updated.Playlist.Items[index]
-		if item.Login == nil || !item.Login.Password.IsRedacted() {
-			continue
-		}
-		if previousLogin, found := previousLogins[item.Identifier]; found {
-			item.Login.Password = previousLogin.Password
-		}
-	}
+	restoreSecretsIn(reflect.ValueOf(updated).Elem(), reflect.ValueOf(previous).Elem())
 
-	// These two are never sent to the interface at all, so an update that did
-	// not come from a reload would otherwise clear them and log everybody out.
+	// These two are not Secrets and are never sent to the interface at all, so
+	// an update that did not come from a reload would otherwise clear them and
+	// log everybody out.
 	if updated.Web.SessionSecret == "" {
 		updated.Web.SessionSecret = previous.Web.SessionSecret
 	}
 	if updated.Web.PasswordHash == "" {
 		updated.Web.PasswordHash = previous.Web.PasswordHash
 	}
+}
+
+var secretType = reflect.TypeOf(Secret(""))
+
+// restoreSecretsIn walks two values of the same type in step.
+func restoreSecretsIn(updated, previous reflect.Value) {
+	if updated.Type() != previous.Type() {
+		return
+	}
+
+	if updated.Type() == secretType {
+		if updated.CanSet() && Secret(updated.String()).IsRedacted() {
+			updated.Set(previous)
+		}
+		return
+	}
+
+	switch updated.Kind() {
+	case reflect.Pointer:
+		if !updated.IsNil() && !previous.IsNil() {
+			restoreSecretsIn(updated.Elem(), previous.Elem())
+		}
+	case reflect.Struct:
+		for index := 0; index < updated.NumField(); index++ {
+			if !updated.Type().Field(index).IsExported() {
+				continue
+			}
+			restoreSecretsIn(updated.Field(index), previous.Field(index))
+		}
+	case reflect.Slice:
+		// Matched by what the thing is called, never by position: the
+		// interface can reorder a list in the same request that saves it, and
+		// restoring by index would hand one item's password to another.
+		// Anything with no name to match on is left alone, which loses a
+		// secret rather than moving it to the wrong place.
+		byName := map[string]reflect.Value{}
+		for index := 0; index < previous.Len(); index++ {
+			if name, found := nameOf(previous.Index(index)); found {
+				byName[name] = previous.Index(index)
+			}
+		}
+		for index := 0; index < updated.Len(); index++ {
+			name, found := nameOf(updated.Index(index))
+			if !found {
+				continue
+			}
+			if match, found := byName[name]; found {
+				restoreSecretsIn(updated.Index(index), match)
+			}
+		}
+	}
+}
+
+// nameOf is how one element of a list is recognised again after the list has
+// been reordered. Identifier where there is one, otherwise Name -- which is
+// every list in this configuration that contains a secret.
+func nameOf(element reflect.Value) (string, bool) {
+	for element.Kind() == reflect.Pointer {
+		if element.IsNil() {
+			return "", false
+		}
+		element = element.Elem()
+	}
+	if element.Kind() != reflect.Struct {
+		return "", false
+	}
+	for _, field := range []string{"Identifier", "Name"} {
+		value := element.FieldByName(field)
+		if value.IsValid() && value.Kind() == reflect.String && value.String() != "" {
+			return field + "=" + value.String(), true
+		}
+	}
+	return "", false
 }
 
 const fileHeader = `# cue.yaml — the configuration for one display.
