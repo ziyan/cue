@@ -438,7 +438,6 @@ first one's place.
       account: ""
       deviceId: ""
       name: ""
-      allowScreenSharing: true
 
 Where this device reports to, and the credential it holds once it is attached.
 All of it is empty on a device that has never been linked, which is the normal
@@ -451,23 +450,9 @@ be an invitation to type something that could only be wrong. Left out, it is
 `https://cue.sh`. Naming a different one — a staging service, a deployment that
 is not the public one — is a decision for whoever installs the device.
 
-`allowScreenSharing` lets the account this device is linked to watch and drive
-its screen, over the connection the device already holds open. On, because a
-linked device is meant to be managed from the service the same way it is
-managed from its own interface, and a screen somebody had to walk up to in
-order to enable would not be that.
-
-It is a setting rather than a consequence so that it can be refused. Watching a
-screen is not the same kind of thing as editing its settings: it is watching
-whatever is in front of it, in a room that usually has people in it. Set it to
-`false` and the device still reports, is still configurable from the service,
-and refuses to be spliced to its screen — with a reason the service can show.
-
-Worth being plain about what linking does to this device's password. Before
-linking, that password guards this device against everybody. After it, its
-settings and its screen can also be reached by whoever can sign in as its
-owner on the service, without it. That is what linking is for, and the device's
-own Service page says so rather than leaving it to be discovered.
+A linked device is managed from the account it is linked to: its settings and
+its screen can be reached from the service, without this device's password.
+That is what linking is for, and linking is where somebody chooses it.
 
 There is no way to say "no service". An empty address is filled in rather than
 meaning off, and nothing is given away by having one: a device contacts the

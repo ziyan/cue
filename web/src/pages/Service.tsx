@@ -2,16 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Link from "@mui/material/Link";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { Section } from "../components/Section";
-import { Readout } from "../components/Readout";
 import { useSettings, type Settings } from "../settings";
 import { api, type LinkState, type ReportingState } from "../api";
-import { ago } from "../format";
 
 // How often the page asks whether the link has completed. Somebody is standing
 // over it, so it is short; the daemon asks the service on its own schedule
@@ -22,43 +19,28 @@ const askEvery = 1500;
 // minutes, so a minute is comfortable.
 const refreshWhenLeft = 60_000;
 
-// Whether the pictures are getting through.
+// Said only when something is wrong.
 //
-// Shown next to the link because they are the two halves of the same question
-// and they fail separately: a device can hold a credential the service is
-// perfectly happy with and still be unable to reach it, and somebody wondering
-// why the picture on their phone is old needs to be told which of the two it
-// is.
-function Reporting({ settings }: { settings: Settings }) {
+// The first version showed a "reporting" badge and when the last picture went
+// up. Nobody wants to know that a device did the thing it does every thirty
+// seconds thirty seconds ago -- it is the machinery describing itself, and it
+// pushed the one line that matters, that a device cannot reach the service it
+// is linked to, in among noise that never changes.
+function NotReporting({ settings }: { settings: Settings }) {
   const reporting = (settings.status as unknown as { reporting?: ReportingState } | null)?.reporting;
-  if (!reporting) return null;
+  if (!reporting || reporting.attached) return null;
   return (
-    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1.5 }}>
-      <Chip
-        size="small"
-        variant="outlined"
-        color={reporting.attached ? "success" : "warning"}
-        label={reporting.attached ? "reporting" : "not reporting"}
-      />
-      <Typography variant="body2" color="text.secondary">
-        {reporting.trouble
-          ? reporting.trouble
-          : reporting.lastReportedAt
-            ? `Last picture sent ${ago(reporting.lastReportedAt)}.`
-            : "No picture has been sent yet."}
-      </Typography>
-    </Stack>
+    <Alert severity="warning" sx={{ mt: 2 }}>
+      {reporting.trouble || "This device cannot reach the service."}
+    </Alert>
   );
 }
 
 // Attaching this device to an account on the hosted service.
 //
-// The page has no settings on it. Where a device reports to is the same for
-// every device and is not changed from here, so there is nothing to save and
-// no frame of Save and Discard around it: what the page is for is the code,
-// and it shows one without being asked. Somebody who opens this page has
-// already decided what they came to do, and a button between them and the
-// thing they came for is a step that only ever has one answer.
+// The page has no settings on it and shows a code without being asked.
+// Somebody who opens it has already decided what they came to do, and a button
+// between them and that is a step with one answer.
 export function Service() {
   const settings = useSettings();
   const [state, setState] = useState<LinkState | null>(null);
@@ -177,46 +159,23 @@ export function Service() {
           <Typography sx={{ mb: 1 }}>
             This device is attached to {state.account || "an account"}.
           </Typography>
-          {service.name && (
-            <Readout label="Called there">
-              {service.name}
-              {configuration && service.name !== configuration.device.name && (
-                <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                  — this screen calls itself {configuration.device.name}
-                </Typography>
-              )}
-            </Readout>
-          )}
-          {service.deviceId && (
-            <Readout label="Known there as" mono>{service.deviceId}</Readout>
-          )}
-          <Reporting settings={settings} />
+          {/* Only when the service calls it something else. An account cannot
+              hold two devices of one name, so a second screen called "carbon"
+              is recorded there as "carbon 2" -- and that is worth saying,
+              because it is how somebody matches the two up. When the names
+              agree there is nothing to tell anybody.
 
-          {/* Said plainly, on the device, because it is the thing a person
-              standing at a screen would most want to know and the only place
-              they can learn it. Linking moved the boundary: what used to be
-              guarded by this device's password is now guarded by whoever can
-              sign in as its owner on the service. That is what linking means,
-              and it should be readable rather than inferred. */}
-          <Alert severity="info" sx={{ mt: 2 }}>
-            <Typography variant="body2" sx={{ mb: service.allowScreenSharing ? 0.5 : 0 }}>
-              Whoever can sign in to {state.account || "this account"} on the service can
-              change this device's settings from there, without its password.
+              The identifier the service knows it by is not shown: it is this
+              device's own identifier now, which is already on the Device
+              page. */}
+          {service.name && configuration && service.name !== configuration.device.name && (
+            <Typography variant="body2" color="text.secondary">
+              Called {service.name} there.
             </Typography>
-            {service.allowScreenSharing && (
-              <Typography variant="body2">
-                They can also watch this screen and use it, as if they were standing here.
-                Turn off <code>service.allowScreenSharing</code> in cue.yaml to refuse that
-                while still allowing the rest.
-              </Typography>
-            )}
-          </Alert>
+          )}
+          <NotReporting settings={settings} />
 
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, mb: 2 }}>
-            Unlinking forgets the credential and nothing else. The device keeps its
-            name, its screens and everything it is showing.
-          </Typography>
-          <Button color="error" variant="outlined" disabled={working}
+          <Button color="error" variant="outlined" disabled={working} sx={{ mt: 2 }}
             onClick={() => void act(async () => {
               const after = await api.forgetLink();
               await settings.reload();
@@ -228,20 +187,14 @@ export function Service() {
         </Section>
       ) : state.pending && state.checking ? (
         <Section title="Checking">
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
             <CircularProgress size={18} />
-            <Typography>Authorised. Collecting the credential and checking it works.</Typography>
+            <Typography>Authorised. Checking the credential works.</Typography>
           </Stack>
-          <Typography variant="body2" color="text.secondary">
-            The code has done its job — you can put your phone away. This device does not
-            call itself linked until the service has answered to the credential it was given.
-          </Typography>
         </Section>
       ) : state.pending ? (
         <Section title="Scan to link">
-          <Typography sx={{ mb: 2 }}>
-            Point a phone at this, sign in, and authorise the device.
-          </Typography>
+          <Typography sx={{ mb: 2 }}>Point a phone at this to link it.</Typography>
           <Box
             component="img"
             // The address carries when the attempt expires, because the code

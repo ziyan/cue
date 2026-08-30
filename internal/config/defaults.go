@@ -24,9 +24,6 @@ func Default() *Configuration {
 		Service: Service{
 			// Where every device reports to unless its file says otherwise.
 			Address: DefaultServiceAddress,
-			// A linked device is managed from the service the same way it is
-			// managed from its own interface, screen included.
-			AllowScreenSharing: true,
 		},
 		Paths: Paths{
 			State:   "/var/lib/cue",

@@ -927,11 +927,11 @@ const reportedScreenshotWidth = 960
 // interface and this deliberately does not use it, because reaching a
 // websocket endpoint through a tunnel would put an HTTP upgrade in the middle
 // of a stream that is already a tunnel.
+//
+// Offered because the device is linked. Somebody chose to attach this screen
+// to an account, and being managed from that account is what they chose.
 func (self *Daemon) screenForService(ctx context.Context) (net.Conn, error) {
 	configuration := self.store.Current()
-	if !configuration.Service.AllowScreenSharing {
-		return nil, fmt.Errorf("watching this screen from the service is switched off on this device")
-	}
 	if !configuration.VNC.Enabled {
 		return nil, fmt.Errorf("this device is not running a VNC server, so there is no screen to watch")
 	}

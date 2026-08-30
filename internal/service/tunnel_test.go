@@ -490,13 +490,9 @@ func TestTheServiceCanBeSplicedToTheScreen(t *testing.T) {
 	}
 }
 
-// A device that has been told not to share its screen refuses, with a reason.
-//
-// Watching a screen is not the same kind of thing as editing its settings: it
-// is watching whatever is in front of it, in a room that usually has people in
-// it. A device where that is not wanted must be able to say no while still
-// being managed.
-func TestADeviceThatWillNotShareItsScreenSaysSo(t *testing.T) {
+// A device with no screen to show says so, rather than opening a stream it
+// will immediately close.
+func TestADeviceWithNoScreenSaysSo(t *testing.T) {
 	stub := newStubService(t)
 	store := newStore(t, stub.Server.URL, stub.Credential)
 
@@ -508,7 +504,7 @@ func TestADeviceThatWillNotShareItsScreenSaysSo(t *testing.T) {
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
 	}, nil).WithManagement(offered).WithScreen(func(context.Context) (net.Conn, error) {
-		return nil, errors.New("watching this screen from the service is switched off on this device")
+		return nil, errors.New("this device is not running a VNC server, so there is no screen to watch")
 	})
 	defer func() { _ = reporter.Close() }()
 
@@ -518,12 +514,12 @@ func TestADeviceThatWillNotShareItsScreenSaysSo(t *testing.T) {
 	})
 
 	if _, err := stub.Splice(screenHost, screenPort); err == nil {
-		t.Error("a device with screen sharing off was spliced to its screen anyway")
-	} else if !strings.Contains(err.Error(), "switched off") {
+		t.Error("a device with no VNC server was spliced to a screen anyway")
+	} else if !strings.Contains(err.Error(), "no screen") {
 		t.Errorf("it refused with %q, which does not say why", err)
 	}
 
-	// And it is still managed, which is the point of the two being separate.
+	// And it is still managed, which is why the two are separate names.
 	request, _ := http.NewRequest(http.MethodGet, "http://device/healthz", nil)
 	response, err := stub.Ask(managementHost, managementPort, request)
 	if err != nil {

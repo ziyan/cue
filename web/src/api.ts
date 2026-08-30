@@ -95,9 +95,6 @@ export interface Configuration {
     // itself: an account cannot hold two devices of one name, so a second
     // screen called "carbon" is recorded there as "carbon 2".
     name?: string;
-    // Whether the account this device is linked to may watch and drive its
-    // screen, as well as configure it.
-    allowScreenSharing?: boolean;
   };
   [section: string]: unknown;
 }
