@@ -68,6 +68,17 @@ seconds is eight times as likely to show a mixture of two moments. It contains:
 
 ### Upgrading
 
+`GET /api/v1/configuration` answers with the whole document and an `ETag`
+naming the version of it. `PUT /api/v1/configuration` accepts the whole
+document back, and an `If-Match` carrying that version: if the configuration
+has changed since it was read, the write is refused with `409` and a body of
+`{"error": ..., "configuration": ...}` carrying what is actually on the device,
+so whoever asked can show what changed rather than telling somebody to try
+again. A `PUT` with no `If-Match` is accepted as it always was -- somebody with
+curl and a document they just fetched should not have to learn about versions
+to change one setting. Two editors are what this protects, and an editor that
+does not say what it edited cannot be protected.
+
 `GET /api/v1/upgrade` answers with the version this device is running, the
 newest published release, that release's notes as Markdown, and whether this
 device can install it:

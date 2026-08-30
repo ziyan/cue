@@ -419,6 +419,29 @@ func do(server *Server, method, path string, body interface{}, session *http.Coo
 	return response
 }
 
+// doWith is do() with extra headers, for the conditional-write tests.
+func doWith(server *Server, method, path string, body interface{}, session *http.Cookie,
+	headers map[string]string) *httptest.ResponseRecorder {
+	var reader *strings.Reader
+	if body != nil {
+		encoded, _ := json.Marshal(body)
+		reader = strings.NewReader(string(encoded))
+	} else {
+		reader = strings.NewReader("")
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	if session != nil {
+		request.AddCookie(session)
+	}
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	return response
+}
+
 func joinSession(issuedAt int64, signature string) string {
 	return strconv.FormatInt(issuedAt, 10) + "." + signature
 }

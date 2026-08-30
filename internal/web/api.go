@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image/jpeg"
@@ -269,8 +271,29 @@ func (self *Server) signOut(response http.ResponseWriter, request *http.Request)
 // writeConfiguration; the placeholders are turned back into the real values
 // there, so that saving a form does not erase the passwords it was never
 // shown.
+// versionOf names the configuration a caller is looking at.
+//
+// A hash of the document as it is served, so it changes exactly when what
+// somebody is editing changes, and two callers holding the same document agree
+// about its version without either of them being told.
+func versionOf(configuration *config.Configuration) string {
+	encoded, err := json.Marshal(configuration)
+	if err != nil {
+		// Nothing can be said about a document that will not encode, and a
+		// version that is always different is safer than one that is always
+		// the same: every write against it is refused rather than allowed.
+		return `"unknown-` + security.NewIdentifier() + `"`
+	}
+	sum := sha256.Sum256(encoded)
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
+}
+
 func (self *Server) readConfiguration(response http.ResponseWriter, request *http.Request) {
-	writeJSON(response, http.StatusOK, self.store.Current())
+	current := self.store.Current()
+	// In an ETag, so the document served is the document and nothing else. A
+	// caller holds this between being shown a form and submitting it.
+	response.Header().Set("ETag", versionOf(current))
+	writeJSON(response, http.StatusOK, current)
 }
 
 func (self *Server) writeConfiguration(response http.ResponseWriter, request *http.Request) {
@@ -278,6 +301,34 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 	if err := decode(request, &updated); err != nil {
 		writeError(response, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// Which document this was an edit of.
+	//
+	// Without this the last save wins and the other is gone without anybody
+	// being told: two browser tabs on the settings page do it to each other
+	// today, and a device that can also be configured from the service it is
+	// linked to has two more ways to do it. A caller that says what it was
+	// editing gets told when that is no longer what is there.
+	//
+	// Optional, and that is deliberate. Somebody with curl and a document they
+	// just fetched should not have to learn about this to change a setting;
+	// what it protects against is two editors, and an editor that does not
+	// participate cannot be protected. Every caller of ours sends it.
+	if held := request.Header.Get("If-Match"); held != "" {
+		current := self.store.Current()
+		if version := versionOf(current); held != version {
+			response.Header().Set("ETag", version)
+			// The current document comes back with the refusal, so whoever
+			// asked can show what changed rather than telling somebody to
+			// try again and hoping.
+			writeJSON(response, http.StatusConflict, map[string]any{
+				"error": "somebody else changed this device's configuration while " +
+					"you were editing it",
+				"configuration": current,
+			})
+			return
+		}
 	}
 
 	err := self.store.Update(func(configuration *config.Configuration) error {
@@ -296,7 +347,11 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 		return
 	}
 
-	writeJSON(response, http.StatusOK, self.store.Current())
+	saved := self.store.Current()
+	// The version of what was just written, so a caller can save twice
+	// without reading in between.
+	response.Header().Set("ETag", versionOf(saved))
+	writeJSON(response, http.StatusOK, saved)
 }
 
 // timezones lists the zones this machine can actually be set to, for the
