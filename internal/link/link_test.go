@@ -1033,3 +1033,47 @@ func TestTheServicesReasonIsKeptAndBounded(t *testing.T) {
 		t.Errorf("a service that explained nothing produced %q", got)
 	}
 }
+
+// A code can be replaced while somebody is still looking at it.
+//
+// The pages do the replacing, because the expiry exists to kill a code left on
+// a screen nobody is watching and a daemon that renewed on its own would keep
+// one alive for ever. What this checks is the thing the pages rely on: that
+// starting again produces a fresh code, abandons the old one, and does not
+// disturb an attempt that has already been authorised.
+func TestStartingAgainReplacesTheCodeWithoutLosingTheAttempt(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.server.URL)
+	linker := New(store)
+	defer func() { _ = linker.Close() }()
+
+	first, err := linker.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ExpiresAt == nil {
+		t.Fatal("the first attempt has no expiry to replace")
+	}
+
+	second, err := linker.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.URL == first.URL {
+		t.Error("replacing the code produced the same one")
+	}
+	if second.ExpiresAt == nil || !second.ExpiresAt.After(*first.ExpiresAt) {
+		t.Errorf("the replacement expires at %v, no later than the code it replaced", second.ExpiresAt)
+	}
+	if state := linker.State(); state.URL != second.URL {
+		t.Error("the code being shown is not the replacement")
+	}
+
+	// And the replacement is the one that links: the abandoned attempt must
+	// not be able to complete behind it.
+	stub.authorised.Store(true)
+	waitFor(t, 5*time.Second, func() bool { return store.Current().Service.IsLinked() })
+	if state := linker.State(); !state.Linked || state.Pending {
+		t.Errorf("after authorising the replacement, the state is %+v", state)
+	}
+}
