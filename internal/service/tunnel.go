@@ -59,6 +59,19 @@ const (
 	managementHost = "device"
 	managementPort = 80
 
+	// And the screen itself, spliced straight to the VNC server with no HTTP
+	// in the way.
+	//
+	// A name of its own rather than a route behind managementHost, because
+	// reaching it through the management interface would mean an HTTP upgrade
+	// in the middle of a stream that is already a tunnel: a websocket inside a
+	// websocket inside a websocket, which would work and would be miserable to
+	// debug. Naming it separately also keeps the list of what a service may
+	// reach honest -- two names, each meaning one thing, rather than one name
+	// that also means everything behind it.
+	screenHost = "vnc"
+	screenPort = 5900
+
 	// The service closes a stream that has gone this long without a request,
 	// so nothing here may assume one it opened earlier is still there.
 	streamIdleTimeout = 2 * time.Minute
@@ -136,13 +149,24 @@ type tunnel struct {
 	// What a stream the service opens is served with. Nil means this device
 	// offers the service nothing, and every open is refused.
 	serve http.Handler
+
+	// How to reach this device's own screen. Nil, or an error, means the
+	// screen is not on offer -- and the error is what the service is told,
+	// because "not enabled on this device" is worth reading and a silence is
+	// not.
+	screen Screen
 }
+
+// Screen opens a connection to this device's VNC server. The error it returns
+// is shown to the service as the reason a stream was refused, so it should say
+// something somebody can act on.
+type Screen func(ctx context.Context) (net.Conn, error)
 
 // Gone is closed when this connection has ended.
 func (self *tunnel) Gone() <-chan struct{} { return self.gone }
 
 // dial opens the connection and starts reading it.
-func dial(ctx context.Context, address, credential string, serve http.Handler) (*tunnel, error) {
+func dial(ctx context.Context, address, credential string, serve http.Handler, screen Screen) (*tunnel, error) {
 	endpoint, err := websocketURL(address)
 	if err != nil {
 		return nil, err
@@ -179,6 +203,7 @@ func dial(ctx context.Context, address, credential string, serve http.Handler) (
 		streams:    map[string]*stream{},
 		gone:       make(chan struct{}),
 		serve:      serve,
+		screen:     screen,
 	}
 	go self.read()
 	return self, nil
@@ -261,8 +286,12 @@ func (self *tunnel) opened(frame controlFrame) {
 		_ = self.sendControl(controlFrame{Stream: frame.Stream, Kind: kindFailed, Error: reason})
 	}
 
-	if frame.Host != managementHost || frame.Port != managementPort {
-		refuse("only this device's management interface may be opened, and only by name")
+	switch {
+	case frame.Host == screenHost && frame.Port == screenPort:
+		self.openScreen(frame, refuse)
+		return
+	case frame.Host != managementHost || frame.Port != managementPort:
+		refuse("only this device's management interface or its screen may be opened, and only by name")
 		return
 	}
 	if self.serve == nil {
@@ -301,6 +330,88 @@ func (self *tunnel) opened(frame controlFrame) {
 		defer self.forget(frame.Stream)
 		serveOne(one, self.serve)
 	}()
+}
+
+// openScreen splices a stream straight to this device's VNC server.
+//
+// No HTTP and no bridge: what travels on this stream is RFB, exactly as a
+// viewer on the local network would speak it. The service pipes it to a
+// browser and noVNC never learns there was a tunnel in the way.
+func (self *tunnel) openScreen(frame controlFrame, refuse func(string)) {
+	if self.screen == nil {
+		refuse("this device does not offer its screen to the service")
+		return
+	}
+
+	// Asked before the stream is accepted, so a device with screen sharing
+	// switched off refuses with a reason rather than opening something it
+	// will immediately close.
+	opening, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	viewer, err := self.screen(opening)
+	cancel()
+	if err != nil {
+		refuse(err.Error())
+		return
+	}
+
+	one := &stream{
+		tunnel:     self,
+		identifier: frame.Stream,
+		answered:   make(chan error, 1),
+		incoming:   make(chan []byte, 16),
+		done:       make(chan struct{}),
+	}
+
+	self.mutex.Lock()
+	if self.closed {
+		self.mutex.Unlock()
+		_ = viewer.Close()
+		return
+	}
+	if _, taken := self.streams[frame.Stream]; taken {
+		self.mutex.Unlock()
+		_ = viewer.Close()
+		refuse("that stream is already open")
+		return
+	}
+	self.streams[frame.Stream] = one
+	self.mutex.Unlock()
+
+	if err := self.sendControl(controlFrame{Stream: frame.Stream, Kind: kindOpened}); err != nil {
+		self.forget(frame.Stream)
+		_ = viewer.Close()
+		return
+	}
+
+	log.Noticef("the service is watching this screen")
+	go func() {
+		defer deferutil.Recover()
+		defer self.forget(frame.Stream)
+		defer log.Noticef("the service has stopped watching this screen")
+		splice(one, viewer)
+	}()
+}
+
+// splice copies between a stream and the screen until either end stops.
+func splice(one *stream, viewer net.Conn) {
+	defer func() { _ = viewer.Close() }()
+	defer func() { _ = one.Close() }()
+
+	finished := make(chan struct{}, 2)
+	go func() {
+		defer deferutil.Recover()
+		_, _ = io.Copy(viewer, one)
+		finished <- struct{}{}
+	}()
+	go func() {
+		defer deferutil.Recover()
+		_, _ = io.Copy(one, viewer)
+		finished <- struct{}{}
+	}()
+	// One direction ending ends the conversation: a viewer that has gone is
+	// not going to send anything more, and holding the other half open would
+	// keep a stream on the tunnel for nobody.
+	<-finished
 }
 
 // serveOne runs one HTTP conversation on a stream the service opened, and does

@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"image/jpeg"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -307,7 +308,8 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// What the service may do to this device once it is linked: an allow-list
 	// of the management interface, served over the tunnel and nowhere else.
 	self.reporter = service.New(self.store, self.photograph, self.describe).
-		WithManagement(self.web.FromService())
+		WithManagement(self.web.FromService()).
+		WithScreen(self.screenForService)
 	self.reporter.Start(ctx)
 	self.web = self.web.WithReporter(self.reporter)
 
@@ -915,6 +917,40 @@ func (self *Daemon) Reporter() *service.Reporter {
 // has, and the picture is looked at in a list beside other devices rather
 // than read.
 const reportedScreenshotWidth = 960
+
+// screenForService opens a connection to this device's VNC server for the
+// service to be spliced to.
+//
+// What travels over it is RFB, the same bytes a viewer on the local network
+// would exchange, so the service pipes it to a browser and noVNC never learns
+// there was a tunnel. The device does no bridging: it has one for its own
+// interface and this deliberately does not use it, because reaching a
+// websocket endpoint through a tunnel would put an HTTP upgrade in the middle
+// of a stream that is already a tunnel.
+func (self *Daemon) screenForService(ctx context.Context) (net.Conn, error) {
+	configuration := self.store.Current()
+	if !configuration.Service.AllowScreenSharing {
+		return nil, fmt.Errorf("watching this screen from the service is switched off on this device")
+	}
+	if !configuration.VNC.Enabled {
+		return nil, fmt.Errorf("this device is not running a VNC server, so there is no screen to watch")
+	}
+
+	// The same address the local viewer uses, and the same correction: a
+	// server listening on every interface is reached here on the loopback one.
+	address := self.VNCAddress()
+	if host, port, err := net.SplitHostPort(address); err == nil &&
+		(host == "" || host == "0.0.0.0" || host == "::") {
+		address = net.JoinHostPort("127.0.0.1", port)
+	}
+
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	viewer, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("this device's screen cannot be reached: %w", err)
+	}
+	return viewer, nil
+}
 
 // describe says what this screen is showing, for the account that owns it.
 //

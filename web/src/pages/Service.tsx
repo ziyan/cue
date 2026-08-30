@@ -191,6 +191,27 @@ export function Service() {
             <Readout label="Known there as" mono>{service.deviceId}</Readout>
           )}
           <Reporting settings={settings} />
+
+          {/* Said plainly, on the device, because it is the thing a person
+              standing at a screen would most want to know and the only place
+              they can learn it. Linking moved the boundary: what used to be
+              guarded by this device's password is now guarded by whoever can
+              sign in as its owner on the service. That is what linking means,
+              and it should be readable rather than inferred. */}
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2" sx={{ mb: service.allowScreenSharing ? 0.5 : 0 }}>
+              Whoever can sign in to {state.account || "this account"} on the service can
+              change this device's settings from there, without its password.
+            </Typography>
+            {service.allowScreenSharing && (
+              <Typography variant="body2">
+                They can also watch this screen and use it, as if they were standing here.
+                Turn off <code>service.allowScreenSharing</code> in cue.yaml to refuse that
+                while still allowing the rest.
+              </Typography>
+            )}
+          </Alert>
+
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, mb: 2 }}>
             Unlinking forgets the credential and nothing else. The device keeps its
             name, its screens and everything it is showing.

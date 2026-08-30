@@ -132,6 +132,70 @@ func (self *Stub) Ask(host string, port int, request *http.Request) (*http.Respo
 	return http.ReadResponse(bufio.NewReader(side), request)
 }
 
+// Splice opens a stream to an attached device and returns it as a connection,
+// for the raw byte paths where there is no HTTP in the way.
+func (self *Stub) Splice(host string, port int) (net.Conn, error) {
+	self.liveMutex.Lock()
+	var connection *websocket.Conn
+	if len(self.live) > 0 {
+		connection = self.live[len(self.live)-1]
+	}
+	self.liveMutex.Unlock()
+	if connection == nil {
+		return nil, errors.New("no device is attached")
+	}
+
+	identifier := "spliced-" + strconv.Itoa(int(self.asks.Add(1)))
+	answered := make(chan error, 1)
+	fromDevice, feed := io.Pipe()
+
+	self.asksMutex.Lock()
+	if self.answering == nil {
+		self.answering = map[string]chan error{}
+	}
+	self.answering[identifier] = answered
+	self.asksMutex.Unlock()
+
+	self.streamsMutex.Lock()
+	if self.streams == nil {
+		self.streams = map[string]*io.PipeWriter{}
+	}
+	self.streams[identifier] = feed
+	self.streamsMutex.Unlock()
+
+	encoded, _ := json.Marshal(map[string]any{
+		"stream": identifier, "kind": "open", "host": host, "port": port,
+	})
+	self.writeMutex.Lock()
+	err := connection.WriteMessage(websocket.TextMessage, encoded)
+	self.writeMutex.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case err := <-answered:
+		if err != nil {
+			return nil, err
+		}
+	case <-time.After(10 * time.Second):
+		return nil, errors.New("the device never answered the request to open a stream")
+	}
+
+	return &served{
+		reader: fromDevice,
+		write: func(body []byte) error {
+			frame := make([]byte, 2+len(identifier)+len(body))
+			binary.BigEndian.PutUint16(frame[:2], uint16(len(identifier)))
+			copy(frame[2:], identifier)
+			copy(frame[2+len(identifier):], body)
+			self.writeMutex.Lock()
+			defer self.writeMutex.Unlock()
+			return connection.WriteMessage(websocket.BinaryMessage, frame)
+		},
+	}, nil
+}
+
 // Disconnect drops every attached device, as a service restart or a network
 // blink would.
 func (self *Stub) Disconnect() {

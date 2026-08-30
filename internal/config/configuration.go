@@ -111,6 +111,23 @@ type Service struct {
 	Account  string `yaml:"account,omitempty" json:"account"`
 	DeviceID string `yaml:"deviceId,omitempty" json:"deviceId"`
 
+	// AllowScreenSharing lets the account this device is linked to watch and
+	// drive its screen, from the service, over the connection the device
+	// already holds open.
+	//
+	// On, because a linked device is meant to be managed from the service the
+	// same way it is managed from its own interface, and a screen somebody had
+	// to walk up to in order to enable would not be that. Linking is the
+	// consent: whoever linked this device chose to hand it to an account.
+	//
+	// A setting rather than a consequence, though, so it can be turned off.
+	// Watching a screen is not the same kind of thing as editing its settings
+	// -- it is watching whatever is in front of it, in a room that usually has
+	// people in it -- and a device in a place where that is not wanted should
+	// be able to say no while still being managed. Written to the file even
+	// when false, or turning it off would not survive being saved.
+	AllowScreenSharing bool `yaml:"allowScreenSharing" json:"allowScreenSharing"`
+
 	// Name is what the service calls this device, which is not always what
 	// this device calls itself. An account cannot have two devices of the same
 	// name, so a second screen called "carbon" is recorded there as "carbon

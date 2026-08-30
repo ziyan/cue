@@ -64,6 +64,9 @@ type Reporter struct {
 	// nothing, which is what a build that has not been given one should do.
 	management http.Handler
 
+	// How the service reaches this device's screen, when it is allowed to.
+	screen Screen
+
 	mutex     sync.Mutex
 	attached  bool
 	lastSent  time.Time
@@ -100,6 +103,17 @@ func New(store *config.Store, picture Picture, describe Describe) *Reporter {
 // socket a request arrived on.
 func (self *Reporter) WithManagement(handler http.Handler) *Reporter {
 	self.management = handler
+	return self
+}
+
+// WithScreen gives the reporter a way to reach this device's VNC server, so
+// the service can be spliced straight to it.
+//
+// The function decides whether the screen is on offer at all, and the error it
+// returns is what the service is told. One place decides and the reason is a
+// sentence rather than a silence.
+func (self *Reporter) WithScreen(screen Screen) *Reporter {
+	self.screen = screen
 	return self
 }
 
@@ -202,7 +216,7 @@ func (self *Reporter) run(ctx context.Context) {
 // attach holds one connection for as long as it lasts.
 func (self *Reporter) attach(ctx context.Context, configuration *config.Configuration) error {
 	connection, err := dial(ctx, configuration.Service.Address,
-		configuration.Service.Secret.Reveal(), self.management)
+		configuration.Service.Secret.Reveal(), self.management, self.screen)
 	if err != nil {
 		return err
 	}
@@ -424,7 +438,7 @@ func Confirm(ctx context.Context, address, credential string) (map[string]any, e
 	// Nothing is served on this one. It exists to ask a single question, on a
 	// credential this device has only just been handed and does not yet call
 	// itself linked with.
-	connection, err := dial(ctx, address, credential, nil)
+	connection, err := dial(ctx, address, credential, nil, nil)
 	if err != nil {
 		return nil, err
 	}

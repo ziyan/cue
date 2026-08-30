@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -287,7 +288,7 @@ func TestARefusedCredentialIsToldApartFromAnUnreachableService(t *testing.T) {
 
 	// A credential the service will not take, which is what revocation looks
 	// like from here.
-	_, err := dial(context.Background(), stub.Server.URL, "a-revoked-credential", nil)
+	_, err := dial(context.Background(), stub.Server.URL, "a-revoked-credential", nil, nil)
 	if err == nil {
 		t.Fatal("the service accepted a credential it should not have")
 	}
@@ -297,7 +298,7 @@ func TestARefusedCredentialIsToldApartFromAnUnreachableService(t *testing.T) {
 
 	// And a service that is not there at all is a different thing, worth
 	// trying again.
-	_, err = dial(context.Background(), "http://127.0.0.1:1", "any-credential", nil)
+	_, err = dial(context.Background(), "http://127.0.0.1:1", "any-credential", nil, nil)
 	if err == nil {
 		t.Fatal("dialling nothing succeeded")
 	}
@@ -416,4 +417,117 @@ func TestADeviceOfferingNothingSaysSo(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "nothing to offer") {
 		t.Errorf("it refused with %q, which does not say why", err)
 	}
+}
+
+// The service can be spliced straight to this device's screen, with nothing
+// between the two but the tunnel.
+//
+// What travels is whatever the VNC server says, byte for byte. There is no
+// HTTP on this stream and no bridge on the device: reaching the device's own
+// websocket bridge through the tunnel would put an upgrade in the middle of a
+// stream that is already a tunnel.
+func TestTheServiceCanBeSplicedToTheScreen(t *testing.T) {
+	// Something that behaves like a VNC server: it greets, then echoes.
+	screen, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = screen.Close() }()
+	go func() {
+		for {
+			viewer, err := screen.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = viewer.Close() }()
+				_, _ = viewer.Write([]byte("RFB 003.008\n"))
+				_, _ = io.Copy(viewer, viewer)
+			}()
+		}
+	}()
+
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("a picture"), "image/jpeg", nil
+	}, nil).WithScreen(func(ctx context.Context) (net.Conn, error) {
+		return net.Dial("tcp", screen.Addr().String())
+	})
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "the device to attach", func() bool {
+		return reporter.State().Attached
+	})
+
+	spliced, err := stub.Splice(screenHost, screenPort)
+	if err != nil {
+		t.Fatalf("the service could not reach the screen: %s", err)
+	}
+
+	// The server's greeting arrives unchanged.
+	greeting := make([]byte, len("RFB 003.008\n"))
+	if _, err := io.ReadFull(spliced, greeting); err != nil {
+		t.Fatalf("nothing came back from the screen: %s", err)
+	}
+	if string(greeting) != "RFB 003.008\n" {
+		t.Errorf("the screen said %q", greeting)
+	}
+
+	// And bytes travel the other way, which is what makes it drivable rather
+	// than only watchable.
+	if _, err := spliced.Write([]byte("a pointer moved")); err != nil {
+		t.Fatalf("could not send to the screen: %s", err)
+	}
+	echoed := make([]byte, len("a pointer moved"))
+	if _, err := io.ReadFull(spliced, echoed); err != nil {
+		t.Fatalf("the screen did not answer: %s", err)
+	}
+	if string(echoed) != "a pointer moved" {
+		t.Errorf("the screen echoed %q", echoed)
+	}
+}
+
+// A device that has been told not to share its screen refuses, with a reason.
+//
+// Watching a screen is not the same kind of thing as editing its settings: it
+// is watching whatever is in front of it, in a room that usually has people in
+// it. A device where that is not wanted must be able to say no while still
+// being managed.
+func TestADeviceThatWillNotShareItsScreenSaysSo(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	offered := http.NewServeMux()
+	offered.HandleFunc("/healthz", func(response http.ResponseWriter, request *http.Request) {
+		_, _ = response.Write([]byte("ok"))
+	})
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("a picture"), "image/jpeg", nil
+	}, nil).WithManagement(offered).WithScreen(func(context.Context) (net.Conn, error) {
+		return nil, errors.New("watching this screen from the service is switched off on this device")
+	})
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "the device to attach", func() bool {
+		return reporter.State().Attached
+	})
+
+	if _, err := stub.Splice(screenHost, screenPort); err == nil {
+		t.Error("a device with screen sharing off was spliced to its screen anyway")
+	} else if !strings.Contains(err.Error(), "switched off") {
+		t.Errorf("it refused with %q, which does not say why", err)
+	}
+
+	// And it is still managed, which is the point of the two being separate.
+	request, _ := http.NewRequest(http.MethodGet, "http://device/healthz", nil)
+	response, err := stub.Ask(managementHost, managementPort, request)
+	if err != nil {
+		t.Fatalf("refusing the screen also refused management: %s", err)
+	}
+	_ = response.Body.Close()
 }
