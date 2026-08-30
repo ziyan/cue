@@ -110,8 +110,26 @@ func separateUnknownFields(err error) (unknown, other []string) {
 // identifiers in particular are generated once and never regenerated, because
 // the browser's tab bookkeeping refers to them.
 func (self *Configuration) Normalize() {
-	if self.Device.Identifier == "" {
-		self.Device.Identifier = security.NewIdentifier()
+	// The device's own name for itself, and now the service's name for it too.
+	//
+	// It used to be sixteen random characters. The service takes the device's
+	// identifier verbatim as its own, so that there is one name for one thing
+	// rather than cue minting a second beside it -- and it requires a ULID. A
+	// device carrying the old format cannot link at all, so an old one is
+	// replaced rather than left to fail later with nothing to explain it.
+	//
+	// Replacing it is safe for a device that is already linked: the service
+	// knows that one by the identifier it minted at the time, and the
+	// credential it issued is unaffected. The new one is what a later link
+	// would use.
+	//
+	// It also helps a case that used to be harmless and is not any more. Two
+	// screens flashed from the same disk carry the same identifier, and with
+	// the service taking that as its own name they would be one device
+	// fighting over one row. Each of them regenerates here, once, and they
+	// come apart.
+	if !security.IsDeviceIdentifier(self.Device.Identifier) {
+		self.Device.Identifier = security.NewDeviceIdentifier()
 	}
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
 

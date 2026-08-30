@@ -20,7 +20,7 @@ The file holds the passwords the screen signs in with. It is written with mode
 
     device:
       name: Reception          # shown in the interface and on the screen's own page
-      identifier: 8n4q1v...    # generated once, never changes
+      identifier: 01ARZ3NDEK... # a ULID, generated once, never changes
       location: Ground floor   # free text
       timezone: Europe/London  # empty means UTC
 
@@ -410,6 +410,25 @@ Correcting the clock needs `CAP_SYS_TIME`. Without it chronyd runs, finds a
 server, works out that the clock is wrong, and cannot do anything about it —
 which produces a device showing certificate errors with a healthy-looking time
 client on it.
+
+`identifier` is a ULID: twenty-six characters of Crockford base32, a timestamp
+followed by randomness. It is generated on first run and never changes, and it
+is the name the hosted service uses for this device as well — one name for one
+thing, rather than the service minting a second beside it.
+
+A device carrying the older sixteen-character identifier is given a ULID the
+next time its configuration is read. That is a deliberate exception to "never
+changes": the service refuses anything that is not a ULID, so an old one could
+not link at all, and failing at the far end with nothing on this side to
+explain it is worse than a rename nobody was relying on.
+
+One consequence worth knowing if you flash disks. Two screens imaged from the
+same disk used to share an identifier harmlessly, because the service minted
+its own name for each. Now they would be one device, so each of them
+regenerates when it first reads a file carrying an old identifier — which
+separates clones made from an image built before this. Clones of a disk that
+already carries a ULID will still collide, and the second one to link takes the
+first one's place.
 
 ## service
 
