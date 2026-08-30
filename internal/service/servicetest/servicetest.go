@@ -13,12 +13,15 @@
 package servicetest
 
 import (
+	"bufio"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,6 +52,84 @@ type Stub struct {
 	// the server's to close.
 	liveMutex sync.Mutex
 	live      []*websocket.Conn
+
+	writeMutex sync.Mutex
+
+	asks      atomic.Int64
+	asksMutex sync.Mutex
+	answering map[string]chan error
+
+	streamsMutex sync.Mutex
+	streams      map[string]*io.PipeWriter
+}
+
+// Ask opens a stream to an attached device and makes one request over it, the
+// way the service reaches a device's own management interface.
+//
+// Returns the answer, or the reason the device refused to open the stream --
+// which is a sentence rather than a code, and worth showing whoever is
+// looking.
+func (self *Stub) Ask(host string, port int, request *http.Request) (*http.Response, error) {
+	self.liveMutex.Lock()
+	var connection *websocket.Conn
+	if len(self.live) > 0 {
+		connection = self.live[len(self.live)-1]
+	}
+	self.liveMutex.Unlock()
+	if connection == nil {
+		return nil, errors.New("no device is attached")
+	}
+
+	identifier := "asked-" + strconv.Itoa(int(self.asks.Add(1)))
+	answered := make(chan error, 1)
+	fromDevice, feed := io.Pipe()
+
+	self.asksMutex.Lock()
+	self.answering[identifier] = answered
+	self.asksMutex.Unlock()
+
+	self.streamsMutex.Lock()
+	if self.streams == nil {
+		self.streams = map[string]*io.PipeWriter{}
+	}
+	self.streams[identifier] = feed
+	self.streamsMutex.Unlock()
+
+	encoded, _ := json.Marshal(map[string]any{
+		"stream": identifier, "kind": "open", "host": host, "port": port,
+	})
+	self.writeMutex.Lock()
+	err := connection.WriteMessage(websocket.TextMessage, encoded)
+	self.writeMutex.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case err := <-answered:
+		if err != nil {
+			return nil, err
+		}
+	case <-time.After(10 * time.Second):
+		return nil, errors.New("the device never answered the request to open a stream")
+	}
+
+	side := &served{
+		reader: fromDevice,
+		write: func(body []byte) error {
+			frame := make([]byte, 2+len(identifier)+len(body))
+			binary.BigEndian.PutUint16(frame[:2], uint16(len(identifier)))
+			copy(frame[2:], identifier)
+			copy(frame[2+len(identifier):], body)
+			self.writeMutex.Lock()
+			defer self.writeMutex.Unlock()
+			return connection.WriteMessage(websocket.BinaryMessage, frame)
+		},
+	}
+	if err := request.Write(side); err != nil {
+		return nil, err
+	}
+	return http.ReadResponse(bufio.NewReader(side), request)
 }
 
 // Disconnect drops every attached device, as a service restart or a network
@@ -104,15 +185,25 @@ func (self *Stub) carry(connection *websocket.Conn, routes http.Handler) {
 	defer func() { _ = connection.Close() }()
 	connection.SetReadLimit(1 << 20)
 
-	var writeMutex sync.Mutex
 	send := func(kind int, payload []byte) error {
-		writeMutex.Lock()
-		defer writeMutex.Unlock()
+		self.writeMutex.Lock()
+		defer self.writeMutex.Unlock()
 		return connection.WriteMessage(kind, payload)
 	}
 
-	var streamsMutex sync.Mutex
-	streams := map[string]*io.PipeWriter{}
+	self.streamsMutex.Lock()
+	if self.streams == nil {
+		self.streams = map[string]*io.PipeWriter{}
+	}
+	streams := self.streams
+	streamsMutex := &self.streamsMutex
+	self.streamsMutex.Unlock()
+
+	self.asksMutex.Lock()
+	if self.answering == nil {
+		self.answering = map[string]chan error{}
+	}
+	self.asksMutex.Unlock()
 
 	for {
 		kind, payload, err := connection.ReadMessage()
@@ -135,7 +226,29 @@ func (self *Stub) carry(connection *websocket.Conn, routes http.Handler) {
 				Host   string `json:"host"`
 				Port   int    `json:"port"`
 			}
-			if err := json.Unmarshal(payload, &frame); err != nil || frame.Kind != "open" {
+			if err := json.Unmarshal(payload, &frame); err != nil {
+				continue
+			}
+			// An answer to a stream this stub asked the device to open.
+			if frame.Kind == "opened" || frame.Kind == "failed" {
+				self.asksMutex.Lock()
+				waiting := self.answering[frame.Stream]
+				delete(self.answering, frame.Stream)
+				self.asksMutex.Unlock()
+				if waiting != nil {
+					if frame.Kind == "failed" {
+						var reason struct {
+							Error string `json:"error"`
+						}
+						_ = json.Unmarshal(payload, &reason)
+						waiting <- errors.New(reason.Error)
+					} else {
+						waiting <- nil
+					}
+				}
+				continue
+			}
+			if frame.Kind != "open" {
 				continue
 			}
 			self.Opens.Add(1)

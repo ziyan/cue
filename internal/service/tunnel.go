@@ -36,6 +36,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/op/go-logging"
 
+	"github.com/ziyan/cue/internal/util/deferutil"
 	"github.com/ziyan/cue/internal/util/security"
 )
 
@@ -46,6 +47,17 @@ const (
 	// service refuses anything else.
 	tunnelHost = "cue"
 	tunnelPort = 80
+
+	// The only thing the service may open on a device: this device's own
+	// management interface. The mirror of tunnelHost, and reserved the same
+	// way -- the service names it, this device recognises it, and everything
+	// else is refused.
+	//
+	// The port is part of the name rather than a destination. Nothing is
+	// dialled and nothing listens: a stream naming this is served in process,
+	// so there is no socket for anything else on the machine to reach.
+	managementHost = "device"
+	managementPort = 80
 
 	// The service closes a stream that has gone this long without a request,
 	// so nothing here may assume one it opened earlier is still there.
@@ -120,13 +132,17 @@ type tunnel struct {
 	// finds out at once rather than at its next tick. A device whose network
 	// blinked should be attaching again in a moment, not in half a minute.
 	gone chan struct{}
+
+	// What a stream the service opens is served with. Nil means this device
+	// offers the service nothing, and every open is refused.
+	serve http.Handler
 }
 
 // Gone is closed when this connection has ended.
 func (self *tunnel) Gone() <-chan struct{} { return self.gone }
 
 // dial opens the connection and starts reading it.
-func dial(ctx context.Context, address, credential string) (*tunnel, error) {
+func dial(ctx context.Context, address, credential string, serve http.Handler) (*tunnel, error) {
 	endpoint, err := websocketURL(address)
 	if err != nil {
 		return nil, err
@@ -162,6 +178,7 @@ func dial(ctx context.Context, address, credential string) (*tunnel, error) {
 		connection: connection,
 		streams:    map[string]*stream{},
 		gone:       make(chan struct{}),
+		serve:      serve,
 	}
 	go self.read()
 	return self, nil
@@ -211,12 +228,8 @@ func (self *tunnel) handleControl(payload []byte) {
 		return
 	}
 
-	// An open from the service is the service asking this device to dial
-	// something inside its network. Nothing dials devices yet, so these are
-	// ignored -- see the plan. Ignoring one costs the caller a timeout rather
-	// than an error, and answering them is strictly additive.
 	if frame.Kind == kindOpen {
-		log.Debugf("the service asked this device to open a stream, which it does not do yet")
+		self.opened(frame)
 		return
 	}
 
@@ -228,6 +241,112 @@ func (self *tunnel) handleControl(payload []byte) {
 	}
 	one.control(frame)
 }
+
+// opened answers the service asking to open a stream on this device.
+//
+// Answered, always. The first version of this ignored them, on the reasoning
+// that nothing dialled devices yet and a caller that does not exist can afford
+// a timeout. A caller then existed, and an unanswered open is the least
+// diagnosable thing this could do: the far end learns nothing and waits. A
+// refusal with a reason costs the same and can be read.
+//
+// Only this device's own management interface may be opened, and it is served
+// in process rather than dialled. Reaching other things inside the network a
+// device sits in is what the tunnel is ultimately for, and it is a decision an
+// operator makes for a particular device rather than a capability that arrives
+// as a side effect: until there is a setting for it, the answer is no.
+func (self *tunnel) opened(frame controlFrame) {
+	refuse := func(reason string) {
+		log.Debugf("refusing the stream the service asked for: %s", reason)
+		_ = self.sendControl(controlFrame{Stream: frame.Stream, Kind: kindFailed, Error: reason})
+	}
+
+	if frame.Host != managementHost || frame.Port != managementPort {
+		refuse("only this device's management interface may be opened, and only by name")
+		return
+	}
+	if self.serve == nil {
+		refuse("this device has nothing to offer the service")
+		return
+	}
+
+	one := &stream{
+		tunnel:     self,
+		identifier: frame.Stream,
+		answered:   make(chan error, 1),
+		incoming:   make(chan []byte, 16),
+		done:       make(chan struct{}),
+	}
+
+	self.mutex.Lock()
+	if self.closed {
+		self.mutex.Unlock()
+		return
+	}
+	if _, taken := self.streams[frame.Stream]; taken {
+		self.mutex.Unlock()
+		refuse("that stream is already open")
+		return
+	}
+	self.streams[frame.Stream] = one
+	self.mutex.Unlock()
+
+	if err := self.sendControl(controlFrame{Stream: frame.Stream, Kind: kindOpened}); err != nil {
+		self.forget(frame.Stream)
+		return
+	}
+
+	go func() {
+		defer deferutil.Recover()
+		defer self.forget(frame.Stream)
+		serveOne(one, self.serve)
+	}()
+}
+
+// serveOne runs one HTTP conversation on a stream the service opened, and does
+// not return until that conversation is over.
+//
+// Not returning early is the whole point. http.Server.Serve hands the
+// connection to a goroutine and immediately asks for another; the first
+// version of this answered that second ask with io.EOF, so Serve returned at
+// once and the caller's deferred cleanup unregistered the stream before the
+// request had even arrived. The bytes then had nowhere to go and the service
+// waited for a reply that was being dropped.
+func serveOne(one *stream, handler http.Handler) {
+	server := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 30 * time.Second,
+	}
+	_ = server.Serve(&oneConnection{connection: one, until: one.done})
+}
+
+// oneConnection hands a single connection to http.Server and then waits, so
+// the server serves that one, does not go looking for another, and stays alive
+// for as long as the conversation lasts.
+type oneConnection struct {
+	connection net.Conn
+	until      <-chan struct{}
+	given      bool
+	mutex      sync.Mutex
+}
+
+func (self *oneConnection) Accept() (net.Conn, error) {
+	self.mutex.Lock()
+	given := self.given
+	self.given = true
+	self.mutex.Unlock()
+
+	if !given {
+		return self.connection, nil
+	}
+	// Asked for a second connection there will never be. Waiting rather than
+	// refusing keeps Serve running while the first one is still being served.
+	<-self.until
+	return nil, io.EOF
+}
+
+func (self *oneConnection) Close() error   { return nil }
+func (self *oneConnection) Addr() net.Addr { return tunnelAddress{} }
 
 func (self *tunnel) handleData(payload []byte) {
 	if len(payload) < 2 {

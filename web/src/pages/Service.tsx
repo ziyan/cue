@@ -238,8 +238,13 @@ export function Service() {
               <Link href={state.url} target="_blank" rel="noreferrer">{state.url}</Link>
             </Typography>
           )}
-          <Chip size="small" variant="outlined" icon={<CircularProgress size={12} />}
-            label="waiting for somebody to authorise it" />
+          {/* A spinner crammed into a chip's icon slot: the chip sizes for a
+              glyph, not a moving ring, and it sat under the code fighting it
+              for attention. The waiting is not a status worth a badge -- it is
+              the ordinary state of this page, and a quiet line says so. */}
+          <Typography variant="body2" color="text.secondary">
+            Waiting for somebody to authorise it…
+          </Typography>
         </Section>
       ) : state.error ? (
         <Section title="Not linked">

@@ -287,7 +287,7 @@ func TestARefusedCredentialIsToldApartFromAnUnreachableService(t *testing.T) {
 
 	// A credential the service will not take, which is what revocation looks
 	// like from here.
-	_, err := dial(context.Background(), stub.Server.URL, "a-revoked-credential")
+	_, err := dial(context.Background(), stub.Server.URL, "a-revoked-credential", nil)
 	if err == nil {
 		t.Fatal("the service accepted a credential it should not have")
 	}
@@ -297,7 +297,7 @@ func TestARefusedCredentialIsToldApartFromAnUnreachableService(t *testing.T) {
 
 	// And a service that is not there at all is a different thing, worth
 	// trying again.
-	_, err = dial(context.Background(), "http://127.0.0.1:1", "any-credential")
+	_, err = dial(context.Background(), "http://127.0.0.1:1", "any-credential", nil)
 	if err == nil {
 		t.Fatal("dialling nothing succeeded")
 	}
@@ -336,5 +336,84 @@ func TestARevokedDeviceStopsReporting(t *testing.T) {
 	})
 	if now := stub.screenshots.Load(); now > sent+1 {
 		t.Errorf("a revoked device sent %d more pictures", now-sent)
+	}
+}
+
+// The service can reach this device's management interface, and nothing else.
+func TestTheServiceReachesOnlyTheManagementInterface(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	// What this device offers: one route, so the test is about which streams
+	// are opened rather than about routing.
+	offered := http.NewServeMux()
+	offered.HandleFunc("/healthz", func(response http.ResponseWriter, request *http.Request) {
+		_, _ = response.Write([]byte("ok"))
+	})
+
+	reporter := New(store,
+		func(context.Context) ([]byte, string, error) {
+			return []byte("a picture"), "image/jpeg", nil
+		}, nil).WithManagement(offered)
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "the device to attach", func() bool {
+		return reporter.State().Attached
+	})
+
+	// The management interface, by its reserved name.
+	request, _ := http.NewRequest(http.MethodGet, "http://device/healthz", nil)
+	response, err := stub.Ask(managementHost, managementPort, request)
+	if err != nil {
+		t.Fatalf("the service could not reach the management interface: %s", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<10))
+	if response.StatusCode != http.StatusOK || string(body) != "ok" {
+		t.Errorf("the device answered %d %q", response.StatusCode, body)
+	}
+
+	// Anything else on the device's own network is refused, with a sentence
+	// rather than a silence -- an unanswered open tells the far end nothing
+	// and makes it wait to learn it.
+	for _, refused := range []struct {
+		host string
+		port int
+	}{
+		{"127.0.0.1", 8080},
+		{"192.0.2.10", 22}, // documentation range: some other host on the device's network
+		{"device", 8080},
+		{"cue", 80},
+	} {
+		asking, _ := http.NewRequest(http.MethodGet, "http://elsewhere/", nil)
+		if _, err := stub.Ask(refused.host, refused.port, asking); err == nil {
+			t.Errorf("the device opened a stream to %s:%d", refused.host, refused.port)
+		} else if !strings.Contains(err.Error(), "management interface") {
+			t.Errorf("refusing %s:%d said %q, which does not say why", refused.host, refused.port, err)
+		}
+	}
+}
+
+// A device that has been given nothing to offer refuses rather than hangs.
+func TestADeviceOfferingNothingSaysSo(t *testing.T) {
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("a picture"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "the device to attach", func() bool {
+		return reporter.State().Attached
+	})
+
+	request, _ := http.NewRequest(http.MethodGet, "http://device/healthz", nil)
+	if _, err := stub.Ask(managementHost, managementPort, request); err == nil {
+		t.Error("a device with nothing to offer opened a stream anyway")
+	} else if !strings.Contains(err.Error(), "nothing to offer") {
+		t.Errorf("it refused with %q, which does not say why", err)
 	}
 }

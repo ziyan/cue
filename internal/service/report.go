@@ -60,6 +60,10 @@ type Reporter struct {
 	picture  Picture
 	describe Describe
 
+	// What a stream the service opens is served with. Nil offers the service
+	// nothing, which is what a build that has not been given one should do.
+	management http.Handler
+
 	mutex     sync.Mutex
 	attached  bool
 	lastSent  time.Time
@@ -83,6 +87,20 @@ type State struct {
 
 func New(store *config.Store, picture Picture, describe Describe) *Reporter {
 	return &Reporter{store: store, picture: picture, describe: describe}
+}
+
+// WithManagement gives the reporter what to serve when the service opens a
+// stream to this device.
+//
+// Served in process, on a connection this device received over a websocket it
+// opened itself, to a service that verified this device's own credential
+// before accepting it. There is no listener, no port and no loopback socket,
+// so nothing else on the machine can reach it -- which is the difference
+// between authority that is proved and authority that is inferred from which
+// socket a request arrived on.
+func (self *Reporter) WithManagement(handler http.Handler) *Reporter {
+	self.management = handler
+	return self
 }
 
 // State reports what the interface should show.
@@ -183,7 +201,8 @@ func (self *Reporter) run(ctx context.Context) {
 
 // attach holds one connection for as long as it lasts.
 func (self *Reporter) attach(ctx context.Context, configuration *config.Configuration) error {
-	connection, err := dial(ctx, configuration.Service.Address, configuration.Service.Secret.Reveal())
+	connection, err := dial(ctx, configuration.Service.Address,
+		configuration.Service.Secret.Reveal(), self.management)
 	if err != nil {
 		return err
 	}
@@ -402,7 +421,10 @@ func sleep(ctx context.Context, howLong time.Duration) bool {
 // be used is worth more than proving it against a second door built for the
 // question. It also means there need not be a second door.
 func Confirm(ctx context.Context, address, credential string) (map[string]any, error) {
-	connection, err := dial(ctx, address, credential)
+	// Nothing is served on this one. It exists to ask a single question, on a
+	// credential this device has only just been handed and does not yet call
+	// itself linked with.
+	connection, err := dial(ctx, address, credential, nil)
 	if err != nil {
 		return nil, err
 	}

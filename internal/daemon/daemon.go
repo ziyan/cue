@@ -304,7 +304,10 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// linked to an account. A device that is not linked has no credential and
 	// nothing to say, and this sits idle: there is no separate setting,
 	// because being linked is the choice somebody already made.
-	self.reporter = service.New(self.store, self.photograph, self.describe)
+	// What the service may do to this device once it is linked: an allow-list
+	// of the management interface, served over the tunnel and nowhere else.
+	self.reporter = service.New(self.store, self.photograph, self.describe).
+		WithManagement(self.web.FromService())
 	self.reporter.Start(ctx)
 	self.web = self.web.WithReporter(self.reporter)
 
