@@ -220,9 +220,14 @@ export function Service() {
             Waiting for somebody to authorise it…
           </Typography>
         </Section>
-      ) : state.error ? (
+      ) : state.error || problem ? (
+        // Either the attempt ended badly or asking for one failed. Without
+        // the second of those, a device that could not be reached showed an
+        // error above a spinner that turned for ever: the message said what
+        // had happened and the page went on pretending it was still working
+        // on it, with nothing to press.
         <Section title="Not linked">
-          <Alert severity="warning" sx={{ mb: 2 }}>{state.error}</Alert>
+          {state.error && <Alert severity="warning" sx={{ mb: 2 }}>{state.error}</Alert>}
           <Button variant="contained" disabled={working} onClick={askAgain}>
             Show a new code
           </Button>
