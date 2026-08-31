@@ -1,6 +1,10 @@
 package daemon
 
 import (
+	"github.com/ziyan/cue/internal/media"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -212,5 +216,66 @@ func TestFallingBackKeepsTheNetworkItWasToldAbout(t *testing.T) {
 	if !anyConfiguredNetwork(configuration) {
 		t.Error("deciding the network was lost removed it from the configuration, " +
 			"so there is nothing left to go back to")
+	}
+}
+
+// Deleting a playlist item takes its video with it.
+//
+// The sweep existed and was wired to the wrong event: it ran when the screens
+// attached to the machine changed, under a comment claiming that was where a
+// deleted item is noticed. It is not -- that loop watches monitors being
+// plugged in. So removing an item left its file on the disk until the daemon
+// next restarted or somebody moved a cable, and on a device managed entirely
+// from elsewhere neither of those is something anybody does.
+func TestDeletingAnItemSweepsItsUpload(t *testing.T) {
+	directory := t.TempDir()
+	uploads, err := media.Open(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := uploads.Add("promo.mp4", "video/mp4", strings.NewReader("not really a video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configuration := config.Default()
+	configuration.Playlist.Items = []config.Item{{
+		Identifier: "one",
+		Title:      "Promo",
+		Media:      &config.ItemMedia{File: stored.File, Kind: "video", Name: "promo.mp4"},
+	}}
+
+	daemon := &Daemon{
+		uploads: uploads,
+		store:   config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration),
+	}
+
+	// While something refers to it, it stays -- whatever else happens.
+	daemon.sweepUploads()
+	if _, err := uploads.Details(stored.File); err != nil {
+		t.Fatalf("a file the playlist refers to was removed: %s", err)
+	}
+
+	// The item goes.
+	if err := daemon.store.Update(func(updated *config.Configuration) error {
+		updated.Playlist.Items = nil
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A freshly written file is left alone for a while, so that an upload
+	// which has not been saved into the playlist yet is not swept out from
+	// under whoever is still filling in the form. Aged past that here rather
+	// than waiting.
+	older := time.Now().Add(-24 * time.Hour)
+	for _, name := range []string{stored.File + ".media", stored.File + ".json"} {
+		_ = os.Chtimes(filepath.Join(directory, name), older, older)
+	}
+
+	daemon.sweepUploads()
+	if _, err := uploads.Details(stored.File); err == nil {
+		t.Error("the file outlived the only item that referred to it")
 	}
 }

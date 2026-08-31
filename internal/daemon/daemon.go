@@ -404,6 +404,9 @@ func (self *Daemon) Run(ctx context.Context) error {
 			}
 		case updated := <-changes:
 			self.apply(ctx, updated)
+			// A playlist item being deleted is exactly when its video stops
+			// being wanted, and a configuration change is where that happens.
+			self.sweepUploads()
 		}
 	}
 }

@@ -37,16 +37,22 @@ func (self *Server) fromService() http.Handler {
 	api.Path("/logs/xorg").Methods(http.MethodGet).HandlerFunc(self.xorgLog)
 	api.Path("/screenshot.png").Methods(http.MethodGet).HandlerFunc(self.screenshot)
 
-	// Adding a picture or a video to show.
+	// Seeing and adding what a screen can show.
+	//
+	// Listing as well as uploading, because otherwise nothing anywhere can
+	// say what is on a device's disk. The files themselves are tidied by the
+	// device when nothing refers to them, so this is not a way to delete one
+	// -- it is a way to see that a device is fuller than somebody expected.
 	//
 	// Megabytes travel up through the service to get here, which is a real
 	// cost and is the price of reaching a device that cannot be reached any
 	// other way. This was left off the list at first with the note that a
 	// device "has a perfectly good upload form on the network it is already
-	// on" -- which is true and beside the point: that form is reachable by
-	// somebody standing on that network, and not needing to stand there is
-	// the whole reason the service exists. Somebody putting a video on four
-	// lobby screens from their desk has no such form.
+	// on" -- true and beside the point: that form is reachable by somebody
+	// standing on that network, and not needing to stand there is the whole
+	// reason the service exists. Somebody putting a video on four lobby
+	// screens from their desk has no such form.
+	api.Path("/media").Methods(http.MethodGet).HandlerFunc(self.listMedia)
 	api.Path("/media").Methods(http.MethodPost).HandlerFunc(self.uploadMedia)
 
 	// Making it do something.
