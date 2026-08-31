@@ -265,3 +265,31 @@ func containsSecret(kind reflect.Type, seen map[reflect.Type]bool) bool {
 	}
 	return false
 }
+
+// A secret with nothing to restore from is emptied, not written as the
+// placeholder.
+//
+// The interface produces this whenever somebody duplicates a playlist item:
+// the copy carries "********" and there is no earlier value for it, because
+// the item did not exist before. Writing that through would leave a login with
+// a password of eight asterisks -- set, wrong, and silent until somebody
+// noticed the page had stopped signing in.
+func TestASecretWithNothingToRestoreFromIsEmptied(t *testing.T) {
+	previous := Default()
+	updated := Default()
+	updated.Playlist.Items = []Item{{
+		Identifier: "a-copy",
+		URL:        "https://example.com",
+		Login:      &Login{Username: "somebody", Password: redacted},
+	}}
+
+	RestoreSecrets(updated, previous)
+
+	got := updated.Playlist.Items[0].Login.Password
+	if got.IsRedacted() {
+		t.Error("the placeholder was written through as though it were the password")
+	}
+	if got != "" {
+		t.Errorf("the password is %q, want empty", string(got))
+	}
+}

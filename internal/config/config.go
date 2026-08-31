@@ -317,6 +317,14 @@ func RestoreFileOnlySettings(updated, previous *Configuration) {
 func RestoreSecrets(updated, previous *Configuration) {
 	restoreSecretsIn(reflect.ValueOf(updated).Elem(), reflect.ValueOf(previous).Elem())
 
+	// Anything still redacted had nothing to be restored from: a playlist item
+	// that did not exist before, which is what the interface produces when
+	// somebody duplicates one. Writing the placeholder as though it were the
+	// password would leave a credential that looks set and is not, and the
+	// only symptom would be a login that quietly stops working. An empty one
+	// is wrong in a way somebody can see.
+	clearRemainingRedactions(reflect.ValueOf(updated).Elem())
+
 	// These two are not Secrets and are never sent to the interface at all, so
 	// an update that did not come from a reload would otherwise clear them and
 	// log everybody out.
@@ -329,6 +337,32 @@ func RestoreSecrets(updated, previous *Configuration) {
 }
 
 var secretType = reflect.TypeOf(Secret(""))
+
+// clearRemainingRedactions empties every secret that is still the placeholder.
+func clearRemainingRedactions(value reflect.Value) {
+	if value.Type() == secretType {
+		if value.CanSet() && Secret(value.String()).IsRedacted() {
+			value.Set(reflect.ValueOf(Secret("")))
+		}
+		return
+	}
+	switch value.Kind() {
+	case reflect.Pointer:
+		if !value.IsNil() {
+			clearRemainingRedactions(value.Elem())
+		}
+	case reflect.Struct:
+		for index := 0; index < value.NumField(); index++ {
+			if value.Type().Field(index).IsExported() {
+				clearRemainingRedactions(value.Field(index))
+			}
+		}
+	case reflect.Slice:
+		for index := 0; index < value.Len(); index++ {
+			clearRemainingRedactions(value.Index(index))
+		}
+	}
+}
 
 // restoreSecretsIn walks two values of the same type in step.
 func restoreSecretsIn(updated, previous reflect.Value) {

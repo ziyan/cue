@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/jpeg"
 	"image/png"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ziyan/cue/internal/audio"
 	"github.com/ziyan/cue/internal/browser"
@@ -271,13 +273,24 @@ func (self *Server) signOut(response http.ResponseWriter, request *http.Request)
 // writeConfiguration; the placeholders are turned back into the real values
 // there, so that saving a form does not erase the passwords it was never
 // shown.
+// errStale says a save was an edit of a configuration that is no longer the
+// one in force. Carried out of the store's update so that the refusal can be
+// answered with the document that is actually there.
+var errStale = errors.New("the configuration changed while it was being edited")
+
 // versionOf names the configuration a caller is looking at.
 //
 // A hash of the document as it is served, so it changes exactly when what
 // somebody is editing changes, and two callers holding the same document agree
 // about its version without either of them being told.
 func versionOf(configuration *config.Configuration) string {
-	encoded, err := json.Marshal(configuration)
+	// The file form, not the JSON one. JSON renders every secret as the same
+	// placeholder, so two configurations differing only in a password produced
+	// identical bytes and identical versions -- and a save carrying a stale
+	// password went through unnoticed, which is the one case where losing an
+	// edit costs the most. The file form carries the real values, and this is
+	// a hash of it, so nothing is disclosed by serving it.
+	encoded, err := yaml.Marshal(configuration)
 	if err != nil {
 		// Nothing can be said about a document that will not encode, and a
 		// version that is always different is safer than one that is always
@@ -315,23 +328,22 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 	// just fetched should not have to learn about this to change a setting;
 	// what it protects against is two editors, and an editor that does not
 	// participate cannot be protected. Every caller of ours sends it.
-	if held := request.Header.Get("If-Match"); held != "" {
-		current := self.store.Current()
-		if version := versionOf(current); held != version {
-			response.Header().Set("ETag", version)
-			// The current document comes back with the refusal, so whoever
-			// asked can show what changed rather than telling somebody to
-			// try again and hoping.
-			writeJSON(response, http.StatusConflict, map[string]any{
-				"error": "somebody else changed this device's configuration while " +
-					"you were editing it",
-				"configuration": current,
-			})
-			return
-		}
-	}
+	held := request.Header.Get("If-Match")
 
 	err := self.store.Update(func(configuration *config.Configuration) error {
+		// Compared here rather than before the update, because here is where
+		// the store is holding its lock. Checking first and writing second
+		// leaves a gap: two saves can both find the version current, and the
+		// second overwrites the first -- which is the very thing this exists
+		// to prevent, made narrower rather than absent.
+		//
+		// What arrives is a copy of the configuration in force, before any of
+		// the change below has happened, so this is the version the caller
+		// would have been comparing against.
+		if held != "" && versionOf(configuration) != held {
+			return errStale
+		}
+
 		// The password hash and the session secret are never sent out, so
 		// they are never sent back; keeping the existing ones is what stops a
 		// save from locking the operator out of their own device.
@@ -342,6 +354,19 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 		configuration.Web.SessionSecret = secret
 		return nil
 	})
+	if errors.Is(err, errStale) {
+		current := self.store.Current()
+		response.Header().Set("ETag", versionOf(current))
+		// The current document comes back with the refusal, so whoever asked
+		// can show what changed rather than telling somebody to try again and
+		// hoping.
+		writeJSON(response, http.StatusConflict, map[string]any{
+			"error": "somebody else changed this device's configuration while " +
+				"you were editing it",
+			"configuration": current,
+		})
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusBadRequest, err.Error())
 		return

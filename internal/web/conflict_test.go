@@ -99,3 +99,55 @@ func TestASaveWithoutAVersionStillWorks(t *testing.T) {
 		t.Errorf("a save with no version answered %d", code)
 	}
 }
+
+// Changing only a password must still be a change.
+//
+// The version was a hash of the JSON, and JSON renders every secret as the
+// same placeholder -- so two configurations differing only in a password were
+// byte-identical and shared a version. A second tab could then save a stale
+// document, the version would match, no conflict would be reported, and the
+// password change would be gone. That is the case conditional writes exist for
+// and the one where losing an edit costs the most.
+func TestChangingOnlyASecretIsSeenAsAChange(t *testing.T) {
+	// Set to begin with, not empty. An empty secret and a set one differ in
+	// the JSON as well -- one renders as "" and the other as the placeholder
+	// -- so starting from empty would pass against the very bug this is
+	// about. The invisible case is one password becoming another.
+	configuration := config.Default()
+	configuration.VNC.Password = config.Secret("the old password")
+	server := newTestServer(t, configuration)
+	defer func() { _ = server.device.Linker().Close() }()
+	session := setUp(t, server)
+
+	first := do(server, http.MethodGet, "/api/v1/configuration", nil, session)
+	version := first.Header().Get("ETag")
+
+	// Somebody changes the VNC password. It goes through the store rather than
+	// the API because the API is never sent a real secret to send back.
+	if err := server.store.Update(func(updated *config.Configuration) error {
+		updated.VNC.Password = config.Secret("a new password")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := do(server, http.MethodGet, "/api/v1/configuration", nil, session)
+	if after.Header().Get("ETag") == version {
+		t.Fatal("changing a password did not change the version, so a stale save would not be noticed")
+	}
+
+	// And a save against the old version is now refused rather than quietly
+	// overwriting the new password.
+	var document map[string]any
+	if err := json.Unmarshal(first.Body.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	refused := doWith(server, http.MethodPut, "/api/v1/configuration", document, session,
+		map[string]string{"If-Match": version})
+	if refused.Code != http.StatusConflict {
+		t.Errorf("a save against the pre-password version answered %d, want 409", refused.Code)
+	}
+	if got := server.store.Current().VNC.Password.Reveal(); got != "a new password" {
+		t.Errorf("the password is now %q; the stale save overwrote it", got)
+	}
+}

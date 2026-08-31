@@ -702,9 +702,20 @@ func (self *stream) Write(from []byte) (int, error) {
 	// HTTP client buffers a body at four kilobytes. Anything larger is split
 	// rather than risking the connection, because the service enforces its
 	// limit by closing rather than by refusing.
+	// How much payload fits beside the identifier. Guarded because the
+	// arithmetic goes negative for an identifier longer than a frame, and a
+	// negative budget slices backwards and panics. Nothing produces one --
+	// identifiers here are sixteen characters -- but a panic in the tunnel
+	// would take every stream on it down, which is too much to leave resting
+	// on a fact about a different function.
+	budget := maximumFrameBytes - len(self.identifier) - 2
+	if budget < 1 {
+		return 0, fmt.Errorf("service: the stream identifier does not leave room for anything")
+	}
+
 	written := 0
 	for written < len(from) {
-		end := written + maximumFrameBytes - len(self.identifier) - 2
+		end := written + budget
 		if end > len(from) {
 			end = len(from)
 		}
