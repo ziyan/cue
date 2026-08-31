@@ -62,9 +62,20 @@ type Device struct {
 	// clock, which is shared, and which is what the time section is about.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone"`
 
-	// Language is what the device says on its own screen: the menu somebody
-	// opens at the display, and anything else shown there. A language tag such
-	// as "en", "zh" or "ja"; empty means English.
+	// Language is what this screen speaks: the menu somebody opens at the
+	// display, and the pages it shows. A language tag such as "en", "zh" or
+	// "ja"; empty leaves the browser to decide for itself, which is usually
+	// the machine's locale.
+	//
+	// It is the default rather than the last word. Somebody standing at the
+	// screen can pick another from the menu, and that choice is written back
+	// here -- so a screen ends up speaking whatever the last person to decide
+	// chose, whether they decided in this file or in front of it.
+	//
+	// It reaches the pages as well as the menu, which it did not at first:
+	// Chromium is given --lang and --accept-lang, so a dashboard that speaks
+	// more than one language is asked for this one. Chromium reads those once
+	// at start-up, so changing this restarts the browser.
 	//
 	// It is kept here as well as in the browser because a browser profile is
 	// not a durable place. Wiping it is one of the things the watchdog does

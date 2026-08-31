@@ -325,3 +325,70 @@ func TestThePageGetsThePixelsTheScreenHas(t *testing.T) {
 		t.Errorf("a scale of zero should leave it to the browser:\n%s", off)
 	}
 }
+
+// The language the screen speaks reaches the pages it shows.
+//
+// It used to reach the menu and nothing else: a device set to Japanese opened
+// its own menu in Japanese and every dashboard in whatever Chromium defaulted
+// to, which on a fresh profile is the machine's locale. A screen in a Tokyo
+// lobby showed an English dashboard and the setting looked broken, because for
+// everything anybody was actually looking at, it was.
+func TestTheLanguageReachesTheBrowser(t *testing.T) {
+	configuration := config.Default()
+	configuration.Device.Language = "ja"
+	browser := New(configuration, ":0", "/nonexistent/Xauthority")
+
+	arguments := strings.Join(browser.arguments(), " ")
+	if !strings.Contains(arguments, "--lang=ja") {
+		t.Error("Chromium is not told which language to use")
+	}
+	// English behind it, so a site with nothing in the first still answers.
+	if !strings.Contains(arguments, "--accept-lang=ja,en") {
+		t.Errorf("the browser does not ask servers for Japanese: %s", arguments)
+	}
+}
+
+// A device nobody has told keeps whatever Chromium would have done.
+func TestNoLanguageLeavesTheCommandLineAlone(t *testing.T) {
+	configuration := config.Default()
+	configuration.Device.Language = ""
+	browser := New(configuration, ":0", "/nonexistent/Xauthority")
+
+	arguments := strings.Join(browser.arguments(), " ")
+	if strings.Contains(arguments, "--lang=") || strings.Contains(arguments, "--accept-lang=") {
+		t.Errorf("a device with no language chosen was given one: %s", arguments)
+	}
+}
+
+// English asks for English and nothing else, rather than "en,en".
+func TestEnglishDoesNotAskTwice(t *testing.T) {
+	for _, tag := range []string{"en", "en-GB", "EN"} {
+		if got := acceptLanguages(tag); got != tag {
+			t.Errorf("%q asks for %q", tag, got)
+		}
+	}
+}
+
+// The value goes on a command line, so it is checked rather than trusted.
+//
+// A language with a space in it would become another flag, and the flags
+// beside it are the ones turning the sandbox on and off.
+func TestALanguageThatIsNotOneIsIgnored(t *testing.T) {
+	for _, bad := range []string{
+		"en --no-sandbox",
+		"--disable-web-security",
+		"en;rm -rf /",
+		"en\nja",
+		"a-very-long-language-tag-indeed",
+		"en_US.UTF-8", // an underscore is a locale, not a language tag
+	} {
+		if got := languageTag(bad); got != "" {
+			t.Errorf("%q was accepted as %q", bad, got)
+		}
+	}
+	for _, good := range []string{"en", "ja", "zh", "zh-Hans", "en-GB"} {
+		if languageTag(good) != good {
+			t.Errorf("%q was refused", good)
+		}
+	}
+}

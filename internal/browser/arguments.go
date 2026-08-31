@@ -15,6 +15,38 @@ import (
 // Every flag here is answering a specific way a kiosk goes wrong, and the
 // comments say which, because in six months the list looks arbitrary and
 // somebody will tidy it.
+// languageTag returns the configured language if it is one, and nothing if it
+// is not.
+//
+// Checked rather than trusted because this goes on a command line. A value out
+// of a configuration file with a space in it would become another flag, and
+// the flags next to it are the ones turning the sandbox on.
+func languageTag(configured string) string {
+	tag := strings.TrimSpace(configured)
+	if tag == "" || len(tag) > 16 {
+		return ""
+	}
+	for _, letter := range tag {
+		switch {
+		case letter >= 'a' && letter <= 'z':
+		case letter >= 'A' && letter <= 'Z':
+		case letter == '-':
+		default:
+			return ""
+		}
+	}
+	return tag
+}
+
+// acceptLanguages is what the browser asks servers for: the language chosen,
+// and English behind it. A site with nothing in the first still answers.
+func acceptLanguages(tag string) string {
+	if strings.EqualFold(tag, "en") || strings.HasPrefix(strings.ToLower(tag), "en-") {
+		return tag
+	}
+	return tag + ",en"
+}
+
 func (self *Browser) arguments() []string {
 	settings := self.configuration.Browser
 
@@ -64,6 +96,18 @@ func (self *Browser) arguments() []string {
 		// Nothing here should phone home, download an update, or record how
 		// the device is used.
 		"--disable-component-update",
+
+		// The language this screen speaks, asked for in the pages it shows.
+		//
+		// Without this the setting reached the menu and nothing else: a screen
+		// set to Japanese opened the menu in Japanese and every dashboard in
+		// whatever Chromium happened to default to, which on a fresh profile
+		// is the machine's locale and usually English. --lang is Chromium's
+		// own furniture and --accept-lang is what it asks servers for; a site
+		// that speaks more than one language reads the second.
+		//
+		// Added below rather than here, because a language nobody has chosen
+		// should leave the command line alone.
 		"--disable-breakpad",
 		"--disable-sync",
 		"--metrics-recording-only",
@@ -171,6 +215,15 @@ func (self *Browser) arguments() []string {
 	if devices, err := input.Devices(); err == nil && input.HasTouchscreen(devices) {
 		log.Noticef("this machine has a touchscreen; enabling touch in the browser")
 		arguments = append(arguments, "--touch-events=enabled")
+	}
+
+	// The language the screen speaks. See the note beside the flag list: a
+	// language nobody has chosen leaves the command line alone, so a device
+	// that has never been told keeps whatever Chromium would have done.
+	if tag := languageTag(self.configuration.Device.Language); tag != "" {
+		arguments = append(arguments,
+			"--lang="+tag,
+			"--accept-lang="+acceptLanguages(tag))
 	}
 
 	// Anything the operator added by hand goes last, so it wins — except a

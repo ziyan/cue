@@ -23,6 +23,22 @@ The file holds the passwords the screen signs in with. It is written with mode
       identifier: 01ARZ3NDEK... # a ULID, generated once, never changes
       location: Ground floor   # free text
       timezone: Europe/London  # empty means UTC
+      language: ja             # empty leaves the browser to decide
+
+`language` is what the screen speaks: the menu somebody opens at the display,
+and the pages it shows. A language tag such as `en`, `zh` or `ja`. Chromium is
+given `--lang` and `--accept-lang`, so a dashboard that speaks more than one
+language is asked for this one; left empty, the browser decides for itself,
+which is usually the machine's locale.
+
+It is the default rather than the last word. Somebody standing at the screen
+can pick another from the menu, and that choice is written back here — so a
+screen speaks whatever the last person to decide chose, whether they decided in
+this file or in front of it.
+
+Changing it restarts the browser. Chromium reads its language once, when it
+starts, so there is no way to apply this to a running one; the screen goes
+black for a few seconds.
 
 ## log
 

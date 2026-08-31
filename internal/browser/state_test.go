@@ -46,3 +46,25 @@ func TestAChangeThatIsNotOnTheCommandLineDoesNotRestart(t *testing.T) {
 		t.Error("adding a page to the playlist restarted the browser")
 	}
 }
+
+// Changing the language restarts the browser, because Chromium reads it once.
+//
+// Without this the setting would be accepted, written to the file, applied to
+// the menu, and do nothing at all to the pages on the screen until something
+// else happened to restart the browser -- which on a wall display is a
+// watchdog or a power cut. Accepted and silently ignored is the worst of the
+// three possible answers.
+func TestChangingTheLanguageRestartsTheBrowser(t *testing.T) {
+	before := config.Default()
+	before.Device.Language = "en"
+	after := before.Clone()
+	after.Device.Language = "ja"
+
+	if !restartNeeded(before, after) {
+		t.Error("the language changed and the browser was left running with the old one")
+	}
+	// And nothing needless: the same language does not blank the screen.
+	if restartNeeded(before, before.Clone()) {
+		t.Error("an unchanged configuration restarts the browser")
+	}
+}
