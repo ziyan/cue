@@ -114,3 +114,71 @@ func TestTheLinkingPanelIsLaidOut(t *testing.T) {
 		t.Error("nothing fetches the code with the pass this page holds")
 	}
 }
+
+// The first level is names and pictures; the sentences live one level down.
+//
+// It was a column of nine buttons each carrying an explanation, which is a
+// page to read while standing in front of a screen. The explanations were not
+// wrong -- they belong where a choice is consequential, which is why the three
+// restarts keep theirs -- but "Move the screen on now" under "Show the next
+// item" is a paragraph about a button that says what it does.
+func TestTheMenuOffersNamesBeforeSentences(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	request := httptest.NewRequest(http.MethodGet, "/menu", nil)
+	request.RemoteAddr = "127.0.0.1:54321"
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	page := response.Body.String()
+
+	first := page[strings.Index(page, `<div class="tiles" id="actions">`):]
+	first = first[:strings.Index(first, "</div>")]
+
+	// Every tile has a picture and no sentence.
+	if strings.Contains(first, `class="why"`) {
+		t.Error("a tile on the first level carries an explanation")
+	}
+	if strings.Count(first, "<svg") != strings.Count(first, "<button") {
+		t.Errorf("%d tiles and %d pictures; each should have one",
+			strings.Count(first, "<button"), strings.Count(first, "<svg"))
+	}
+
+	// The consequential three moved down a level and kept theirs.
+	second := page[strings.Index(page, `<div id="restart" hidden>`):]
+	second = second[:strings.Index(second, `<div id="link"`)]
+	for _, dangerous := range []string{"restart-browser", "restart-display", "wireless-again"} {
+		if !strings.Contains(second, dangerous) {
+			t.Errorf("%s is not on the second level", dangerous)
+		}
+	}
+	if !strings.Contains(second, `class="why"`) {
+		t.Error("the restarts lost their explanations, which is where they belong")
+	}
+}
+
+// Nothing about the screen is shown to somebody who has not given the
+// password. Its addresses, its identifier, its version and how long it has
+// been up are for whoever is allowed to be there.
+func TestTheLockedMenuShowsOnlyThePasswordBox(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	request := httptest.NewRequest(http.MethodGet, "/menu", nil)
+	request.RemoteAddr = "127.0.0.1:54321"
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	page := response.Body.String()
+
+	// The details are in the markup, and hidden by the same block that puts
+	// the password box up.
+	gate := page[strings.Index(page, "gate.hidden = false;"):]
+	gate = gate[:strings.Index(gate, "const word")]
+	if !strings.Contains(gate, "facts.hidden = true") {
+		t.Error("the screen's details are left showing while it asks for the password")
+	}
+	if !strings.Contains(gate, "actions.hidden = true") {
+		t.Error("the actions are left showing while it asks for the password")
+	}
+
+	// And they come back once somebody is in.
+	if !strings.Contains(page, "facts.hidden = false") {
+		t.Error("the details never come back after the password is given")
+	}
+}
