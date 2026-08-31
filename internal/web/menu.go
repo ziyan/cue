@@ -284,16 +284,13 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
      is the one place it cannot be relied on: the panel scrolls when the
      network form is open, so on a short screen the way out sat below the fold
      exactly when somebody most wanted it. */
-  #dismiss { padding: calc(var(--step) * 1.1); color: #9fb0c5; background: #131920;
-    display: grid; place-items: center; flex: none; cursor: pointer;
-    min-width: 7vmin; min-height: 7vmin; touch-action: manipulation; }
+  #dismiss { padding: calc(var(--step) * 0.7); color: #9fb0c5; background: #131920;
+    display: grid; place-items: center; flex: none; cursor: pointer; }
   #dismiss:hover { color: #ffc9d1; border-color: #ffc9d1; }
-  /* Pressed is worth showing. Closing takes a moment -- the daemon is told
-     to put the tab back, and only then does anything move -- and without
-     this the press looked like it had been missed, so it was pressed
-     again. */
+  /* Pressed is worth showing. Closing takes a moment -- the daemon is told to
+     put the tab back, and only then does anything move. */
   #dismiss:active, #dismiss[aria-disabled="true"] { color: #ffc9d1; background: #1f2731; }
-  #dismiss svg { width: 3.2vmin; height: 3.2vmin; display: block; pointer-events: none; }
+  #dismiss svg { width: 2.6vmin; height: 2.6vmin; display: block; pointer-events: none; }
 
   #working { color: #9fb0c5; margin: 0; }
 </style>
@@ -771,13 +768,21 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   let closing = false;
 
   function close() {
-    // Pressed twice is one close. The second press used to send the whole
-    // set of calls again and reset the way out, which made a slow close
-    // slower.
-    if (closing) return;
-    closing = true;
-    dismiss.setAttribute("aria-disabled", "true");
-    clearInterval(keepHolding);
+    // The requests go once; the way out is tried on every press.
+    //
+    // This used to return early once closing had begun, and that is what made
+    // the X unresponsive. Leaving is not guaranteed: the daemon moves this tab
+    // and may not, and the fallback below needs either an address to go to or
+    // a history to go back through, neither of which a tab whose history has
+    // been reset has. When none of that worked the menu stayed on the screen
+    // with the guard still set, so every press afterwards did nothing at all
+    // and the only way out was restarting the browser.
+    //
+    // A press that achieves nothing has to be repeatable. So the calls that
+    // must not be repeated are guarded and the escape is not.
+    if (!closing) {
+      closing = true;
+      clearInterval(keepHolding);
     // keepalive, both of them, and this is the whole reason the screen froze
     // the first time: closing the tab in the next breath cancels a request
     // that is still in flight, so the playlist was never let go and the
@@ -797,7 +802,10 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     // query string -- and neither is reliable: a tab whose history has been
     // reset has nothing to go back to, and pressing the X then did nothing at
     // all. The daemon knows what this tab is for.
-    send("/api/v1/playlist/back", { method: "POST", keepalive: true }).catch(() => {});
+      send("/api/v1/playlist/back", { method: "POST", keepalive: true }).catch(() => {});
+    }
+
+    dismiss.setAttribute("aria-disabled", "true");
 
     // If the daemon cannot answer, the page still has to leave, or the menu
     // stays up with nothing behind it. The address came from the page this
@@ -809,6 +817,10 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       if (/^https?:\/\//i.test(from)) location.replace(from);
       else if (history.length > 1) history.back();
     }, 1500);
+
+    // Still here means the press did nothing, so the button has to work
+    // again. A dead X on a screen nobody can reach is worse than a slow one.
+    setTimeout(() => dismiss.removeAttribute("aria-disabled"), 3000);
   }
 
   function openNetwork() {
@@ -1190,11 +1202,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     actions.hidden = false;
   });
 
-  // Both, because a click needs the press and the release to land on the same
-  // thing and a pointer being driven from a phone over VNC drifts between the
-  // two. Closing twice is guarded against, so the pair is harmless.
   dismiss.addEventListener("click", close);
-  dismiss.addEventListener("pointerup", close);
   window.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
 
   speak();
