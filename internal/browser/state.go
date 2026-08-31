@@ -134,6 +134,10 @@ func restartNeeded(previous, updated *config.Configuration) bool {
 	// do nothing at all to the pages on the screen until something else
 	// happened to restart the browser.
 	case previous.Device.Language != updated.Device.Language:
+	// Also not browser settings, and also on the browser's command line:
+	// whether there is sound at all, and which device it comes out of.
+	case previous.Audio.Enabled != updated.Audio.Enabled:
+	case previous.Audio.Sink != updated.Audio.Sink:
 	default:
 		return false
 	}

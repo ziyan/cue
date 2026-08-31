@@ -2,11 +2,17 @@ package daemon
 
 import (
 	"context"
+	"reflect"
+	"strings"
 	"time"
 
+	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
+	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/util/drm"
+	"github.com/ziyan/cue/internal/util/loglevel"
+	"github.com/ziyan/cue/internal/util/timezone"
 	"github.com/ziyan/cue/internal/wallpaper"
 )
 
@@ -111,6 +117,19 @@ func (self *Daemon) applyLayout(ctx context.Context) {
 func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 	log.Noticef("applying the changed configuration")
 
+	// Cheap, and nothing has to be restarted for either of them: the log
+	// level is global state, and the watchdog reads its settings as it needs
+	// them. Both are done before anything that might restart a program, so
+	// that a change that turns the logging up is in force for the restart it
+	// was probably turned up to investigate.
+	loglevel.Set(updated.Log.Level)
+	timezone.Apply(updated.Device.Timezone)
+	if self.browserProcess != nil {
+		self.browserProcess.SetOutputLevel(browser.OutputLevel(updated))
+	}
+	self.watchdog.Reconfigure(&updated.Watchdog)
+	self.warnAboutWhatNeedsARestart(updated)
+
 	// A few settings are decided when the X server is executed and cannot be
 	// changed under it: which server, which display number, the size of a
 	// virtual screen. Without this, switching display.server from xorg to
@@ -121,6 +140,11 @@ func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 		if err := self.restartDisplay(ctx); err != nil {
 			log.Errorf("cannot restart the X server: %s", err)
 		}
+		// Still the VNC server's turn: restarting the display does not come
+		// back through here, and a change that turned screen sharing on in
+		// the same edit would otherwise be dropped on the floor.
+		self.applyVNC(ctx, updated)
+		self.applyTimesync(ctx, updated)
 		return
 	}
 
@@ -136,6 +160,9 @@ func (self *Daemon) apply(ctx context.Context, updated *config.Configuration) {
 			log.Errorf("cannot restart the browser: %s", err)
 		}
 	}
+
+	self.applyVNC(ctx, updated)
+	self.applyTimesync(ctx, updated)
 }
 
 // displayRestartNeeded reports whether a change is one the running X server
@@ -157,6 +184,16 @@ func (self *Daemon) displayRestartWouldBeNeeded(running config.Display, updated 
 	case running.Number != updated.Display.Number:
 	case running.Server == config.ServerXvfb && running.Framebuffer != updated.Display.Framebuffer:
 		// Xvfb's screen size is fixed when it starts; RandR cannot change it.
+	case running.VirtualTerminal != updated.Display.VirtualTerminal:
+		// Which console the server draws on is a vtN argument on its command
+		// line. Changing it is rare and deliberate -- it is how a device with
+		// the wrong console passed through is fixed -- and doing nothing
+		// until the next boot is how it looks like it did not work.
+	case !sameStrings(running.ExtraArguments, updated.Display.ExtraArguments):
+	case strings.TrimSpace(running.XorgConfiguration) != strings.TrimSpace(updated.Display.XorgConfiguration):
+		// Written into the configuration directory before the server starts,
+		// and read by the server only at start-up. Whether there is any of it
+		// also decides whether -configdir is on the command line at all.
 	case running.Cursor.ServerDrawsOne() != updated.Display.Cursor.ServerDrawsOne():
 		// Whether the server has a cursor at all is on its command line and
 		// cannot be changed afterwards. Which is not the same question as
@@ -164,6 +201,18 @@ func (self *Daemon) displayRestartWouldBeNeeded(running config.Display, updated 
 		// daemon's own business and must not blank the screen to do it.
 	default:
 		return false
+	}
+	return true
+}
+
+func sameStrings(before, after []string) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	for index := range before {
+		if before[index] != after[index] {
+			return false
+		}
 	}
 	return true
 }
@@ -195,4 +244,134 @@ func join(parts []string, separator string) string {
 		result += part
 	}
 	return result
+}
+
+// applyVNC brings x11vnc into line with the configuration: started if it is
+// wanted and not running, stopped if it is running and no longer wanted, and
+// restarted if it is running with settings that have since changed.
+//
+// The daemon does this rather than the VNC server itself because the daemon
+// owns every supervised process. Without it, turning the screen sharing on,
+// moving it to another address or changing its password were all accepted by
+// the interface, written to the file, logged as applied — and then silently
+// did nothing until something else happened to restart the daemon.
+func (self *Daemon) applyVNC(ctx context.Context, updated *config.Configuration) {
+	switch childAction(self.vncProcess != nil, updated.VNC.Enabled, self.vncserver.StartedWith() != updated.VNC) {
+	case childStop:
+		log.Noticef("screen sharing has been turned off; stopping the VNC server")
+		stopContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		self.vncProcess.Stop(stopContext)
+		self.vncProcess = nil
+
+	case childStart:
+		// Only once the X server is up: x11vnc exports a display, and with
+		// nothing to export it exits and is restarted until there is.
+		if self.xProcess == nil {
+			return
+		}
+		log.Noticef("screen sharing has been turned on; starting the VNC server")
+		self.vncProcess = supervise.New(self.vncserver.Settings())
+		self.vncProcess.Start(ctx)
+
+	case childRestart:
+		// Compared as a whole struct rather than field by field on purpose. A
+		// list of the settings that matter is a list that falls behind the
+		// struct the first time somebody adds a field to it, and the way that
+		// failure shows up is a setting that the interface accepts and the
+		// server never sees. Everything x11vnc is given comes from this
+		// struct, either on the command line or in the password file, and
+		// both are built afresh before every start.
+		log.Noticef("the change needs the VNC server restarted")
+		self.vncProcess.Restart()
+	}
+}
+
+// applyTimesync brings chronyd into line with the configuration, for the same
+// reason as applyVNC: the clock is the daemon's process too, and adding a time
+// server to the file was accepted and then ignored until the next boot. That
+// is worst on exactly the device it matters on — one whose clock battery has
+// died, where the wrong servers mean nothing with a certificate will load.
+func (self *Daemon) applyTimesync(ctx context.Context, updated *config.Configuration) {
+	switch childAction(self.timesyncProcess != nil,
+		updated.Time.Enabled,
+		!reflect.DeepEqual(self.timesync.StartedWith(), updated.Time)) {
+	case childStop:
+		log.Noticef("time synchronisation has been turned off; stopping the clock")
+		stopContext, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		self.timesyncProcess.Stop(stopContext)
+		self.timesyncProcess = nil
+
+	case childStart:
+		log.Noticef("time synchronisation has been turned on; starting the clock")
+		self.timesyncProcess = supervise.New(self.timesync.Settings())
+		self.timesyncProcess.Start(ctx)
+
+	case childRestart:
+		// DeepEqual rather than a comparison field by field, so that a
+		// setting added to config.Time later is covered without anybody
+		// having to remember this line. chronyd's whole configuration file is
+		// written from this struct before every start.
+		log.Noticef("the change needs the clock restarted")
+		self.timesyncProcess.Restart()
+	}
+}
+
+// action is what a configuration change asks of a supervised child that is
+// started, stopped and restarted by the daemon rather than living for as long
+// as the daemon does.
+type action int
+
+const (
+	childNothing action = iota
+	childStart
+	childStop
+	childRestart
+)
+
+// childAction is the decision itself, kept apart from the starting and
+// stopping so that it can be tested. Both ways of getting it wrong are quiet:
+// too eager and the screen sharing drops every time an unrelated setting is
+// saved, too shy and a setting is accepted, written to the file, reported as
+// applied, and never reaches the program it was meant for.
+func childAction(running, wanted, changed bool) action {
+	switch {
+	case !wanted && running:
+		return childStop
+	case !wanted:
+		return childNothing
+	case !running:
+		return childStart
+	case changed:
+		return childRestart
+	default:
+		return childNothing
+	}
+}
+
+// warnAboutWhatNeedsARestart says so when a change has been saved that this
+// daemon cannot put into force while it runs.
+//
+// Both of these could be applied here and deliberately are not. Rebinding the
+// web interface means closing the socket the operator is talking to and
+// hoping the new address binds; when it does not -- a port already in use, an
+// address this host does not have -- the device is left with no interface at
+// all and no way to take the change back except physical access. Moving the
+// paths out from under a running X server, browser and VNC server has the
+// same shape and a worse blast radius.
+//
+// So they wait for a restart. What matters is that this is said out loud: a
+// setting that is saved, shown as saved, and quietly not in force is the
+// failure this whole file exists to stop.
+func (self *Daemon) warnAboutWhatNeedsARestart(updated *config.Configuration) {
+	if address := self.web.StartedWith(); address != updated.Web.Listen {
+		log.Warningf("web.listen is now %s, but the interface is still on %s; "+
+			"restart cue for that to take effect", updated.Web.Listen, address)
+	}
+	if self.startedWith.State != updated.Paths.State || self.startedWith.Runtime != updated.Paths.Runtime {
+		log.Warningf("the paths section has changed, but every program is still using "+
+			"state %s and runtime %s; restart cue for that to take effect",
+			self.startedWith.State, self.startedWith.Runtime)
+	}
 }

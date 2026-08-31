@@ -4,6 +4,7 @@ import (
 	"github.com/ziyan/cue/internal/media"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -277,5 +278,134 @@ func TestDeletingAnItemSweepsItsUpload(t *testing.T) {
 	daemon.sweepUploads()
 	if _, err := uploads.Details(stored.File); err == nil {
 		t.Error("the file outlived the only item that referred to it")
+	}
+}
+
+// The VNC server and the clock are started, stopped and restarted while the
+// daemon runs, unlike the X server and the browser which are up for as long as
+// it is. Every one of these cases was silently wrong before: the daemon started
+// x11vnc once, at boot, and nothing ever looked at those settings again. Turning
+// screen sharing on did nothing until the container was restarted, and so did
+// moving it off the loopback, and so did setting a password on it.
+func TestAChildIsStartedStoppedAndRestartedToFollowTheConfiguration(t *testing.T) {
+	for name, expected := range map[string]struct {
+		running, wanted, changed bool
+		action                   action
+	}{
+		"turning it on starts it":                    {running: false, wanted: true, action: childStart},
+		"turning it off stops it":                    {running: true, wanted: false, action: childStop},
+		"changing a setting restarts it":             {running: true, wanted: true, changed: true, action: childRestart},
+		"changing nothing leaves it alone":           {running: true, wanted: true, changed: false, action: childNothing},
+		"an unrelated change to a stopped one":       {running: false, wanted: false, changed: true, action: childNothing},
+		"a setting changed while it was off is kept": {running: false, wanted: true, changed: true, action: childStart},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := childAction(expected.running, expected.wanted, expected.changed)
+			if got != expected.action {
+				t.Errorf("childAction(running=%v, wanted=%v, changed=%v) = %v, want %v",
+					expected.running, expected.wanted, expected.changed, got, expected.action)
+			}
+		})
+	}
+}
+
+// The comparison that decides "changed" has to see every VNC setting. It is a
+// whole-struct comparison so that it cannot fall behind, and this is the test
+// that says so: a field added to config.VNC is covered without anybody editing
+// this file, and if somebody replaces the comparison with a list of fields, the
+// field they forget fails here.
+func TestEveryVNCSettingReachesTheServer(t *testing.T) {
+	for index := range reflect.TypeOf(config.VNC{}).NumField() {
+		field := reflect.TypeOf(config.VNC{}).Field(index)
+		t.Run(field.Name, func(t *testing.T) {
+			running := config.Default().VNC
+			running.Enabled = true
+
+			updated := running
+			target := reflect.ValueOf(&updated).Elem().Field(index)
+			switch target.Kind() {
+			case reflect.Bool:
+				target.SetBool(!target.Bool())
+			case reflect.String:
+				target.SetString(target.String() + "-changed")
+			default:
+				t.Fatalf("no way to change a %s", target.Type())
+			}
+			// Enabled is the one field that is not a restart: turning it off
+			// stops the server rather than restarting it, which the action
+			// test above covers.
+			if field.Name == "Enabled" {
+				return
+			}
+
+			if childAction(true, updated.Enabled, running != updated) != childRestart {
+				t.Errorf("changing VNC.%s does not reach the running server: it is accepted, "+
+					"saved, and x11vnc keeps the setting it started with", field.Name)
+			}
+		})
+	}
+}
+
+// The same guard as the browser's, for the display. Three settings were on the
+// X server's command line and missing from displayRestartWouldBeNeeded --
+// which console to draw on, the extra arguments, and the Xorg configuration --
+// so editing any of them was accepted, saved, and did nothing until the next
+// boot.
+//
+// Every field of config.Display has to be one of two things, and this fails
+// until it is said which: it needs the server restarted, or it is named below
+// as reaching the screen without one.
+func TestEveryDisplaySettingIsClassified(t *testing.T) {
+	appliedWithoutARestart := map[string]string{
+		"Wallpaper":         "drawn by the daemon, not the server",
+		"Outputs":           "arranged over RandR by applyLayout",
+		"Modeline":          "added over RandR by applyLayout",
+		"ModeName":          "chosen over RandR by applyLayout",
+		"BlankAfter":        "set over the screensaver extension",
+		"CursorIdleTimeout": "the daemon hides and shows the pointer itself",
+		"ReconcileInterval": "read each time round the arrange loop",
+		"Framebuffer":       "resized over RandR under Xorg; the Xvfb case needs a restart and is covered by its own case",
+		"Cursor":            "only whether the server draws one at all needs a restart, which is its own case",
+	}
+
+	daemon := &Daemon{}
+	for index := range reflect.TypeOf(config.Display{}).NumField() {
+		field := reflect.TypeOf(config.Display{}).Field(index)
+		t.Run(field.Name, func(t *testing.T) {
+			running := config.Default().Display
+			updated := config.Default()
+
+			target := reflect.ValueOf(&updated.Display).Elem().Field(index)
+			switch target.Kind() {
+			case reflect.Bool:
+				target.SetBool(!target.Bool())
+			case reflect.String:
+				target.SetString(target.String() + "-changed")
+			case reflect.Int, reflect.Int64:
+				target.SetInt(target.Int() + 7)
+			case reflect.Slice:
+				if target.Type().Elem().Kind() != reflect.String {
+					t.Skipf("no way to change a %s", target.Type())
+				}
+				target.Set(reflect.ValueOf([]string{"--changed"}))
+			default:
+				t.Skipf("no way to change a %s", target.Type())
+			}
+
+			restart := daemon.displayRestartWouldBeNeeded(running, updated)
+			if reason, ok := appliedWithoutARestart[field.Name]; ok {
+				if restart {
+					t.Errorf("Display.%s is listed as reaching the screen without a restart (%s), "+
+						"but the daemon restarts the X server for it, which blanks the screen",
+						field.Name, reason)
+				}
+				return
+			}
+			if !restart {
+				t.Errorf("Display.%s is a setting that nothing applies: the X server is not "+
+					"restarted for it, and it is not listed as reaching the screen without one. "+
+					"Add it to one or the other.", field.Name)
+			}
+		})
 	}
 }

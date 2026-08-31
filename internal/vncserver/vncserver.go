@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/op/go-logging"
@@ -36,6 +37,14 @@ type Server struct {
 	displayName       string
 	authorityFilename string
 	passwordFilename  string
+
+	mutex sync.Mutex
+	// startedWith is the VNC settings the running x11vnc was actually
+	// started with. The daemon compares against this rather than against the
+	// previous configuration, so that a restart which failed is retried on
+	// the next change rather than skipped because "nothing changed since
+	// last time".
+	startedWith config.VNC
 }
 
 // New returns a VNC server for the given configuration.
@@ -51,6 +60,14 @@ func New(store *config.Store, displayName, authorityFilename string) *Server {
 // configuration is the settings in force right now.
 func (self *Server) configuration() *config.Configuration {
 	return self.store.Current()
+}
+
+// StartedWith is the settings the running server was started with. The zero
+// value means it has never been started.
+func (self *Server) StartedWith() config.VNC {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.startedWith
 }
 
 // Address is where the server listens, which the web interface's bridge dials.
@@ -169,6 +186,10 @@ func (self *Server) arguments() []string {
 // prepare writes the password file, when there is a password.
 func (self *Server) prepare(ctx context.Context) error {
 	settings := self.configuration().VNC
+
+	self.mutex.Lock()
+	self.startedWith = settings
+	self.mutex.Unlock()
 
 	if err := os.MkdirAll(filepath.Dir(self.passwordFilename), 0o755); err != nil {
 		return fmt.Errorf("vncserver: create %s: %w", filepath.Dir(self.passwordFilename), err)

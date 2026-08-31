@@ -3,9 +3,10 @@ package cmd
 
 import (
 	"os"
-	"strings"
 
 	"github.com/op/go-logging"
+
+	"github.com/ziyan/cue/internal/util/loglevel"
 )
 
 var log = logging.MustGetLogger("cmd")
@@ -27,13 +28,5 @@ func SetupLogging(level string) {
 // SetLogLevel applies a log level by name, ignoring an empty or unparseable
 // value so that a typo cannot silence the daemon.
 func SetLogLevel(level string) {
-	if level == "" {
-		return
-	}
-	parsed, err := logging.LogLevel(strings.ToUpper(level))
-	if err != nil {
-		log.Warningf("ignoring unknown log level %q", level)
-		return
-	}
-	logging.SetLevel(parsed, "")
+	loglevel.Set(level)
 }

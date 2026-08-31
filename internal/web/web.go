@@ -156,7 +156,9 @@ type Server struct {
 
 	router   *mux.Router
 	listener net.Listener
-	server   *http.Server
+	// startedWith is the configured address the listener was opened for.
+	startedWith string
+	server      *http.Server
 }
 
 // New builds the server. Nothing listens until Start.
@@ -203,6 +205,7 @@ func (self *Server) WithUploads(store *media.Store) *Server {
 // caller can report the address before anything has connected.
 func (self *Server) Start(ctx context.Context) error {
 	address := self.store.Current().Web.Listen
+	self.startedWith = address
 
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 	if err != nil {
@@ -240,6 +243,15 @@ func (self *Server) Stop(ctx context.Context) {
 	if err := self.server.Shutdown(ctx); err != nil {
 		log.Warningf("the web interface did not shut down cleanly: %s", err)
 	}
+}
+
+// StartedWith is the address this server was asked to listen on, as it was
+// written in the configuration. Address reports what the listener resolved
+// that to, which is not the same string -- 0.0.0.0:8080 comes back as
+// [::]:8080 -- and comparing the resolved form against the file would say the
+// setting had changed every time anything at all was saved.
+func (self *Server) StartedWith() string {
+	return self.startedWith
 }
 
 // Address is where the server is listening, once it has started.

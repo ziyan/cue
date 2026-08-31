@@ -28,6 +28,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/op/go-logging"
@@ -88,7 +89,13 @@ type State struct {
 
 // Watchdog runs the probes and applies the remedies.
 type Watchdog struct {
-	settings *config.Watchdog
+	// settings is swapped when the configuration file changes rather than
+	// held from when the daemon started. It used to be a plain pointer into
+	// the configuration the daemon was constructed with, and the store
+	// replaces that whole document on every edit -- so the watchdog went on
+	// reading the settings it was born with, and every change to this section
+	// was accepted, saved, and ignored until the next boot.
+	settings atomic.Pointer[config.Watchdog]
 	probes   []namedProbe
 	remedies Remedies
 
@@ -112,13 +119,25 @@ type namedProbe struct {
 
 // New returns a watchdog. Nothing runs until Start.
 func New(settings *config.Watchdog, remedies Remedies) *Watchdog {
-	return &Watchdog{
-		settings:     settings,
+	watchdog := &Watchdog{
 		remedies:     remedies,
 		appliedAt:    map[string]int{},
 		appliedCount: map[string]int{},
 		state:        State{Enabled: settings.Enabled},
 	}
+	watchdog.settings.Store(settings)
+	return watchdog
+}
+
+// Reconfigure points the watchdog at the settings now in force. Every reading
+// of them happens as it is needed rather than being kept, so the next round
+// uses the new interval, the new deadline and the new thresholds.
+func (self *Watchdog) Reconfigure(settings *config.Watchdog) {
+	self.settings.Store(settings)
+
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.state.Enabled = settings.Enabled
 }
 
 // AddProbe registers a question to ask. The order matters: the first one to
@@ -129,10 +148,12 @@ func (self *Watchdog) AddProbe(name string, probe Probe) {
 
 // Start begins asking.
 func (self *Watchdog) Start(ctx context.Context) {
-	if !self.settings.Enabled {
+	if !self.settings.Load().Enabled {
 		log.Noticef("the watchdog is disabled; a frozen screen will stay frozen")
-		return
 	}
+	// Started either way. Whether it is enabled is decided again before every
+	// round, so that turning it on in the file turns it on here rather than
+	// at the next boot.
 	go func() {
 		defer deferutil.Recover()
 		self.run(ctx)
@@ -174,12 +195,17 @@ func (self *Watchdog) State() State {
 }
 
 func (self *Watchdog) run(ctx context.Context) {
-	interval := self.settings.Interval.Duration()
 	for {
+		// Read inside the loop, not once before it: an interval read once is
+		// the interval the daemon booted with, forever.
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(interval):
+		case <-time.After(self.settings.Load().Interval.Duration()):
+		}
+
+		if !self.settings.Load().Enabled {
+			continue
 		}
 
 		self.mutex.Lock()
@@ -210,7 +236,7 @@ func (self *Watchdog) run(ctx context.Context) {
 // after ninety seconds describes a display nobody can read.
 func (self *Watchdog) ask(ctx context.Context) (string, error) {
 	for _, current := range self.probes {
-		probeContext, cancel := context.WithTimeout(ctx, self.settings.Timeout.Duration())
+		probeContext, cancel := context.WithTimeout(ctx, self.settings.Load().Timeout.Duration())
 		err := current.probe(probeContext)
 		cancel()
 		if err != nil {
@@ -279,12 +305,13 @@ func (self *Watchdog) escalate(ctx context.Context, failures int) {
 
 	// Heaviest first: the count only goes up, so once it has passed the
 	// restart threshold there is no point reloading the page again.
+	settings := self.settings.Load()
 	steps := []step{
-		{"restart the display", self.settings.FailuresBeforeRestartDisplay, self.remedies.RestartDisplay},
-		{"restart the browser", self.settings.FailuresBeforeRestart, self.remedies.RestartBrowser},
-		{"clear the cache", self.settings.FailuresBeforeClearCache, self.remedies.ClearCache},
-		{"recreate the page", self.settings.FailuresBeforeRecreate, self.remedies.RecreatePage},
-		{"reload the page", self.settings.FailuresBeforeReload, self.remedies.ReloadPage},
+		{"restart the display", settings.FailuresBeforeRestartDisplay, self.remedies.RestartDisplay},
+		{"restart the browser", settings.FailuresBeforeRestart, self.remedies.RestartBrowser},
+		{"clear the cache", settings.FailuresBeforeClearCache, self.remedies.ClearCache},
+		{"recreate the page", settings.FailuresBeforeRecreate, self.remedies.RecreatePage},
+		{"reload the page", settings.FailuresBeforeReload, self.remedies.ReloadPage},
 	}
 
 	for _, current := range steps {

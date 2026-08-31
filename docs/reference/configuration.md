@@ -5,13 +5,51 @@ written both by hand and by the web interface, and it is the only place any of
 this is configured — there is no second store and no command line flag that
 sets anything not here.
 
-After editing it by hand, tell the daemon:
+The file is watched. Saving it is enough: the daemon notices within moments
+and applies the change. Sending it a signal does the same thing explicitly,
+which is useful when a file has been replaced in a way inotify cannot see —
+some editors and some network filesystems:
 
     docker kill --signal HUP cue
 
 A file that no longer validates is refused and the configuration already in
 force is kept, so a mistyped duration over a slow connection does not turn the
 screen off.
+
+## What a change does, and when
+
+Almost everything here takes effect as soon as the file is saved. The three
+kinds of change are worth knowing apart, because the second one costs a few
+seconds of black screen and the third does not happen until somebody says so.
+
+**Applied straight away, nothing restarts.** The playlist and everything in
+it, the display arrangement — outputs, modes, wallpaper, blanking, the pointer
+— the timezone, the log level, the watchdog's intervals and thresholds, the
+network, the session lifetime, the trusted origins, and how loudly the
+browser's own output is logged.
+
+**Applied by restarting one program.** Some settings are fixed when a program
+is executed and cannot be changed underneath it. Saving one of these restarts
+just that program:
+
+| Change | What restarts |
+| --- | --- |
+| `browser.*`, `device.language`, `audio.enabled`, `audio.sink` | the browser |
+| `vnc.*` | the VNC server |
+| `time.*` | the clock |
+| `display.server`, `display.number`, `display.virtualTerminal`, `display.extraArguments`, `display.xorgConfiguration`, `display.cursor` between drawn and not, and `display.framebuffer` under Xvfb | the X server, and the browser with it |
+
+**Needs cue restarted.** Two settings are deliberately left alone while the
+daemon runs, and it says so in the log when one of them changes:
+
+- `web.listen` — rebinding means closing the socket the operator is talking to
+  and hoping the new address binds. When it does not, the device has no
+  interface at all and no way to take the change back without physical access.
+- `paths.state` and `paths.runtime` — moving these out from under a running X
+  server, browser and VNC server has the same shape and a worse blast radius.
+
+`audio.volume` and `audio.source` are read by nothing at all. They are
+accepted, stored, and have no effect.
 
 The file holds the passwords the screen signs in with. It is written with mode
 0600.

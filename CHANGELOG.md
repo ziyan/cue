@@ -6,6 +6,27 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Fixed
+
+- Settings that were accepted, saved, shown as saved, and then silently did
+  nothing until the container was restarted. The VNC server is now started,
+  stopped and restarted to follow the `vnc` section, so turning screen sharing
+  on, moving it off the loopback or setting a password on it takes effect when
+  it is saved; the same for the clock and the `time` section. The watchdog now
+  follows its own section instead of the one the daemon booted with. The
+  timezone, the log level and `log.browserOutput` are applied on a change.
+  `audio.enabled` and `audio.sink` restart the browser, and
+  `display.virtualTerminal`, `display.extraArguments` and
+  `display.xorgConfiguration` restart the X server, none of which they did.
+- The network is reconciled when the configuration changes rather than up to
+  `network.reconcileInterval` later, and that interval can itself be changed
+  without restarting.
+
+### Changed
+
+- `web.listen` and the `paths` section still need cue restarted, and now say
+  so in the log rather than being quietly ignored.
+
 ## [0.3.1] - 2026-08-29
 
 ### Changed

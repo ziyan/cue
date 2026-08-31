@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/util/timezone"
 )
 
 // DefaultConfigFilename is where the configuration lives unless --config says
@@ -195,17 +195,7 @@ func underlying(err error) error {
 	}
 }
 
-// applyTimezone sets the process's idea of local time from the configuration,
-// so that every log line and everything the interface renders agrees with what
-// somebody standing in front of the screen would expect.
+// applyTimezone sets the process's idea of local time from the configuration.
 func applyTimezone(name string) {
-	if name == "" {
-		return
-	}
-	location, err := time.LoadLocation(name)
-	if err != nil {
-		log.Warningf("ignoring unknown timezone %q: %s", name, err)
-		return
-	}
-	time.Local = location
+	timezone.Apply(name)
 }

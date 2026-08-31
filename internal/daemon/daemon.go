@@ -77,6 +77,11 @@ type Daemon struct {
 
 	web *web.Server
 
+	// startedWith is the paths this daemon's programs were started against.
+	// They are fixed for the life of the process, and a change to them is
+	// reported rather than applied.
+	startedWith config.Paths
+
 	xProcess        *supervise.Process
 	browserProcess  *supervise.Process
 	vncProcess      *supervise.Process
@@ -263,6 +268,8 @@ func (self *Daemon) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	self.startedWith = self.store.Current().Paths
+
 	// The web interface comes up before anything else, so that a device whose
 	// X server will not start is still reachable to say so. That is the case
 	// where somebody most needs to see the logs, and the case where a daemon
@@ -349,7 +356,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 		defer deferutil.Recover()
 	}()
 
-	self.startProcesses(ctx, configuration)
+	self.startProcesses(ctx)
 
 	// SIGHUP re-reads the configuration file. The file is also watched, so an
 	// edit is picked up without this; the signal is kept for anybody who has
@@ -413,7 +420,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 
 // startProcesses brings the three supervised programs up in the order they
 // need each other: the X server first, because the other two connect to it.
-func (self *Daemon) startProcesses(ctx context.Context, configuration *config.Configuration) {
+func (self *Daemon) startProcesses(ctx context.Context) {
 	self.xProcess = supervise.New(self.xserver.Settings())
 	self.xProcess.Start(ctx)
 
@@ -437,10 +444,12 @@ func (self *Daemon) startProcesses(ctx context.Context, configuration *config.Co
 		self.browserProcess = supervise.New(self.browser.Settings())
 		self.browserProcess.Start(ctx)
 
-		if configuration.VNC.Enabled {
-			self.vncProcess = supervise.New(self.vncserver.Settings())
-			self.vncProcess.Start(ctx)
-		}
+		// The configuration as it is now, not as it was when this goroutine
+		// was launched. The X server can take the better part of a minute to
+		// come up, and screen sharing turned on inside that window would
+		// otherwise be missed by both ends: this snapshot still says off, and
+		// applyVNC gave up early because there was no X server yet.
+		self.applyVNC(ctx, self.store.Current())
 	}()
 }
 

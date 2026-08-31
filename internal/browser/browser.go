@@ -166,6 +166,17 @@ func (self *Browser) resolveClient() (*cdp.Client, error) {
 	return cdp.New("127.0.0.1:" + strconv.Itoa(port)), nil
 }
 
+// OutputLevel is how loudly the browser's own output should be logged. It is
+// a function of the configuration rather than a field read once, because
+// log.browserOutput can be turned on while the browser is running and that is
+// the whole point of it.
+func OutputLevel(configuration *config.Configuration) logging.Level {
+	if configuration.Log.BrowserOutput {
+		return logging.INFO
+	}
+	return logging.DEBUG
+}
+
 // Settings builds the supervisor settings for Chromium.
 func (self *Browser) Settings() *supervise.Settings {
 	// The browser's output is always captured, because the reason it would
@@ -174,10 +185,7 @@ func (self *Browser) Settings() *supervise.Settings {
 	// setting changes is how loudly it is logged: at DEBUG it is out of the
 	// way until somebody turns the level up, and log.browserOutput raises it
 	// for a device being investigated from a distance.
-	outputLevel := logging.DEBUG
-	if self.configuration.Log.BrowserOutput {
-		outputLevel = logging.INFO
-	}
+	outputLevel := OutputLevel(self.configuration)
 
 	binary, err := executable.Resolve(self.configuration.Browser.Binary, knownBrowsers...)
 	if err != nil {
