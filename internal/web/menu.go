@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"image/png"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -33,6 +34,25 @@ import (
 // again; changing a URL or a timezone is work for a keyboard and the web
 // interface. Restricting it to actions also means nothing here can leave the
 // device in a state somebody has to undo.
+
+// serviceName is what to call the service on a tile: its host, and nothing
+// else.
+//
+// "cue.sh" says where this screen reports to; "Link" said what pressing the
+// tile does, which is what somebody has already decided by looking for it. The
+// name is also the answer to the question a person actually has in front of a
+// screen they did not set up.
+//
+// Not translated, because a hostname is not a word.
+func serviceName(address string) string {
+	parsed, err := url.Parse(strings.TrimSpace(address))
+	if err != nil || parsed.Host == "" {
+		// Nothing sensible to show, so the tile keeps the word -- still true,
+		// if less useful.
+		return ""
+	}
+	return parsed.Host
+}
 
 // menu renders the page shown inside the overlay.
 func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
@@ -94,6 +114,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		"NeedsWord":  self.isSetUp(),
 		"Pass":       pass,
 		"Upgrade":    upgradeVersion,
+		"Service":    serviceName(configuration.Service.Address),
 		"Language":   configuration.Device.Language,
 		"Mark":       template.URL("data:image/png;base64," + smallMark()),
 	}); err != nil {
@@ -375,8 +396,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path></svg>
       <span class="what" data-t="tile-display"></span></button>
     <button data-do="link">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"></path></svg>
-      <span class="what" data-t="tile-link"></span></button>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 0 0 .3-9 6.5 6.5 0 0 0-12.4 2A3.9 3.9 0 0 0 6 19z"></path></svg>
+      <span class="what">{{ if .Service }}{{ .Service }}{{ else }}<span data-t="tile-link"></span>{{ end }}</span></button>
     {{ if .Upgrade }}
     <button data-do="upgrade">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 20h16"></path></svg>

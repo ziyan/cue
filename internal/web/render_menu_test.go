@@ -182,3 +182,49 @@ func TestTheLockedMenuShowsOnlyThePasswordBox(t *testing.T) {
 		t.Error("the details never come back after the password is given")
 	}
 }
+
+// The tile for the service says which service.
+//
+// "Link" named what pressing it does, which is what somebody has already
+// decided by going looking for it. The name answers the question a person
+// actually has in front of a screen they did not set up: where does this thing
+// report to.
+func TestTheServiceTileIsNamedAfterTheService(t *testing.T) {
+	configuration := config.Default()
+	configuration.Service.Address = "https://example.com"
+	server := newTestServer(t, configuration)
+
+	request := httptest.NewRequest(http.MethodGet, "/menu", nil)
+	request.RemoteAddr = "127.0.0.1:54321"
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	page := response.Body.String()
+
+	tile := page[strings.Index(page, `<button data-do="link">`):]
+	tile = tile[:strings.Index(tile, "</button>")]
+	if !strings.Contains(tile, "example.com") {
+		t.Errorf("the tile does not name the service: %s", tile)
+	}
+	// The host, not the whole address: a tile is one word wide.
+	if strings.Contains(tile, "https://") {
+		t.Error("the tile carries the scheme, which is not part of a name")
+	}
+}
+
+// Just the host, whatever the address is written like.
+func TestWhatTheServiceIsCalled(t *testing.T) {
+	for address, want := range map[string]string{
+		"https://cue.sh":                  "cue.sh",
+		"https://cue.sh/":                 "cue.sh",
+		"http://127.0.0.1:40080":          "127.0.0.1:40080",
+		"https://staging.example.com/cue": "staging.example.com",
+		"  https://cue.sh  ":              "cue.sh",
+		// Nothing to show rather than something wrong.
+		"":           "",
+		"not an url": "",
+	} {
+		if got := serviceName(address); got != want {
+			t.Errorf("%q is called %q, want %q", address, got, want)
+		}
+	}
+}
