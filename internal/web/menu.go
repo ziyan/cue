@@ -365,9 +365,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   </div>
 
   <div class="tiles" id="actions">
-    <button data-do="next">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4l10 8-10 8z"></path><path d="M19 5v14"></path></svg>
-      <span class="what" data-t="tile-next"></span></button>
     <button data-do="reload">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6.3"></path><path d="M20 5v6h-6"></path></svg>
       <span class="what" data-t="tile-reload"></span></button>
@@ -510,8 +507,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "language-name": "English", "tile-next": "Next", "tile-reload": "Reload", "tile-network": "Network", "tile-display": "Display", "tile-link": "Link", "tile-update": "Update", "tile-restart": "Restart", "best": "recommended", "link": "Link to the service", "link-why": "Attach this screen to an account", "link-explain": "Scan this with a phone, sign in, and authorise this screen.", "link-waiting": "Waiting for somebody to authorise it\u2026", "link-checking": "Authorised. Checking the credential works\u2026", "link-again": "Show a new code", "link-done": "Linked. This screen now belongs to", "link-failed": "That did not work.", "link-nowhere": "No service address is set for this device.", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "upgrade": "Update this screen", "upgrade-why": "A newer version is available:", "ask-upgrade": "Update now? The screen goes blank for about a minute and comes back on its own. If the new version will not start, this device puts the old one back.", "doing-upgrade": "Fetching the update. The screen will go blank and come back.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
-      "next": "Show the next item", "next-why": "Move the screen on now",
+      "language-name": "English", "tile-reload": "Reload", "tile-network": "Network", "tile-display": "Display", "tile-link": "Link", "tile-update": "Update", "tile-restart": "Restart", "best": "recommended", "link": "Link to the service", "link-why": "Attach this screen to an account", "link-explain": "Scan this with a phone, sign in, and authorise this screen.", "link-waiting": "Waiting for somebody to authorise it\u2026", "link-checking": "Authorised. Checking the credential works\u2026", "link-again": "Show a new code", "link-done": "Linked. This screen now belongs to", "link-failed": "That did not work.", "link-nowhere": "No service address is set for this device.", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "upgrade": "Update this screen", "upgrade-why": "A newer version is available:", "ask-upgrade": "Update now? The screen goes blank for about a minute and comes back on its own. If the new version will not start, this device puts the old one back.", "doing-upgrade": "Fetching the update. The screen will go blank and come back.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
       "network": "Set up the network",
@@ -535,7 +532,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "ask-restart-browser": "Restart the browser? The screen goes black for a few seconds.",
       "ask-restart-display": "Restart the screen? It rebuilds the display and takes longer.",
       "ask-wireless": "Forget this wireless network and show the setup code?",
-      "doing-next": "Moving on.", "doing-reload": "Reloading.",
+      "doing-reload": "Reloading.",
       "doing-restart-browser": "Restarting the browser.",
       "doing-restart-display": "Restarting the screen.",
       "doing-wireless": "Setting up. The code will be on this screen in a moment.",
@@ -543,8 +540,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "language-name": "中文", "tile-next": "下一项", "tile-reload": "刷新", "tile-network": "网络", "tile-display": "显示", "tile-link": "关联", "tile-update": "更新", "tile-restart": "重启", "best": "推荐", "link": "关联到服务", "link-why": "将此屏幕关联到账号", "link-explain": "用手机扫描，登录后授权此屏幕。", "link-waiting": "等待授权中…", "link-checking": "已授权。正在验证凭据…", "link-again": "显示新的二维码", "link-done": "已关联。此屏幕归属于", "link-failed": "未能完成。", "link-nowhere": "此设备未设置服务地址。", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "upgrade": "更新此屏幕", "upgrade-why": "有新版本可用：", "ask-upgrade": "现在更新？屏幕将黑屏约一分钟后自动恢复。如果新版本无法启动，设备会自动恢复到旧版本。", "doing-upgrade": "正在获取更新。屏幕将黑屏后恢复。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
-      "next": "显示下一项", "next-why": "立即切换到下一个内容",
+      "language-name": "中文", "tile-reload": "刷新", "tile-network": "网络", "tile-display": "显示", "tile-link": "关联", "tile-update": "更新", "tile-restart": "重启", "best": "推荐", "link": "关联到服务", "link-why": "将此屏幕关联到账号", "link-explain": "用手机扫描，登录后授权此屏幕。", "link-waiting": "等待授权中…", "link-checking": "已授权。正在验证凭据…", "link-again": "显示新的二维码", "link-done": "已关联。此屏幕归属于", "link-failed": "未能完成。", "link-nowhere": "此设备未设置服务地址。", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "upgrade": "更新此屏幕", "upgrade-why": "有新版本可用：", "ask-upgrade": "现在更新？屏幕将黑屏约一分钟后自动恢复。如果新版本无法启动，设备会自动恢复到旧版本。", "doing-upgrade": "正在获取更新。屏幕将黑屏后恢复。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
       "network": "设置网络",
@@ -568,7 +565,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "ask-restart-browser": "重启浏览器？屏幕会黑屏几秒钟。",
       "ask-restart-display": "重启显示？将重建显示系统，耗时较长。",
       "ask-wireless": "忘记当前无线网络并显示设置二维码？",
-      "doing-next": "正在切换。", "doing-reload": "正在重新加载。",
+      "doing-reload": "正在重新加载。",
       "doing-restart-browser": "正在重启浏览器。",
       "doing-restart-display": "正在重启显示。",
       "doing-wireless": "正在设置。稍后此屏幕上会显示设置二维码。",
@@ -576,8 +573,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "language-name": "日本語", "tile-next": "次へ", "tile-reload": "再読込", "tile-network": "ネットワーク", "tile-display": "画面", "tile-link": "連携", "tile-update": "更新", "tile-restart": "再起動", "best": "推奨", "link": "サービスと連携", "link-why": "この画面をアカウントに紐づけます", "link-explain": "スマートフォンで読み取り、サインインして承認してください。", "link-waiting": "承認を待っています…", "link-checking": "承認されました。認証情報を確認しています…", "link-again": "新しいコードを表示", "link-done": "連携しました。この画面の所有者：", "link-failed": "完了できませんでした。", "link-nowhere": "このデバイスにはサービスのアドレスが設定されていません。", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "upgrade": "この画面を更新", "upgrade-why": "新しいバージョンがあります:", "ask-upgrade": "今すぐ更新しますか？画面は約1分間暗くなり、自動的に復帰します。新しいバージョンが起動しない場合は、元のバージョンに戻します。", "doing-upgrade": "更新を取得しています。画面が暗くなってから復帰します。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
-      "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
+      "language-name": "日本語", "tile-reload": "再読込", "tile-network": "ネットワーク", "tile-display": "画面", "tile-link": "連携", "tile-update": "更新", "tile-restart": "再起動", "best": "推奨", "link": "サービスと連携", "link-why": "この画面をアカウントに紐づけます", "link-explain": "スマートフォンで読み取り、サインインして承認してください。", "link-waiting": "承認を待っています…", "link-checking": "承認されました。認証情報を確認しています…", "link-again": "新しいコードを表示", "link-done": "連携しました。この画面の所有者：", "link-failed": "完了できませんでした。", "link-nowhere": "このデバイスにはサービスのアドレスが設定されていません。", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "upgrade": "この画面を更新", "upgrade-why": "新しいバージョンがあります:", "ask-upgrade": "今すぐ更新しますか？画面は約1分間暗くなり、自動的に復帰します。新しいバージョンが起動しない場合は、元のバージョンに戻します。", "doing-upgrade": "更新を取得しています。画面が暗くなってから復帰します。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
       "network": "ネットワークを設定",
@@ -601,7 +598,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "ask-restart-browser": "ブラウザを再起動しますか？画面が数秒間暗くなります。",
       "ask-restart-display": "ディスプレイを再起動しますか？表示システムを作り直すため、少し時間がかかります。",
       "ask-wireless": "現在の無線ネットワークを削除して、設定用コードを表示しますか？",
-      "doing-next": "次に進みます。", "doing-reload": "再読み込みしています。",
+      "doing-reload": "再読み込みしています。",
       "doing-restart-browser": "ブラウザを再起動しています。",
       "doing-restart-display": "ディスプレイを再起動しています。",
       "doing-wireless": "設定中です。まもなくこの画面に設定用コードが表示されます。",
@@ -1115,7 +1112,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   });
 
   const doing = {
-    "next": { call: "/api/v1/playlist/next", ask: null, said: "doing-next" },
     "reload": { call: "/api/v1/menu/reload", ask: null, said: "doing-reload" },
     "restart-browser": { call: "/api/v1/menu/restart/browser",
       ask: "ask-restart-browser", said: "doing-restart-browser" },

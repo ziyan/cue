@@ -149,7 +149,6 @@ func TestTheMenuChangesTheNetworkThePictureAndNothingElse(t *testing.T) {
 			call == "/api/v1/screen/unlock",
 			call == "/api/v1/screen/password",
 			call == "/api/v1/screen/close",
-			call == "/api/v1/playlist/next",
 			call == "/api/v1/playlist/hold",
 			call == "/api/v1/playlist/release",
 			// Said every twenty seconds while the menu is open, so that a menu
