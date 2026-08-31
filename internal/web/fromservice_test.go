@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -93,5 +95,47 @@ func TestTheServiceIsRefusedWhatIsNotOnTheList(t *testing.T) {
 			t.Errorf("%s %s refused with %q, which does not say why",
 				call.method, call.path, response.Body.String())
 		}
+	}
+}
+
+// The service cannot move a device to a different service.
+//
+// It can write the whole configuration, which is the parity that was asked
+// for -- and the address it reports to is the one thing in that document that
+// decides who it obeys. A service able to change it could hand a screen to
+// somebody else and the device would go on working, reporting to a stranger,
+// with nothing on it saying anything had happened.
+//
+// The address is restored on every write, whoever asks. This checks the
+// service is included in "whoever".
+func TestTheServiceCannotMoveTheDeviceElsewhere(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	defer func() { _ = server.device.Linker().Close() }()
+	handler := server.FromService()
+
+	was := server.store.Current().Service.Address
+	if was == "" {
+		t.Fatal("the device has no service address, so this proves nothing")
+	}
+
+	current := do(server, http.MethodGet, "/api/v1/configuration", nil, setUp(t, server))
+	var document map[string]any
+	if err := json.Unmarshal(current.Body.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	service, _ := document["service"].(map[string]any)
+	service["address"] = "https://somewhere-else.example.com"
+
+	body, _ := json.Marshal(document)
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/configuration", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("the save answered %d: %s", response.Code, response.Body)
+	}
+	if now := server.store.Current().Service.Address; now != was {
+		t.Errorf("the service moved this device from %q to %q", was, now)
 	}
 }

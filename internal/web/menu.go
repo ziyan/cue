@@ -1156,6 +1156,13 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     if (!what) return;
     if (!what.ask) return run(what);
 
+    // Where the question was asked from, so that saying no goes back there.
+    // Everything that asks one lives on the second level, and cancelling used
+    // to land on the first: somebody who thought better of restarting the
+    // browser found themselves two steps from where they were rather than
+    // one.
+    const cameFromRestart = !restartPanel.hidden;
+
     question.textContent = say(what.ask);
     actions.hidden = true;
     restartPanel.hidden = true;
@@ -1163,7 +1170,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     document.getElementById("yes").onclick = () => run(what);
     document.getElementById("no").onclick = () => {
       confirm.hidden = true;
-      actions.hidden = false;
+      if (cameFromRestart) restartPanel.hidden = false;
+      else actions.hidden = false;
     };
   });
 
