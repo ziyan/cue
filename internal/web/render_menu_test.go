@@ -60,3 +60,46 @@ func TestTheMenuCloseSurvivesAPressThatDoesNothing(t *testing.T) {
 		t.Error("the button is never re-enabled, so a failed close leaves a dead X")
 	}
 }
+
+// The linking code has a size, and the panel holding it has a layout.
+//
+// Both were missing and both were invisible in review. An SVG carrying only a
+// viewBox has no dimensions of its own, so an img with no width and no height
+// drew as nothing -- the picture was fetched, was valid, and the screen showed
+// an empty gap where the thing somebody had come to scan should have been. And
+// the panel was left out of the rule that gives every other one a column with
+// a gap, so its contents sat directly on top of each other.
+func TestTheLinkingPanelIsLaidOut(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	request := httptest.NewRequest(http.MethodGet, "/menu", nil)
+	request.RemoteAddr = "127.0.0.1:54321"
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	page := response.Body.String()
+
+	// A size for the code. Without one it is fetched and not seen.
+	if !strings.Contains(page, "#link-code {") {
+		t.Error("the linking code has no rule of its own, so it has no size")
+	}
+	for _, needed := range []string{"width:", "height:"} {
+		rule := page[strings.Index(page, "#link-code {"):]
+		rule = rule[:strings.Index(rule, "}")]
+		if !strings.Contains(rule, needed) {
+			t.Errorf("the linking code has no %s, so it draws as nothing", strings.TrimSuffix(needed, ":"))
+		}
+	}
+
+	// And the panel is laid out like the others, rather than being the one
+	// that was forgotten.
+	layout := page[strings.Index(page, "#network, #wireless"):]
+	layout = layout[:strings.Index(layout, "}")]
+	if !strings.Contains(layout, "#link") {
+		t.Error("the linking panel is not in the rule that lays every other panel out")
+	}
+
+	// The address is not shown. Nobody types sixty characters off a wall, and
+	// it overflowed the panel when it was there.
+	if strings.Contains(page, `id="link-url"`) {
+		t.Error("the linking address is on the screen, where it is no use to anybody")
+	}
+}

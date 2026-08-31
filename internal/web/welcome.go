@@ -168,6 +168,14 @@ func machineAddresses() []string {
 // one that sets a device up and the one that links it to an account. A screen
 // reader announcing "setup code" over the linking code is telling somebody who
 // cannot see it the wrong thing about the only part of the page that matters.
+// What a code is drawn in. One pair for every code this program shows, so the
+// setup code and the linking code look like the same thing, and so neither
+// depends on what is behind it: the ground travels with the picture.
+const (
+	codeGround  = "#e9edf2"
+	codeModules = "#10151b"
+)
+
 func renderQR(matrix [][]bool, label string) template.HTML {
 	if len(matrix) == 0 {
 		return ""
@@ -185,9 +193,17 @@ func renderQR(matrix [][]bool, label string) template.HTML {
 	fmt.Fprintf(&builder,
 		`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" role="img" aria-label="%s" shape-rendering="crispEdges">`,
 		len(matrix), len(matrix), template.HTMLEscapeString(label))
-	// A white ground under the code. Scanners read dark-on-light, and the page
-	// behind this is nearly black.
-	fmt.Fprintf(&builder, `<rect width="%d" height="%d" fill="#fff"/>`, len(matrix), len(matrix))
+	// A ground under the code, because scanners read dark-on-light and every
+	// page this appears on is nearly black.
+	//
+	// Not pure white on pure black. A hard white rectangle on a dark screen is
+	// a lamp in a dark room -- it glares, it is the brightest thing in the
+	// room at night, and these hang on walls. A soft off-white against a deep
+	// slate is far easier to look at and still gives about eighteen to one,
+	// which is well beyond anything a scanner needs. The contrast is what must
+	// not be traded away here; the whiteness is not.
+	fmt.Fprintf(&builder, `<rect width="%d" height="%d" fill="%s"/>`,
+		len(matrix), len(matrix), codeGround)
 	for row := range matrix {
 		for column, dark := range matrix[row] {
 			if !dark {
@@ -196,7 +212,8 @@ func renderQR(matrix [][]bool, label string) template.HTML {
 			// Drawn a hair over one unit wide so that neighbouring modules
 			// meet: at some sizes an exact 1 leaves a seam that browsers
 			// render as a light line through the code.
-			fmt.Fprintf(&builder, `<rect x="%d" y="%d" width="1.02" height="1.02" fill="#000"/>`, column, row)
+			fmt.Fprintf(&builder, `<rect x="%d" y="%d" width="1.02" height="1.02" fill="%s"/>`,
+				column, row, codeModules)
 		}
 	}
 	builder.WriteString("</svg>")

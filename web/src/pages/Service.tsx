@@ -202,9 +202,14 @@ export function Service() {
             // that from the address alone.
             src={`/api/v1/link/code.svg?at=${encodeURIComponent(state.expiresAt ?? "")}`}
             alt="Linking code"
+            // The picture brings its own ground, softer than white: a hard
+            // white square on a dark page is the brightest thing on it, and
+            // these are looked at in rooms with the lights off. The padding
+            // matches it so the quiet zone a scanner needs is part of the
+            // same shape.
             sx={{
-              display: "block", width: 220, height: 220, bgcolor: "#fff",
-              p: 1.5, borderRadius: 1, border: 1, borderColor: "divider", mb: 2,
+              display: "block", width: 220, height: 220, bgcolor: "#e9edf2",
+              p: 1.5, borderRadius: 1, mb: 2,
             }}
           />
           {state.url && (

@@ -205,8 +205,18 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     border-radius: calc(var(--step) * 1.4); padding: calc(var(--step) * 2.4);
     box-shadow: 0 2vmin 6vmin rgba(0,0,0,0.6);
     display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
-  #network, #wireless, #wired, #confirm, #gate, #screen {
+  #network, #wireless, #wired, #confirm, #gate, #screen, #link {
     display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
+
+  /* The code, which is the whole point of this panel and had no size at all.
+     An SVG carrying only a viewBox has no dimensions of its own, so an img
+     with no width and no height had nothing to be: the picture was fetched,
+     was valid, and drew as nothing. Sized in vmin like everything else here,
+     because this is read from across a room -- and with a white margin around
+     it, since a scanner needs quiet space at the edges and the panel behind
+     is nearly black. */
+  #link-code { width: 34vmin; height: 34vmin; align-self: center;
+    padding: 1.2vmin; border-radius: var(--step); background: #e9edf2; }
 
   header { display: flex; align-items: center; gap: calc(var(--step) * 1.4); }
   header img { width: 6vmin; height: 6vmin; flex: none; }
@@ -367,7 +377,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   <div id="link" hidden>
     <p class="facts" data-t="link-explain"></p>
     <img id="link-code" alt="" hidden>
-    <p class="facts mono" id="link-url"></p>
     <p class="facts" id="link-said"></p>
     <div class="actions">
       <button id="link-again" hidden><span class="what" data-t="link-again"></span></button>
@@ -1099,7 +1108,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // half done -- it abandons watching one.
   const linkPanel = document.getElementById("link");
   const linkCode = document.getElementById("link-code");
-  const linkUrl = document.getElementById("link-url");
   const linkSaid = document.getElementById("link-said");
   const linkAgain = document.getElementById("link-again");
   let linkTimer = null;
@@ -1121,7 +1129,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     actions.hidden = true;
     linkPanel.hidden = false;
     linkCode.hidden = true;
-    linkUrl.textContent = "";
     linkSaid.textContent = "";
 
     let state;
@@ -1146,7 +1153,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     if (state && state.linked) {
       stopWatchingLink();
       linkCode.hidden = true;
-      linkUrl.textContent = "";
       linkSaid.textContent = say("link-done") + " " + (state.account || "");
       return;
     }
@@ -1168,7 +1174,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       // code that no longer works.
       linkCode.src = "/api/v1/screen/link/code.svg?at=" + encodeURIComponent(state.expiresAt || "");
       linkCode.hidden = false;
-      linkUrl.textContent = state.url;
       // Two different waits, and saying so matters: once it is checking, the
       // code has done its job and the phone can go away.
       linkSaid.textContent = say(state.checking ? "link-checking" : "link-waiting");
@@ -1177,7 +1182,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     }
     stopWatchingLink();
     linkCode.hidden = true;
-    linkUrl.textContent = "";
     linkSaid.textContent = (state && state.error) ? state.error : say("link-failed");
     linkAgain.hidden = false;
   }
