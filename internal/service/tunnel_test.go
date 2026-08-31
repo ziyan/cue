@@ -609,3 +609,55 @@ func TestAFullSizedFrameFromTheServiceDoesNotCloseTheConnection(t *testing.T) {
 		t.Error("the connection did not survive a full-sized frame")
 	}
 }
+
+// A device that has just been linked reports at once.
+//
+// The loop used to ask whether it was linked yet on the same thirty-second
+// timer it reported on, so a device could sit silent for half a minute after
+// being linked -- with somebody watching a dashboard that stayed empty,
+// wondering whether it had worked. That is the one moment somebody is
+// certainly looking.
+func TestLinkingIsNoticedAtOnce(t *testing.T) {
+	stub := newStubService(t)
+
+	// Not linked to begin with: no credential.
+	store := newStore(t, stub.Server.URL, "")
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("a picture"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+
+	// Give it time to settle into waiting, so this measures being woken
+	// rather than catching it before it slept.
+	time.Sleep(300 * time.Millisecond)
+	if stub.Attaches.Load() != 0 {
+		t.Fatal("a device with no credential attached anyway")
+	}
+
+	// Somebody links it. This is what the linker does when an attempt
+	// completes: it writes the credential to the configuration.
+	linkedAt := time.Now()
+	if err := store.Update(func(updated *config.Configuration) error {
+		updated.Service.Secret = config.Secret(stub.Credential)
+		updated.Service.Account = "somebody@example.com"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitFor(t, 10*time.Second, "the first picture", func() bool {
+		return stub.screenshots.Load() > 0
+	})
+	took := time.Since(linkedAt)
+	t.Logf("first picture %s after linking", took.Round(time.Millisecond))
+
+	// Comfortably inside the thirty seconds the timer would have cost, and
+	// loose enough not to fail on a slow machine.
+	if took > 5*time.Second {
+		t.Errorf("the first picture took %s; the device is waiting for a timer "+
+			"rather than noticing it was linked", took)
+	}
+}

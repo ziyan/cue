@@ -163,6 +163,16 @@ func (self *Reporter) Close() error {
 
 // run attaches, reports until something breaks, and attaches again.
 func (self *Reporter) run(ctx context.Context) {
+	// Woken by the configuration changing, as well as by a timer.
+	//
+	// Without this the loop asked "am I linked yet" every thirty seconds, and
+	// a device could sit for that long after being linked before saying
+	// anything at all -- with somebody watching a dashboard that stayed empty,
+	// wondering whether it had worked. The moment after linking is the one
+	// moment somebody is certainly looking, which is the opposite of what
+	// "linking is rare, it can wait" assumed.
+	changes := self.store.Watch()
+
 	wait := firstRetry
 	for {
 		if ctx.Err() != nil {
@@ -171,11 +181,11 @@ func (self *Reporter) run(ctx context.Context) {
 
 		configuration := self.store.Current()
 		if !configuration.Service.IsLinked() {
-			// Nothing to say and nobody to say it to. Checked on a timer
-			// rather than watched, because linking is rare and a device that
-			// has just been linked can wait a moment.
+			// Nothing to say and nobody to say it to. The timer is only a
+			// backstop; being linked arrives as a change and wakes this at
+			// once.
 			self.setTrouble("")
-			if !sleep(ctx, reportInterval) {
+			if !waitForChange(ctx, changes, reportInterval) {
 				return
 			}
 			continue
@@ -200,7 +210,10 @@ func (self *Reporter) run(ctx context.Context) {
 				wait = longestRetry
 			}
 
-			if !sleep(ctx, wait) {
+			// A change wakes this too: somebody who has just re-linked a
+			// device, or corrected its address, should not wait out a
+			// backoff that was counted for a different problem.
+			if !waitForChange(ctx, changes, wait) {
 				return
 			}
 			wait *= 2
@@ -413,13 +426,18 @@ func (self *Reporter) setTrouble(trouble string) {
 	self.mutex.Unlock()
 }
 
-// sleep waits, and reports whether it finished rather than being stopped.
-func sleep(ctx context.Context, howLong time.Duration) bool {
+// waitForChange waits for the configuration to change, for the time given, or
+// for the whole thing to stop. It reports whether there is any point carrying
+// on.
+func waitForChange(ctx context.Context, changes <-chan *config.Configuration,
+	howLong time.Duration) bool {
 	timer := time.NewTimer(howLong)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return false
+	case <-changes:
+		return true
 	case <-timer.C:
 		return true
 	}
