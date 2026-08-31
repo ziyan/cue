@@ -801,3 +801,38 @@ func TestForgettingALinkIsNotOfferedAtTheScreen(t *testing.T) {
 		t.Error("a page on the screen could forget the device's link")
 	}
 }
+
+// The code the screen shows cannot be fetched by pointing an img at it.
+//
+// It is served only to a page holding this screen's pass, and the pass travels
+// in a header. An img element cannot send a header, so a src pointing at this
+// asks without one and is refused -- which is what happened: the box drew on
+// the screen and the code inside it never did, every time, for as long as the
+// feature existed.
+//
+// The fix is on the page, which fetches the picture and puts it in the img
+// itself. This is the reason that has to be done, written down where somebody
+// tempted to simplify it back will see it.
+func TestTheScreensCodeIsRefusedWithoutTheHeader(t *testing.T) {
+	configuration := config.Default()
+	configuration.Service.Address = "https://example.com"
+	server := newTestServer(t, configuration)
+	defer func() { _ = server.device.Linker().Close() }()
+
+	_, pass := openMenu(t, server)
+	if code := passRequest(t, server, http.MethodPost, "/api/v1/screen/link", nil, pass); code != http.StatusOK {
+		t.Fatalf("starting a link answered %d", code)
+	}
+
+	// With the header, as the page's own fetch sends it.
+	if code := passRequest(t, server, http.MethodGet,
+		"/api/v1/screen/link/code.svg", nil, pass); code != http.StatusOK {
+		t.Errorf("the picture was refused to a page holding the pass: %d", code)
+	}
+
+	// Without it, as an img element asks.
+	if code := passRequest(t, server, http.MethodGet,
+		"/api/v1/screen/link/code.svg", nil, ""); code == http.StatusOK {
+		t.Error("the picture is served to a request with no pass, so it is public")
+	}
+}

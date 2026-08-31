@@ -102,4 +102,15 @@ func TestTheLinkingPanelIsLaidOut(t *testing.T) {
 	if strings.Contains(page, `id="link-url"`) {
 		t.Error("the linking address is on the screen, where it is no use to anybody")
 	}
+
+	// And the picture is fetched rather than pointed at. The endpoint wants
+	// this screen's pass in a header, which an img cannot send, so a src
+	// aimed straight at it is refused every time -- see
+	// TestTheScreensCodeIsRefusedWithoutTheHeader.
+	if strings.Contains(page, `linkCode.src = "/api`) {
+		t.Error("the code is pointed at rather than fetched, so it will never load")
+	}
+	if !strings.Contains(page, "async function drawCode") {
+		t.Error("nothing fetches the code with the pass this page holds")
+	}
 }

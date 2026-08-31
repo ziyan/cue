@@ -1114,6 +1114,9 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // The expiry this panel has already replaced a code for, so that noticing
   // the same one again does not mint a second.
   let linkRefreshedFor = "";
+  // The attempt the picture on screen belongs to, so a poll does not fetch it
+  // again every second and a half.
+  let linkCodeFor = "";
   // How long before a code runs out to replace it. A ticket is good for ten
   // minutes; a minute is comfortable.
   const linkRefreshWhenLeft = 60000;
@@ -1144,6 +1147,24 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     linkTimer = setInterval(watchLink, 1500);
   }
 
+  // drawCode fetches the picture with this page's pass and puts it in the img.
+  async function drawCode(expiresAt) {
+    try {
+      const answer = await send("/api/v1/screen/link/code.svg?at=" +
+        encodeURIComponent(expiresAt));
+      const drawing = await answer.text();
+      // A data URL rather than a blob, so there is nothing to revoke and
+      // nothing to leak if this panel is left open.
+      linkCode.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(drawing);
+    } catch (error) {
+      // Nothing to show is better than a broken picture: the words below say
+      // what is happening, and this leaves room for them.
+      linkCodeFor = "";
+      linkCode.removeAttribute("src");
+      linkCode.hidden = true;
+    }
+  }
+
   function showLink(state) {
     // Offered only when there is nothing in progress. A code that has expired
     // or been refused leaves somebody standing at a screen with a message and
@@ -1152,6 +1173,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     linkAgain.hidden = true;
     if (state && state.linked) {
       stopWatchingLink();
+      linkCodeFor = "";
       linkCode.hidden = true;
       linkSaid.textContent = say("link-done") + " " + (state.account || "");
       return;
@@ -1168,11 +1190,22 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
         void openLink();
         return;
       }
-      // The code has done its job once it is being checked, so it comes down
-      // rather than inviting somebody to scan a code that is already spent.
-      // Reloaded whenever the attempt changes, since a cached picture is a
-      // code that no longer works.
-      linkCode.src = "/api/v1/screen/link/code.svg?at=" + encodeURIComponent(state.expiresAt || "");
+      // Fetched rather than pointed at.
+      //
+      // The picture is served only to a page that holds this screen's pass,
+      // and the pass travels in a header. An img cannot send a header, so
+      // setting its src asked for the picture without one and was refused
+      // every time -- the box drew, the code never did. The picture is not
+      // public and should not be: it is the thing somebody scans to take this
+      // screen, and putting the pass in the address to let an img carry it
+      // would leave it in a log.
+      //
+      // Fetched once per attempt. A poll every second and a half must not
+      // re-fetch a picture that has not changed.
+      if (linkCodeFor !== (state.expiresAt || "")) {
+        linkCodeFor = state.expiresAt || "";
+        void drawCode(linkCodeFor);
+      }
       linkCode.hidden = false;
       // Two different waits, and saying so matters: once it is checking, the
       // code has done its job and the phone can go away.
@@ -1181,6 +1214,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       return;
     }
     stopWatchingLink();
+    linkCodeFor = "";
     linkCode.hidden = true;
     linkSaid.textContent = (state && state.error) ? state.error : say("link-failed");
     linkAgain.hidden = false;
