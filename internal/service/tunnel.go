@@ -193,10 +193,21 @@ func dial(ctx context.Context, address, credential string, serve http.Handler, s
 		}
 		return nil, fmt.Errorf("service: cannot attach: %w", err)
 	}
-	// What may be read is separate from what may be written: the service
-	// writes responses at whatever size it likes, and this is only a guard
-	// against a reply nothing asked for.
-	connection.SetReadLimit(1 << 20)
+	// What may be read is separate from what may be written, and generous on
+	// purpose.
+	//
+	// It was exactly one megabyte, which is exactly the size the service
+	// writes -- so a full frame plus the two bytes and the stream identifier
+	// in front of it was over the limit, and this would have closed the
+	// connection with "message too big" on the first large upload. That is the
+	// same mistake as sizing writes from somebody else's limit, in the other
+	// direction: a limit set to precisely what the other side sends has no
+	// room for the framing that comes with it.
+	//
+	// It costs nothing to be wrong in this direction. This is a cap, not an
+	// allocation, and the only thing it protects against is a reply nothing
+	// asked for.
+	connection.SetReadLimit(8 << 20)
 
 	self := &tunnel{
 		connection: connection,

@@ -19,9 +19,7 @@ import (
 //
 //   - The screen itself, over VNC. A websocket inside a websocket, and its own
 //     piece of work.
-//   - Uploading pictures and videos. Megabytes travelling up through the
-//     service to reach a device that has a perfectly good upload form on the
-//     network it is already on.
+
 //   - Anything about linking. A service that could unlink a device, or mint a
 //     code on it, could hand it to somebody else; the whole authority here
 //     comes from the link, so it must not be able to change it.
@@ -38,6 +36,18 @@ func (self *Server) fromService() http.Handler {
 	api.Path("/timezones").Methods(http.MethodGet).HandlerFunc(self.timezones)
 	api.Path("/logs/xorg").Methods(http.MethodGet).HandlerFunc(self.xorgLog)
 	api.Path("/screenshot.png").Methods(http.MethodGet).HandlerFunc(self.screenshot)
+
+	// Adding a picture or a video to show.
+	//
+	// Megabytes travel up through the service to get here, which is a real
+	// cost and is the price of reaching a device that cannot be reached any
+	// other way. This was left off the list at first with the note that a
+	// device "has a perfectly good upload form on the network it is already
+	// on" -- which is true and beside the point: that form is reachable by
+	// somebody standing on that network, and not needing to stand there is
+	// the whole reason the service exists. Somebody putting a video on four
+	// lobby screens from their desk has no such form.
+	api.Path("/media").Methods(http.MethodPost).HandlerFunc(self.uploadMedia)
 
 	// Making it do something.
 	api.Path("/show/{item}").Methods(http.MethodPost).HandlerFunc(self.show)

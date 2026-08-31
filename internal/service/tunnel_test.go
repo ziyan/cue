@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -526,4 +527,85 @@ func TestADeviceWithNoScreenSaysSo(t *testing.T) {
 		t.Fatalf("refusing the screen also refused management: %s", err)
 	}
 	_ = response.Body.Close()
+}
+
+// A frame the size the service actually sends must not close the connection.
+//
+// The read limit was exactly one megabyte and the service writes one-megabyte
+// frames, so a full frame plus the two bytes and the stream identifier in
+// front of it was over the limit. The first large upload would have dropped
+// the tunnel with "message too big" -- the same failure as sizing writes from
+// somebody else's limit, pointing the other way.
+//
+// Written twice. The first version sent a large body through an HTTP request
+// and passed against the old limit, because Go's server writes a body through
+// a four-kilobyte buffer and the stub never produced a frame anywhere near
+// the size in question. It proved that a large body works and said nothing
+// about frames. This one writes one frame of exactly the size the service
+// uses, which is the thing that was broken.
+func TestAFullSizedFrameFromTheServiceDoesNotCloseTheConnection(t *testing.T) {
+	// Somewhere for the bytes to go: the raw path takes whatever it is given
+	// without an HTTP server buffering it on the way.
+	sink, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sink.Close() }()
+	arrived := make(chan int, 1)
+	go func() {
+		connection, err := sink.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = connection.Close() }()
+		// Read a known length rather than to the end: the stream stays open
+		// after the write, so waiting for EOF would wait for ever and report
+		// a delivery failure that had not happened.
+		into := make([]byte, 1<<20)
+		read, _ := io.ReadFull(connection, into)
+		arrived <- read
+	}()
+
+	stub := newStubService(t)
+	store := newStore(t, stub.Server.URL, stub.Credential)
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("a picture"), "image/jpeg", nil
+	}, nil).WithScreen(func(context.Context) (net.Conn, error) {
+		return net.Dial("tcp", sink.Addr().String())
+	})
+	defer func() { _ = reporter.Close() }()
+
+	reporter.Start(context.Background())
+	waitFor(t, 10*time.Second, "the device to attach", func() bool {
+		return reporter.State().Attached
+	})
+
+	spliced, err := stub.Splice(screenHost, screenPort)
+	if err != nil {
+		t.Fatalf("could not open a stream: %s", err)
+	}
+
+	// One write, one frame: a megabyte of payload, plus the framing in front
+	// of it, which is what put it over a limit set at exactly a megabyte.
+	large := bytes.Repeat([]byte("x"), 1<<20)
+	if _, err := spliced.Write(large); err != nil {
+		t.Fatalf("writing a full-sized frame failed: %s", err)
+	}
+	_ = spliced.Close()
+
+	select {
+	case got := <-arrived:
+		if got != len(large) {
+			t.Errorf("%d bytes of %d arrived", got, len(large))
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the frame never arrived, which is what the old limit did to it")
+	}
+
+	// And the connection is still up, which "message too big" would have
+	// taken away along with every other stream on it.
+	if !reporter.State().Attached {
+		t.Error("the connection did not survive a full-sized frame")
+	}
 }
