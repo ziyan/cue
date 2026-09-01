@@ -293,6 +293,25 @@ change that would leave it unable to join, and say so** — keeping the network
 it is on and logging that it was asked to move and could not. That turns forty
 screens off the air into a visible no-op, which is something somebody can fix.
 
+**2026-09-01 — no secret may arrive in a profile, and the schema is asked
+rather than a list.** The hand-written refusal list was one item short:
+`vnc.password` is a `config.Secret` and was reachable by a profile. Every
+`Secret` serialises as `********` in JSON, so a profile lifted from a device
+would have carried the mask and set it as the VNC password on every screen it
+touched — a working password that anybody who has read this repository knows,
+on a service that hands over control of the screen. Worse than the wireless
+case, which is at least recoverable with site visits.
+
+`refusesProfile` now asks `reflect.TypeOf(Configuration{})` for every path
+whose type is `Secret`, and a secret found inside a list refuses the whole list,
+since a list is managed whole. It finds five today and will find a sixth the
+day somebody adds one. `web.passwordHash` stays on the hand-written list as the
+exception in the other direction: it is a plain string rather than a `Secret`.
+
+The list was right about four out of five, and would have gone on being right
+about four out of five. That is how these lists fail — not by being wrong, by
+being one item short.
+
 **2026-09-01 — one credential store, not two.** The playlist half needs a
 dashboard login the slide references by name while the device holds the secret;
 wireless needs the same thing for a passphrase when a profile names an SSID.

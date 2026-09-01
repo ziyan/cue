@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -191,7 +192,92 @@ func refusesProfile(key string) bool {
 			return true
 		}
 	}
-	return false
+	return secretPaths()[key]
+}
+
+// secretPaths is every place in the configuration a Secret can be, as dotted
+// key paths, asked of the schema rather than remembered in a list.
+//
+// A list falls behind the struct, and the consequence for a secret is the
+// worst kind. Every Secret serialises as the redaction mask in JSON, so a
+// profile lifted from a device carries "********" and applying it writes that
+// literal string on every screen it touches: for a wireless passphrase, a
+// fleet off the air; for the VNC password, a working password that anybody who
+// has read this repository knows, on a service that hands over control of the
+// screen. That last one was reachable by a profile until this existed.
+//
+// A secret inside a list makes the whole list refused, because a list is
+// managed whole -- there is no taking the parts of playlist.items that are not
+// a password.
+func secretPaths() map[string]bool {
+	paths := map[string]bool{}
+	collectSecretPaths(reflect.TypeOf(Configuration{}), "", paths)
+	return paths
+}
+
+// collectSecretPaths walks a struct and reports whether a Secret was found
+// anywhere beneath it.
+func collectSecretPaths(structure reflect.Type, prefix string, into map[string]bool) bool {
+	if structure.Kind() == reflect.Pointer {
+		structure = structure.Elem()
+	}
+	if structure.Kind() != reflect.Struct {
+		return false
+	}
+
+	found := false
+	for index := range structure.NumField() {
+		field := structure.Field(index)
+		name := yamlName(field)
+		if name == "" {
+			continue
+		}
+		here := name
+		if prefix != "" {
+			here = prefix + "." + name
+		}
+
+		fieldType := field.Type
+		if fieldType.Kind() == reflect.Pointer {
+			fieldType = fieldType.Elem()
+		}
+
+		switch {
+		case fieldType == reflect.TypeOf(Secret("")):
+			into[here] = true
+			found = true
+
+		case fieldType.Kind() == reflect.Slice:
+			// A list is one key. If anything inside it is a secret, the key is
+			// the list, and the list is refused entire.
+			if collectSecretPaths(fieldType.Elem(), here, map[string]bool{}) {
+				into[here] = true
+				found = true
+			}
+
+		case fieldType.Kind() == reflect.Struct:
+			if collectSecretPaths(fieldType, here, into) {
+				found = true
+			}
+		}
+	}
+	return found
+}
+
+// yamlName is the key a field is written under, or "" for one that is not
+// written at all.
+func yamlName(field reflect.StructField) string {
+	tag := field.Tag.Get("yaml")
+	if tag == "-" {
+		return ""
+	}
+	if comma := strings.Index(tag, ","); comma >= 0 {
+		tag = tag[:comma]
+	}
+	if tag == "" {
+		return strings.ToLower(field.Name)
+	}
+	return tag
 }
 
 func valueAt(node map[string]interface{}, path []string) (interface{}, bool) {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -290,5 +291,66 @@ network:
 	}
 	if contains(configuration.Service.ProfileKeys, "network.interfaces") {
 		t.Error("the refused list entered the managed set")
+	}
+}
+
+// No secret may ever arrive in a profile, and this asks the schema rather than
+// a list.
+//
+// A hand-written refusal list falls behind the struct, and both halves of this
+// feature have now been bitten by that in one day. The consequence here is the
+// worst kind: every Secret serialises as "********" in JSON, so a profile
+// lifted from a device carries the mask, and applying it writes that literal
+// string as the value on every screen it touches. For a wireless passphrase
+// that is a fleet off the air; for vnc.password it is a working password that
+// anybody who has read this repository knows, on a service that hands over
+// control of the screen.
+//
+// So the question is asked of reflect: find every Secret reachable in the
+// configuration, and require that a profile naming it changes nothing.
+func TestNoSecretCanArriveInAProfile(t *testing.T) {
+	paths := secretPaths()
+	if len(paths) == 0 {
+		t.Fatal("found no secrets in the schema at all, which cannot be right")
+	}
+
+	for path := range paths {
+		t.Run(path, func(t *testing.T) {
+			configuration := Default()
+			before, err := yaml.Marshal(configuration)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// The document a service would send if it had lifted this off a
+			// device: the redaction mask, at that path.
+			document := map[string]interface{}{}
+			node := document
+			steps := strings.Split(path, ".")
+			for index, step := range steps {
+				if index == len(steps)-1 {
+					node[step] = "********"
+					break
+				}
+				branch := map[string]interface{}{}
+				node[step] = branch
+				node = branch
+			}
+
+			if _, err := configuration.ApplyProfile(document); err != nil {
+				t.Fatalf("applying: %s", err)
+			}
+
+			after, err := yaml.Marshal(configuration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(before) != string(after) {
+				t.Errorf("a profile naming %s changed the configuration", path)
+			}
+			if contains(configuration.Service.ProfileKeys, path) {
+				t.Errorf("%s entered the managed set", path)
+			}
+		})
 	}
 }
