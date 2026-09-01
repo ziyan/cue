@@ -20,6 +20,7 @@ type Configuration struct {
 	Network  Network  `yaml:"network" json:"network"`
 	Audio    Audio    `yaml:"audio" json:"audio"`
 	Time     Time     `yaml:"time" json:"time"`
+	Service  Service  `yaml:"service" json:"service"`
 	Upgrade  Upgrade  `yaml:"upgrade" json:"upgrade"`
 
 	// IgnoredSettings are the names in the file that this version has no
@@ -61,15 +62,88 @@ type Device struct {
 	// clock, which is shared, and which is what the time section is about.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone"`
 
-	// Language is what the device says on its own screen: the menu somebody
-	// opens at the display, and anything else shown there. A language tag such
-	// as "en", "zh" or "ja"; empty means English.
+	// Language is what this screen speaks: the menu somebody opens at the
+	// display, and the pages it shows. A language tag such as "en", "zh" or
+	// "ja"; empty leaves the browser to decide for itself, which is usually
+	// the machine's locale.
+	//
+	// It is the default rather than the last word. Somebody standing at the
+	// screen can pick another from the menu, and that choice is written back
+	// here -- so a screen ends up speaking whatever the last person to decide
+	// chose, whether they decided in this file or in front of it.
+	//
+	// It reaches the pages as well as the menu, which it did not at first:
+	// Chromium is given --lang and --accept-lang, so a dashboard that speaks
+	// more than one language is asked for this one. Chromium reads those once
+	// at start-up, so changing this restarts the browser.
 	//
 	// It is kept here as well as in the browser because a browser profile is
 	// not a durable place. Wiping it is one of the things the watchdog does
 	// when a screen wedges, and a device that forgot which language it spoke
 	// every time it recovered would be a poor thing to live with.
 	Language string `yaml:"language,omitempty" json:"language"`
+}
+
+// Service is the hosted side this device may be attached to, and the
+// credential it holds once it is.
+//
+// A device works entirely on its own with none of this set, which is the
+// normal state and the one everything else in this file assumes. Linking is
+// something an operator chooses, from the menu or the interface, and it adds
+// somewhere to report to rather than somewhere to be run from.
+type Service struct {
+	// Address is where the service lives, as a URL a phone could open.
+	// DefaultServiceAddress unless this file says otherwise.
+	//
+	// Settable in the file but not from the web interface, and the difference
+	// is deliberate. Ordinary operators have one service and no reason to name
+	// it; offering the field made an empty box the first thing on the page and
+	// invited somebody to type something that could only be wrong. It stays in
+	// the file because a device does sometimes need pointing at a staging
+	// service or a deployment that is not the public one, and that is a
+	// decision made by whoever installs the device rather than by whoever
+	// finds the page.
+	Address string `yaml:"address,omitempty" json:"address"`
+
+	// Secret is what the service issued when this device was linked, and what
+	// it presents when it connects. Never leaves the device again: it renders
+	// as a placeholder everywhere outside this file, and RestoreSecrets is
+	// what stops the interface erasing it by saving a form.
+	Secret Secret `yaml:"secret,omitempty" json:"secret"`
+
+	// Account and DeviceID are what the service said this device became. They
+	// are held for the interface to show -- somebody who has just linked a
+	// screen wants to see which account it went to, and somebody looking at it
+	// a year later wants to know before they unlink it.
+	//
+	// Account is masked by the service before it is sent, because this one is
+	// displayed on the screen itself: a wall in a lobby is no place for
+	// somebody's email address.
+	Account  string `yaml:"account,omitempty" json:"account"`
+	DeviceID string `yaml:"deviceId,omitempty" json:"deviceId"`
+
+	// Name is what the service calls this device, which is not always what
+	// this device calls itself. An account cannot have two devices of the same
+	// name, so a second screen called "carbon" is recorded there as "carbon
+	// 2". The service's name is the one that matches the two systems up, so it
+	// is kept and shown rather than assuming the local name carried.
+	Name string `yaml:"name,omitempty" json:"name"`
+}
+
+// DefaultServiceAddress is where a device reports to unless its file says
+// otherwise. Compiled in rather than asked for: it is the same for every
+// device anybody will ever install, and a setting whose right answer is always
+// the same is a setting that only offers a way to be wrong.
+const DefaultServiceAddress = "https://cue.sh"
+
+// IsConfigured reports whether there is a service to link to at all.
+func (self *Service) IsConfigured() bool {
+	return self.Address != ""
+}
+
+// IsLinked reports whether this device holds a credential.
+func (self *Service) IsLinked() bool {
+	return self.Secret.IsSet()
 }
 
 // Log controls what the daemon writes to its standard error, which in a
@@ -161,6 +235,26 @@ type Display struct {
 	// ModeName names the mode Modeline defines, so that an output can select
 	// it. Defaults to "cue".
 	ModeName string `yaml:"modeName,omitempty" json:"modeName"`
+
+	// Mirror shows the same picture on every screen that is plugged in,
+	// rather than laying them out side by side into one wide desktop.
+	//
+	// On by default, because this is a daemon for showing one page on a
+	// screen. A second screen plugged into one of these is almost always
+	// another place to show the same thing -- a second monitor in the next
+	// room, a projector in a meeting room -- and laying them out side by side
+	// gives a page stretched across two screens with half of it on each,
+	// which nobody wants and which looks like a fault.
+	//
+	// It needs a mode both screens have. A laptop panel and a television
+	// usually share one -- the panel's native size is normally in the
+	// television's list -- and when they share nothing at all this falls back
+	// to side by side and says so, rather than blanking one of them.
+	//
+	// Turn it off for a video wall, where two screens really are one wide
+	// picture. Per-output "position" is ignored while this is on: mirroring
+	// is what "both at the same place" means.
+	Mirror bool `yaml:"mirror" json:"mirror"`
 
 	// Outputs configures the physical connectors. An entry whose Name is "*"
 	// applies to every connected output that no other entry names, which is

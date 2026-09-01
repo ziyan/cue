@@ -68,7 +68,15 @@ export function Network() {
         const set = (change: (draft: NetworkSettings) => void) =>
           settings.change((draft) => change(draft.network as unknown as NetworkSettings));
 
-        const interfaces = (state?.interfaces ?? []).filter((one) => one.kind !== "loopback");
+        // Only what somebody would plug a cable into or join a network with.
+        //
+        // The filter used to exclude "loopback", which is not one of the kinds
+        // the daemon reports -- so it matched nothing, and the page listed
+        // docker0, the loopback and every veth a container brought with it.
+        // The daemon calls all of those "virtual", and none of them is
+        // something an operator configures; offering them invites somebody to
+        // try.
+        const interfaces = (state?.interfaces ?? []).filter((one) => one.kind !== "virtual");
 
         return (
           <>

@@ -21,6 +21,10 @@ func Default() *Configuration {
 		Log: Log{
 			Level: "INFO",
 		},
+		Service: Service{
+			// Where every device reports to unless its file says otherwise.
+			Address: DefaultServiceAddress,
+		},
 		Paths: Paths{
 			State:   "/var/lib/cue",
 			Runtime: "/run/cue",
@@ -38,6 +42,7 @@ func Default() *Configuration {
 			ModeName:          "cue",
 			BlankAfter:        0,
 			ReconcileInterval: Duration(5 * time.Second),
+			Mirror:            true,
 		},
 		Browser: Browser{
 			Binary:              "chromium",

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/ziyan/cue/internal/util/security"
 	"os"
 	"path/filepath"
 	"strings"
@@ -469,5 +470,103 @@ func TestTheExampleCarriesNoIdentifier(t *testing.T) {
 	}
 	if !strings.Contains(string(content), `identifier: ""`) {
 		t.Error("the example shows an identifier, which somebody will copy")
+	}
+}
+
+// A device carrying the old sixteen-character identifier is given a ULID.
+//
+// The service takes a device's identifier as its own name for the device and
+// refuses anything that is not a ULID, so an old one could not link at all --
+// and would fail at the far end with nothing on this side to explain it.
+func TestAnOldDeviceIdentifierIsReplaced(t *testing.T) {
+	configuration := Default()
+	configuration.Device.Identifier = "t6ny2v00xad86aj0"
+	configuration.Normalize()
+
+	if configuration.Device.Identifier == "t6ny2v00xad86aj0" {
+		t.Fatal("the old identifier was kept, so this device could not link")
+	}
+	if !security.IsDeviceIdentifier(configuration.Device.Identifier) {
+		t.Errorf("it became %q, which the service would refuse too",
+			configuration.Device.Identifier)
+	}
+}
+
+// And one that is already a ULID is left exactly alone. An identifier that
+// changed on every save would be a device that looked like a different one
+// each time anybody wrote to its file.
+func TestADeviceIdentifierIsGeneratedOnlyOnce(t *testing.T) {
+	configuration := Default()
+	configuration.Normalize()
+	first := configuration.Device.Identifier
+	if first == "" {
+		t.Fatal("a device with no identifier was not given one")
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		configuration.Normalize()
+		if configuration.Device.Identifier != first {
+			t.Fatalf("normalising again changed %q to %q", first, configuration.Device.Identifier)
+		}
+	}
+}
+
+// Two screens flashed from one disk come apart rather than becoming one device
+// on the service, which takes the identifier as its own name.
+func TestClonedDevicesStopSharingAnIdentifier(t *testing.T) {
+	// The same old file, on two machines.
+	first, err := Parse([]byte("device:\n  identifier: t6ny2v00xad86aj0\n  name: carbon\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Parse([]byte("device:\n  identifier: t6ny2v00xad86aj0\n  name: carbon\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Device.Identifier == second.Device.Identifier {
+		t.Errorf("both clones came up as %q, so they would fight over one device",
+			first.Device.Identifier)
+	}
+}
+
+// An identifier that is not a lower case ULID is replaced, whatever is wrong
+// with it: the wrong case, the wrong length, the wrong alphabet, or nothing at
+// all. Everything that reads one is entitled to assume a single spelling.
+func TestAnIdentifierThatIsNotALowerCaseULIDIsReplaced(t *testing.T) {
+	for what, written := range map[string]string{
+		"upper case":                 "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		"mixed case":                 "01arz3ndektsv4rrffq69G5FAV",
+		"the older short identifier": "w3rfksymb3rgs998",
+		"empty":                      "",
+		"not in the alphabet":        "01arz3ndektsv4rrffq69g5fal",
+	} {
+		t.Run(what, func(t *testing.T) {
+			configuration := Default()
+			configuration.Device.Identifier = written
+			configuration.Normalize()
+
+			if configuration.Device.Identifier == written {
+				t.Fatalf("%s was kept: %q", what, configuration.Device.Identifier)
+			}
+			if !security.IsCanonicalDeviceIdentifier(configuration.Device.Identifier) {
+				t.Errorf("replaced with %q, which is not a lower case ULID either",
+					configuration.Device.Identifier)
+			}
+		})
+	}
+}
+
+// The one that is already right is left alone. It is generated once and never
+// changes, and a device that minted a fresh identifier every time its
+// configuration was read would be a new screen to the service every time.
+func TestALowerCaseULIDIsKept(t *testing.T) {
+	const written = "01arz3ndektsv4rrffq69g5fav"
+	configuration := Default()
+	configuration.Device.Identifier = written
+	configuration.Normalize()
+
+	if configuration.Device.Identifier != written {
+		t.Errorf("a good identifier was replaced: %q became %q",
+			written, configuration.Device.Identifier)
 	}
 }

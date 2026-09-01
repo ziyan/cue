@@ -5,13 +5,52 @@ written both by hand and by the web interface, and it is the only place any of
 this is configured — there is no second store and no command line flag that
 sets anything not here.
 
-After editing it by hand, tell the daemon:
+The file is watched. Saving it is enough: the daemon notices within moments
+and applies the change. Sending it a signal does the same thing explicitly,
+which is useful when a file has been replaced in a way inotify cannot see —
+some editors and some network filesystems:
 
     docker kill --signal HUP cue
 
 A file that no longer validates is refused and the configuration already in
 force is kept, so a mistyped duration over a slow connection does not turn the
 screen off.
+
+## What a change does, and when
+
+Almost everything here takes effect as soon as the file is saved. The three
+kinds of change are worth knowing apart, because the second one costs a few
+seconds of black screen and the third does not happen until somebody says so.
+
+**Applied straight away, nothing restarts.** The playlist and everything in
+it, the display arrangement — outputs, modes, wallpaper, blanking, the pointer,
+and the size of the browser's window, which is resized where it stands rather
+than by restarting it — the timezone, the log level, the watchdog's intervals and thresholds, the
+network, the session lifetime, the trusted origins, and how loudly the
+browser's own output is logged.
+
+**Applied by restarting one program.** Some settings are fixed when a program
+is executed and cannot be changed underneath it. Saving one of these restarts
+just that program:
+
+| Change | What restarts |
+| --- | --- |
+| `browser.*`, `device.language`, `audio.enabled`, `audio.sink` | the browser |
+| `vnc.*` | the VNC server |
+| `time.*` | the clock |
+| `display.server`, `display.number`, `display.virtualTerminal`, `display.extraArguments`, `display.xorgConfiguration`, `display.cursor` between drawn and not, and `display.framebuffer` under Xvfb | the X server, and the browser with it |
+
+**Needs cue restarted.** Two settings are deliberately left alone while the
+daemon runs, and it says so in the log when one of them changes:
+
+- `web.listen` — rebinding means closing the socket the operator is talking to
+  and hoping the new address binds. When it does not, the device has no
+  interface at all and no way to take the change back without physical access.
+- `paths.state` and `paths.runtime` — moving these out from under a running X
+  server, browser and VNC server has the same shape and a worse blast radius.
+
+`audio.volume` and `audio.source` are read by nothing at all. They are
+accepted, stored, and have no effect.
 
 The file holds the passwords the screen signs in with. It is written with mode
 0600.
@@ -20,9 +59,25 @@ The file holds the passwords the screen signs in with. It is written with mode
 
     device:
       name: Reception          # shown in the interface and on the screen's own page
-      identifier: 8n4q1v...    # generated once, never changes
+      identifier: 01arz3ndek... # a ULID, generated once, never changes
       location: Ground floor   # free text
       timezone: Europe/London  # empty means UTC
+      language: ja             # empty leaves the browser to decide
+
+`language` is what the screen speaks: the menu somebody opens at the display,
+and the pages it shows. A language tag such as `en`, `zh` or `ja`. Chromium is
+given `--lang` and `--accept-lang`, so a dashboard that speaks more than one
+language is asked for this one; left empty, the browser decides for itself,
+which is usually the machine's locale.
+
+It is the default rather than the last word. Somebody standing at the screen
+can pick another from the menu, and that choice is written back here — so a
+screen speaks whatever the last person to decide chose, whether they decided in
+this file or in front of it.
+
+Changing it restarts the browser. Chromium reads its language once, when it
+starts, so there is no way to apply this to a running one; the screen goes
+black for a few seconds.
 
 ## log
 
@@ -46,6 +101,7 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
       number: 0                # the X display number
       virtualTerminal: 2       # the console to draw on: 2 means /dev/tty2
       wallpaper: true         # the Cue mark, until the browser has drawn
+      mirror: true             # every screen shows the same picture
       cursor: auto            # hidden, auto, or always
       cursorIdleTimeout: 3s   # how long it stays up after it stops moving
       framebuffer: ""          # force a size, e.g. 1920x1080, for a television that lies
@@ -59,7 +115,7 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
         - name: "*"            # a socket name like HDMI-1, or * for anything unnamed
           mode: preferred      # preferred, off, or 1920x1080
           rate: 0              # hertz, when several modes share a size
-          position: 0x0        # where it sits; every output at 0x0 is mirrored
+          position: 0x0        # where it sits, when mirror is off
           rotate: normal       # normal, left, right, inverted
           primary: false
 
@@ -114,6 +170,23 @@ pointer up like any other machine.
 `true` and `false` are still accepted and mean `always` and `hidden`: that is
 what this setting used to be, and it is written into the file of every device
 already in service.
+
+`mirror` decides what a second screen is for. On, which is the default, every
+screen shows the same picture: they are all put on the largest size they all
+have, at the same origin. Off, they are laid out side by side into one wide
+desktop and `position` decides where each one sits.
+
+On is the default because this is a daemon for showing one page on a screen,
+and a second screen plugged into one of these is almost always another place to
+show the same thing. Laid out side by side, a laptop panel and a television
+make one very wide desktop with the page stretched across both and half of it
+on each — which looks like a fault rather than a layout. Turn it off for a
+video wall, where two screens really are one picture.
+
+Mirroring needs a size both screens have. A laptop panel and a television
+usually share one, because the panel's native size is normally somewhere in the
+television's list. When they share nothing at all, cue lays them out side by
+side and says so in the log rather than blanking one of them.
 
 ## browser
 
@@ -411,6 +484,77 @@ server, works out that the clock is wrong, and cannot do anything about it —
 which produces a device showing certificate errors with a healthy-looking time
 client on it.
 
+`identifier` is a ULID: twenty-six characters of Crockford base32 in lower
+case, a timestamp followed by randomness. It is generated on first run and never changes, and it
+is the name the hosted service uses for this device as well — one name for one
+thing, rather than the service minting a second beside it.
+
+An identifier that is not a lower case ULID is replaced the next time the
+configuration is read — the older sixteen-character one, and the upper case
+ULIDs an earlier version wrote. That is a deliberate exception to "never
+changes". The service refuses anything that is not a ULID, so an old short one
+could not link at all, and everything that reads an identifier is entitled to
+assume a single spelling rather than checking two.
+
+A device whose identifier is replaced is a new screen the next time it links,
+with none of the history of the old one. A device that is *already* linked
+keeps working and keeps its row: the identifier crosses the wire only on the
+link request, and every request after that carries the credential instead.
+
+One consequence worth knowing if you flash disks. Two screens imaged from the
+same disk used to share an identifier harmlessly, because the service minted
+its own name for each. Now they would be one device, so each of them
+regenerates when it first reads a file carrying an old identifier — which
+separates clones made from an image built before this. Clones of a disk that
+already carries a ULID will still collide, and the second one to link takes the
+first one's place.
+
+## service
+
+    service:
+      address: https://example.com
+      secret: ""
+      account: ""
+      deviceId: ""
+      name: ""
+
+Where this device reports to, and the credential it holds once it is attached.
+All of it is empty on a device that has never been linked, which is the normal
+state: a device works entirely on its own with none of this set.
+
+`address` is the only field an operator sets, and it is set here or not at
+all: it has no control in the web interface, and a save from there cannot
+change it. Every device reports to the same place, so a box on the page would
+be an invitation to type something that could only be wrong. Left out, it is
+`https://cue.sh`. Naming a different one — a staging service, a deployment that
+is not the public one — is a decision for whoever installs the device.
+
+A linked device is managed from the account it is linked to: its settings and
+its screen can be reached from the service, without this device's password.
+That is what linking is for, and linking is where somebody chooses it.
+
+There is no way to say "no service". An empty address is filled in rather than
+meaning off, and nothing is given away by having one: a device contacts the
+service only when somebody presses Link, so what keeps a device to itself is
+being unlinked.
+ The rest are written by the
+device when a link completes and are read back only to be shown: `secret` is
+what it presents when it connects, and is never sent to the interface or
+written to the log; `account`, `deviceId` and `name` are what the service said
+this device became.
+
+`account` arrives already masked — `s•••@example.com` — because it is
+displayed on the screen itself, and a wall in a lobby is no place for
+somebody's email address. `name` is what the service calls this device, which
+is not always what the device calls itself: an account cannot hold two devices
+of one name, so a second screen calling itself `carbon` is recorded there as
+`carbon 2`. The service's name is the one that matches the two systems up, so
+it is kept and shown.
+
+Linking is started from the menu at the screen or from the Service page of the
+web interface, and finished on a phone. See `docs/planning/active/`. The
+address is configurable rather than compiled in so that a device can be pointed
+at a staging service without a different image.
 ## upgrade
 
     upgrade:

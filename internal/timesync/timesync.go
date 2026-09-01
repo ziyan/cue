@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/op/go-logging"
@@ -43,6 +44,21 @@ type Client struct {
 	configFilename   string
 	runtimeDirectory string
 	driftDirectory   string
+
+	mutex sync.Mutex
+	// startedWith is the time settings the running chronyd was actually
+	// started with, so that the daemon can tell whether a change has reached
+	// it. Compared against the running process rather than the previous
+	// configuration, so a restart which failed is retried on the next change.
+	startedWith config.Time
+}
+
+// StartedWith is the settings the running client was started with. The zero
+// value means it has never been started.
+func (self *Client) StartedWith() config.Time {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.startedWith
 }
 
 // socketPath is where chronyd listens for chronyc.
@@ -142,6 +158,10 @@ func chronyAccountIds() (int, int) {
 // without anybody editing a second file.
 func (self *Client) prepare(ctx context.Context) error {
 	settings := self.configuration().Time
+
+	self.mutex.Lock()
+	self.startedWith = settings
+	self.mutex.Unlock()
 
 	var builder strings.Builder
 	builder.WriteString("# Written by cue from the time section of cue.yaml.\n")

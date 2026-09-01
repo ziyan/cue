@@ -28,6 +28,7 @@ import { Network } from "./pages/Network";
 // screen. Loaded when that happens.
 const Screen = lazy(() => import("./pages/Screen").then((module) => ({ default: module.Screen })));
 import { Upgrade } from "./pages/Upgrade";
+import { Service } from "./pages/Service";
 import { allPages } from "./pages";
 
 // The pages that have been moved across. Anything not in here still shows a
@@ -45,6 +46,7 @@ const ported: Record<string, React.ReactElement> = {
   "/content": <Content />,
   "/network": <Network />,
   "/screen": <Suspense fallback={<Waiting />}><Screen /></Suspense>,
+  "/service": <Service />,
   "/upgrade": <Upgrade />,
 };
 

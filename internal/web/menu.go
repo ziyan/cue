@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"image/png"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -33,6 +34,25 @@ import (
 // again; changing a URL or a timezone is work for a keyboard and the web
 // interface. Restricting it to actions also means nothing here can leave the
 // device in a state somebody has to undo.
+
+// serviceName is what to call the service on a tile: its host, and nothing
+// else.
+//
+// "cue.sh" says where this screen reports to; "Link" said what pressing the
+// tile does, which is what somebody has already decided by looking for it. The
+// name is also the answer to the question a person actually has in front of a
+// screen they did not set up.
+//
+// Not translated, because a hostname is not a word.
+func serviceName(address string) string {
+	parsed, err := url.Parse(strings.TrimSpace(address))
+	if err != nil || parsed.Host == "" {
+		// Nothing sensible to show, so the tile keeps the word -- still true,
+		// if less useful.
+		return ""
+	}
+	return parsed.Host
+}
 
 // menu renders the page shown inside the overlay.
 func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
@@ -94,6 +114,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 		"NeedsWord":  self.isSetUp(),
 		"Pass":       pass,
 		"Upgrade":    upgradeVersion,
+		"Service":    serviceName(configuration.Service.Address),
 		"Language":   configuration.Device.Language,
 		"Mark":       template.URL("data:image/png;base64," + smallMark()),
 	}); err != nil {
@@ -205,8 +226,18 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     border-radius: calc(var(--step) * 1.4); padding: calc(var(--step) * 2.4);
     box-shadow: 0 2vmin 6vmin rgba(0,0,0,0.6);
     display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
-  #network, #wireless, #wired, #confirm, #gate, #screen {
+  #network, #wireless, #wired, #confirm, #gate, #screen, #link, #restart {
     display: flex; flex-direction: column; gap: calc(var(--step) * 1.6); }
+
+  /* The code, which is the whole point of this panel and had no size at all.
+     An SVG carrying only a viewBox has no dimensions of its own, so an img
+     with no width and no height had nothing to be: the picture was fetched,
+     was valid, and drew as nothing. Sized in vmin like everything else here,
+     because this is read from across a room -- and with a white margin around
+     it, since a scanner needs quiet space at the edges and the panel behind
+     is nearly black. */
+  #link-code { width: 34vmin; height: 34vmin; align-self: center;
+    padding: 1.2vmin; border-radius: var(--step); background: #e9edf2; }
 
   header { display: flex; align-items: center; gap: calc(var(--step) * 1.4); }
   header img { width: 6vmin; height: 6vmin; flex: none; }
@@ -236,6 +267,21 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   .facts b { color: #e7ecf3; font-weight: 600; }
 
   .actions { display: grid; gap: var(--step); }
+
+  /* The first level: a name and a picture, nothing else.
+     It was a column of nine buttons each carrying a sentence explaining
+     itself, which is a page to read while standing in front of a screen. The
+     explanations belong where a choice is consequential -- see the restart
+     panel, which keeps them -- and not against "Next". */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: var(--step); }
+  .tiles button { display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: calc(var(--step) * 0.7); text-align: center;
+    padding: calc(var(--step) * 1.6) calc(var(--step) * 0.8); }
+  .tiles svg { width: 4vmin; height: 4vmin; display: block; fill: none;
+    stroke: currentColor; stroke-width: 1.6; stroke-linecap: round;
+    stroke-linejoin: round; }
+  .tiles .what { font-size: 1.8vmin; }
 
   button { all: unset; box-sizing: border-box; cursor: pointer;
     padding: calc(var(--step) * 1.2) calc(var(--step) * 1.5);
@@ -284,16 +330,13 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
      is the one place it cannot be relied on: the panel scrolls when the
      network form is open, so on a short screen the way out sat below the fold
      exactly when somebody most wanted it. */
-  #dismiss { padding: calc(var(--step) * 1.1); color: #9fb0c5; background: #131920;
-    display: grid; place-items: center; flex: none; cursor: pointer;
-    min-width: 7vmin; min-height: 7vmin; touch-action: manipulation; }
+  #dismiss { padding: calc(var(--step) * 0.7); color: #9fb0c5; background: #131920;
+    display: grid; place-items: center; flex: none; cursor: pointer; }
   #dismiss:hover { color: #ffc9d1; border-color: #ffc9d1; }
-  /* Pressed is worth showing. Closing takes a moment -- the daemon is told
-     to put the tab back, and only then does anything move -- and without
-     this the press looked like it had been missed, so it was pressed
-     again. */
+  /* Pressed is worth showing. Closing takes a moment -- the daemon is told to
+     put the tab back, and only then does anything move. */
   #dismiss:active, #dismiss[aria-disabled="true"] { color: #ffc9d1; background: #1f2731; }
-  #dismiss svg { width: 3.2vmin; height: 3.2vmin; display: block; pointer-events: none; }
+  #dismiss svg { width: 2.6vmin; height: 2.6vmin; display: block; pointer-events: none; }
 
   #working { color: #9fb0c5; margin: 0; }
 </style>
@@ -324,7 +367,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     </button>
   </header>
 
-  <p class="facts">
+  <p class="facts" id="facts">
     <b>{{ .Addresses }}</b><br>
     <span data-t="wireless-is"></span> <b id="joined">{{ .Network }}</b><br>
     {{ .Identifier }} · {{ .Version }} · <span data-t="up-for"></span> {{ .Uptime }}
@@ -342,27 +385,57 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     <div class="actions"><button id="unlock"><span class="what" data-t="continue"></span></button></div>
   </div>
 
-  <div class="actions" id="actions">
-    <button data-do="next"><span class="what" data-t="next"></span>
-      <span class="why" data-t="next-why"></span></button>
-    <button data-do="reload"><span class="what" data-t="reload"></span>
-      <span class="why" data-t="reload-why"></span></button>
-    <button data-do="network"><span class="what" data-t="network"></span>
-      <span class="why" data-t="network-why"></span></button>
-    <button data-do="screen"><span class="what" data-t="screen"></span>
-      <span class="why" data-t="screen-why"></span></button>
+  <div class="tiles" id="actions">
+    <button data-do="reload">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6.3"></path><path d="M20 5v6h-6"></path></svg>
+      <span class="what" data-t="tile-reload"></span></button>
+    <button data-do="network">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.5a16 16 0 0 1 20 0"></path><path d="M5 12a11 11 0 0 1 14 0"></path><path d="M8.5 15.5a6 6 0 0 1 7 0"></path><path d="M12 19h.01"></path></svg>
+      <span class="what" data-t="tile-network"></span></button>
+    <button data-do="screen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"></rect><path d="M8 20h8"></path><path d="M12 16v4"></path></svg>
+      <span class="what" data-t="tile-display"></span></button>
+    <button data-do="link">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.5 19a4.5 4.5 0 0 0 .3-9 6.5 6.5 0 0 0-12.4 2A3.9 3.9 0 0 0 6 19z"></path></svg>
+      <span class="what">{{ if .Service }}{{ .Service }}{{ else }}<span data-t="tile-link"></span>{{ end }}</span></button>
     {{ if .Upgrade }}
-    <button data-do="upgrade"><span class="what" data-t="upgrade"></span>
-      <span class="why"><span data-t="upgrade-why"></span> {{ .Upgrade }}</span></button>
+    <button data-do="upgrade">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M4 20h16"></path></svg>
+      <span class="what" data-t="tile-update"></span></button>
     {{ end }}
-    <button data-do="restart-browser" class="danger"><span class="what" data-t="restart-browser"></span>
-      <span class="why" data-t="restart-browser-why"></span></button>
-    <button data-do="restart-display" class="danger"><span class="what" data-t="restart-display"></span>
-      <span class="why" data-t="restart-display-why"></span></button>
-    {{ if not .SettingUp }}
-    <button data-do="wireless" class="danger"><span class="what" data-t="wireless-again"></span>
-      <span class="why" data-t="wireless-again-why"></span></button>
-    {{ end }}
+    <button data-do="restart">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"></path><path d="M6.5 6.5a8 8 0 1 0 11 0"></path></svg>
+      <span class="what" data-t="tile-restart"></span></button>
+  </div>
+
+  <!-- The second level. These three are worth a sentence each: they are the
+       ones that make the screen go black, and somebody choosing between them
+       is choosing how big a hammer to use. -->
+  <div id="restart" hidden>
+    <div class="actions">
+      <button data-do="restart-browser" class="danger">
+        <span class="what" data-t="restart-browser"></span>
+        <span class="why" data-t="restart-browser-why"></span></button>
+      <button data-do="restart-display" class="danger">
+        <span class="what" data-t="restart-display"></span>
+        <span class="why" data-t="restart-display-why"></span></button>
+      {{ if not .SettingUp }}
+      <button data-do="wireless" class="danger">
+        <span class="what" data-t="wireless-again"></span>
+        <span class="why" data-t="wireless-again-why"></span></button>
+      {{ end }}
+      <button id="restart-back" class="quiet"><span class="what" data-t="back"></span></button>
+    </div>
+  </div>
+
+  <div id="link" hidden>
+    <p class="facts" data-t="link-explain"></p>
+    <img id="link-code" alt="" hidden>
+    <p class="facts" id="link-said"></p>
+    <div class="actions">
+      <button id="link-again" hidden><span class="what" data-t="link-again"></span></button>
+      <button id="link-back" class="quiet"><span class="what" data-t="back"></span></button>
+    </div>
   </div>
 
   <div id="network" hidden>
@@ -455,8 +528,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // to open the menu on this screen gets the language the last one chose.
   const SAID = {
     en: {
-      "language-name": "English", "best": "recommended", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "upgrade": "Update this screen", "upgrade-why": "A newer version is available:", "ask-upgrade": "Update now? The screen goes blank for about a minute and comes back on its own. If the new version will not start, this device puts the old one back.", "doing-upgrade": "Fetching the update. The screen will go blank and come back.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
-      "next": "Show the next item", "next-why": "Move the screen on now",
+      "language-name": "English", "tile-reload": "Reload", "tile-network": "Network", "tile-display": "Display", "tile-link": "Link", "tile-update": "Update", "tile-restart": "Restart", "best": "recommended", "link": "Link to the service", "link-why": "Attach this screen to an account", "link-explain": "Scan this with a phone, sign in, and authorise this screen.", "link-waiting": "Waiting for somebody to authorise it\u2026", "link-checking": "Authorised. Checking the credential works\u2026", "link-again": "Show a new code", "link-done": "Linked. This screen now belongs to", "link-failed": "That did not work.", "link-nowhere": "No service address is set for this device.", "doing-screen": "Setting up the picture. The screen may flicker.", "screen": "Set up the picture", "screen-why": "How big it is, and which way up", "which-screen": "Which screen", "how-big": "How big", "which-way-up": "Which way up", "up-normal": "The usual way", "up-right": "Turned right", "up-left": "Turned left", "up-inverted": "Upside down", "locked-explain": "This screen already belongs to somebody. Enter its password to change it.", "word-label": "Password", "word-wrong": "That is not the password.", "choose-explain": "This screen has no password yet. Choose one now: it is what will be asked for the next time somebody opens this menu.", "word-again-label": "Type it again", "word-short": "At least eight characters.", "word-mismatch": "Those two are not the same.", "word-refused": "That password was not accepted.", "upgrade": "Update this screen", "upgrade-why": "A newer version is available:", "ask-upgrade": "Update now? The screen goes blank for about a minute and comes back on its own. If the new version will not start, this device puts the old one back.", "doing-upgrade": "Fetching the update. The screen will go blank and come back.", "continue": "Continue", "wireless-is": "Wireless:", "not-connected": "not connected", "up-for": "up",
+      
       "reload": "Reload what is on screen",
       "reload-why": "For a dashboard that has stopped updating",
       "network": "Set up the network",
@@ -480,7 +553,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "ask-restart-browser": "Restart the browser? The screen goes black for a few seconds.",
       "ask-restart-display": "Restart the screen? It rebuilds the display and takes longer.",
       "ask-wireless": "Forget this wireless network and show the setup code?",
-      "doing-next": "Moving on.", "doing-reload": "Reloading.",
+      "doing-reload": "Reloading.",
       "doing-restart-browser": "Restarting the browser.",
       "doing-restart-display": "Restarting the screen.",
       "doing-wireless": "Setting up. The code will be on this screen in a moment.",
@@ -488,8 +561,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "Setting up {0}. This screen may lose its connection for a moment.",
     },
     zh: {
-      "language-name": "中文", "best": "推荐", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "upgrade": "更新此屏幕", "upgrade-why": "有新版本可用：", "ask-upgrade": "现在更新？屏幕将黑屏约一分钟后自动恢复。如果新版本无法启动，设备会自动恢复到旧版本。", "doing-upgrade": "正在获取更新。屏幕将黑屏后恢复。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
-      "next": "显示下一项", "next-why": "立即切换到下一个内容",
+      "language-name": "中文", "tile-reload": "刷新", "tile-network": "网络", "tile-display": "显示", "tile-link": "关联", "tile-update": "更新", "tile-restart": "重启", "best": "推荐", "link": "关联到服务", "link-why": "将此屏幕关联到账号", "link-explain": "用手机扫描，登录后授权此屏幕。", "link-waiting": "等待授权中…", "link-checking": "已授权。正在验证凭据…", "link-again": "显示新的二维码", "link-done": "已关联。此屏幕归属于", "link-failed": "未能完成。", "link-nowhere": "此设备未设置服务地址。", "doing-screen": "正在设置画面。屏幕可能会闪烁。", "screen": "设置画面", "screen-why": "分辨率和方向", "which-screen": "选择屏幕", "how-big": "分辨率", "which-way-up": "方向", "up-normal": "正常", "up-right": "向右旋转", "up-left": "向左旋转", "up-inverted": "倒置", "locked-explain": "此屏幕已有归属。请输入密码后再进行更改。", "word-label": "密码", "word-wrong": "密码不正确。", "choose-explain": "此屏幕尚未设置密码。请现在设置：下次打开此菜单时需要输入。", "word-again-label": "再次输入", "word-short": "至少八位。", "word-mismatch": "两次输入不一致。", "word-refused": "密码未被接受。", "upgrade": "更新此屏幕", "upgrade-why": "有新版本可用：", "ask-upgrade": "现在更新？屏幕将黑屏约一分钟后自动恢复。如果新版本无法启动，设备会自动恢复到旧版本。", "doing-upgrade": "正在获取更新。屏幕将黑屏后恢复。", "continue": "继续", "wireless-is": "无线：", "not-connected": "未连接", "up-for": "已运行",
+      
       "reload": "重新加载当前页面",
       "reload-why": "适用于已停止更新的看板",
       "network": "设置网络",
@@ -513,7 +586,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "ask-restart-browser": "重启浏览器？屏幕会黑屏几秒钟。",
       "ask-restart-display": "重启显示？将重建显示系统，耗时较长。",
       "ask-wireless": "忘记当前无线网络并显示设置二维码？",
-      "doing-next": "正在切换。", "doing-reload": "正在重新加载。",
+      "doing-reload": "正在重新加载。",
       "doing-restart-browser": "正在重启浏览器。",
       "doing-restart-display": "正在重启显示。",
       "doing-wireless": "正在设置。稍后此屏幕上会显示设置二维码。",
@@ -521,8 +594,8 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "doing-wired": "正在设置 {0}。此屏幕可能会短暂断开连接。",
     },
     ja: {
-      "language-name": "日本語", "best": "推奨", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "upgrade": "この画面を更新", "upgrade-why": "新しいバージョンがあります:", "ask-upgrade": "今すぐ更新しますか？画面は約1分間暗くなり、自動的に復帰します。新しいバージョンが起動しない場合は、元のバージョンに戻します。", "doing-upgrade": "更新を取得しています。画面が暗くなってから復帰します。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
-      "next": "次の項目を表示", "next-why": "今すぐ次の内容に切り替えます",
+      "language-name": "日本語", "tile-reload": "再読込", "tile-network": "ネットワーク", "tile-display": "画面", "tile-link": "連携", "tile-update": "更新", "tile-restart": "再起動", "best": "推奨", "link": "サービスと連携", "link-why": "この画面をアカウントに紐づけます", "link-explain": "スマートフォンで読み取り、サインインして承認してください。", "link-waiting": "承認を待っています…", "link-checking": "承認されました。認証情報を確認しています…", "link-again": "新しいコードを表示", "link-done": "連携しました。この画面の所有者：", "link-failed": "完了できませんでした。", "link-nowhere": "このデバイスにはサービスのアドレスが設定されていません。", "doing-screen": "画面を設定しています。表示が一瞬乱れることがあります。", "screen": "画面を設定", "screen-why": "解像度と向き", "which-screen": "画面を選択", "how-big": "解像度", "which-way-up": "向き", "up-normal": "標準", "up-right": "右に回転", "up-left": "左に回転", "up-inverted": "上下反転", "locked-explain": "この画面には所有者がいます。変更するにはパスワードを入力してください。", "word-label": "パスワード", "word-wrong": "パスワードが違います。", "choose-explain": "この画面にはまだパスワードがありません。今すぐ設定してください。次回このメニューを開くときに必要になります。", "word-again-label": "もう一度入力", "word-short": "8文字以上にしてください。", "word-mismatch": "入力が一致しません。", "word-refused": "パスワードが受け付けられませんでした。", "upgrade": "この画面を更新", "upgrade-why": "新しいバージョンがあります:", "ask-upgrade": "今すぐ更新しますか？画面は約1分間暗くなり、自動的に復帰します。新しいバージョンが起動しない場合は、元のバージョンに戻します。", "doing-upgrade": "更新を取得しています。画面が暗くなってから復帰します。", "continue": "続ける", "wireless-is": "無線：", "not-connected": "未接続", "up-for": "稼働",
+      
       "reload": "表示中のページを再読み込み",
       "reload-why": "更新が止まったダッシュボード向け",
       "network": "ネットワークを設定",
@@ -546,7 +619,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       "ask-restart-browser": "ブラウザを再起動しますか？画面が数秒間暗くなります。",
       "ask-restart-display": "ディスプレイを再起動しますか？表示システムを作り直すため、少し時間がかかります。",
       "ask-wireless": "現在の無線ネットワークを削除して、設定用コードを表示しますか？",
-      "doing-next": "次に進みます。", "doing-reload": "再読み込みしています。",
+      "doing-reload": "再読み込みしています。",
       "doing-restart-browser": "ブラウザを再起動しています。",
       "doing-restart-display": "ディスプレイを再起動しています。",
       "doing-wireless": "設定中です。まもなくこの画面に設定用コードが表示されます。",
@@ -688,10 +761,15 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   // a device somebody never finished setting up, and letting the next passer-by
   // change its network on that basis is the hole this closes.
   const gate = document.getElementById("gate");
+  const facts = document.getElementById("facts");
   const hasWord = {{ if .NeedsWord }}true{{ else }}false{{ end }};
   {
     gate.hidden = false;
     actions.hidden = true;
+    // Its addresses, its identifier, its version and how long it has been up
+    // are not for somebody who has not yet shown they are allowed to be here.
+    // Whoever is standing at the screen can read all of it once they are in.
+    facts.hidden = true;
 
     const word = document.getElementById("word");
     const again = document.getElementById("again");
@@ -742,6 +820,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
           return;
         }
         gate.hidden = true;
+        facts.hidden = false;
         actions.hidden = false;
       }).catch(() => { complain(hasWord ? "word-wrong" : "word-refused"); });
     };
@@ -758,13 +837,21 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   let closing = false;
 
   function close() {
-    // Pressed twice is one close. The second press used to send the whole
-    // set of calls again and reset the way out, which made a slow close
-    // slower.
-    if (closing) return;
-    closing = true;
-    dismiss.setAttribute("aria-disabled", "true");
-    clearInterval(keepHolding);
+    // The requests go once; the way out is tried on every press.
+    //
+    // This used to return early once closing had begun, and that is what made
+    // the X unresponsive. Leaving is not guaranteed: the daemon moves this tab
+    // and may not, and the fallback below needs either an address to go to or
+    // a history to go back through, neither of which a tab whose history has
+    // been reset has. When none of that worked the menu stayed on the screen
+    // with the guard still set, so every press afterwards did nothing at all
+    // and the only way out was restarting the browser.
+    //
+    // A press that achieves nothing has to be repeatable. So the calls that
+    // must not be repeated are guarded and the escape is not.
+    if (!closing) {
+      closing = true;
+      clearInterval(keepHolding);
     // keepalive, both of them, and this is the whole reason the screen froze
     // the first time: closing the tab in the next breath cancels a request
     // that is still in flight, so the playlist was never let go and the
@@ -784,7 +871,10 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     // query string -- and neither is reliable: a tab whose history has been
     // reset has nothing to go back to, and pressing the X then did nothing at
     // all. The daemon knows what this tab is for.
-    send("/api/v1/playlist/back", { method: "POST", keepalive: true }).catch(() => {});
+      send("/api/v1/playlist/back", { method: "POST", keepalive: true }).catch(() => {});
+    }
+
+    dismiss.setAttribute("aria-disabled", "true");
 
     // If the daemon cannot answer, the page still has to leave, or the menu
     // stays up with nothing behind it. The address came from the page this
@@ -796,7 +886,23 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       if (/^https?:\/\//i.test(from)) location.replace(from);
       else if (history.length > 1) history.back();
     }, 1500);
+
+    // Still here means the press did nothing, so the button has to work
+    // again. A dead X on a screen nobody can reach is worse than a slow one.
+    setTimeout(() => dismiss.removeAttribute("aria-disabled"), 3000);
   }
+
+  const restartPanel = document.getElementById("restart");
+
+  function openRestart() {
+    actions.hidden = true;
+    restartPanel.hidden = false;
+  }
+
+  document.getElementById("restart-back").addEventListener("click", () => {
+    restartPanel.hidden = true;
+    actions.hidden = false;
+  });
 
   function openNetwork() {
     actions.hidden = true;
@@ -954,6 +1060,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
     network.hidden = true;
     screen.hidden = true;
     actions.hidden = true;
+    restartPanel.hidden = true;
     confirm.hidden = true;
     working.hidden = false;
     working.textContent = words;
@@ -1026,7 +1133,6 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   });
 
   const doing = {
-    "next": { call: "/api/v1/playlist/next", ask: null, said: "doing-next" },
     "reload": { call: "/api/v1/menu/reload", ask: null, said: "doing-reload" },
     "restart-browser": { call: "/api/v1/menu/restart/browser",
       ask: "ask-restart-browser", said: "doing-restart-browser" },
@@ -1041,20 +1147,31 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
   actions.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-do]");
     if (!button) return;
+    if (button.dataset.do === "restart") return openRestart();
     if (button.dataset.do === "network") return openNetwork();
     if (button.dataset.do === "screen") return openScreen();
+    if (button.dataset.do === "link") return openLink();
 
     const what = doing[button.dataset.do];
     if (!what) return;
     if (!what.ask) return run(what);
 
+    // Where the question was asked from, so that saying no goes back there.
+    // Everything that asks one lives on the second level, and cancelling used
+    // to land on the first: somebody who thought better of restarting the
+    // browser found themselves two steps from where they were rather than
+    // one.
+    const cameFromRestart = !restartPanel.hidden;
+
     question.textContent = say(what.ask);
     actions.hidden = true;
+    restartPanel.hidden = true;
     confirm.hidden = false;
     document.getElementById("yes").onclick = () => run(what);
     document.getElementById("no").onclick = () => {
       confirm.hidden = true;
-      actions.hidden = false;
+      if (cameFromRestart) restartPanel.hidden = false;
+      else actions.hidden = false;
     };
   });
 
@@ -1065,11 +1182,147 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
       .finally(() => setTimeout(close, 1200));
   }
 
-  // Both, because a click needs the press and the release to land on the same
-  // thing and a pointer being driven from a phone over VNC drifts between the
-  // two. Closing twice is guarded against, so the pair is harmless.
+  // Linking this screen to an account on the hosted service.
+  //
+  // The daemon does the waiting: it asks the service on its own timer whether
+  // somebody has authorised the code. This panel only asks the daemon what it
+  // has heard, which is why closing the menu does not abandon a link that is
+  // half done -- it abandons watching one.
+  const linkPanel = document.getElementById("link");
+  const linkCode = document.getElementById("link-code");
+  const linkSaid = document.getElementById("link-said");
+  const linkAgain = document.getElementById("link-again");
+  let linkTimer = null;
+  // The expiry this panel has already replaced a code for, so that noticing
+  // the same one again does not mint a second.
+  let linkRefreshedFor = "";
+  // The attempt the picture on screen belongs to, so a poll does not fetch it
+  // again every second and a half.
+  let linkCodeFor = "";
+  // How long before a code runs out to replace it. A ticket is good for ten
+  // minutes; a minute is comfortable.
+  const linkRefreshWhenLeft = 60000;
+
+  function stopWatchingLink() {
+    if (linkTimer) {
+      clearInterval(linkTimer);
+      linkTimer = null;
+    }
+  }
+
+  async function openLink() {
+    actions.hidden = true;
+    linkPanel.hidden = false;
+    linkCode.hidden = true;
+    linkSaid.textContent = "";
+
+    let state;
+    try {
+      state = await send("/api/v1/screen/link", { method: "POST" }).then((r) => r.json());
+    } catch (error) {
+      // The one failure worth naming: a device with nowhere to link to. Every
+      // other one is the same "that did not work".
+      linkSaid.textContent = say("link-nowhere");
+      return;
+    }
+    showLink(state);
+    linkTimer = setInterval(watchLink, 1500);
+  }
+
+  // drawCode fetches the picture with this page's pass and puts it in the img.
+  async function drawCode(expiresAt) {
+    try {
+      const answer = await send("/api/v1/screen/link/code.svg?at=" +
+        encodeURIComponent(expiresAt));
+      const drawing = await answer.text();
+      // A data URL rather than a blob, so there is nothing to revoke and
+      // nothing to leak if this panel is left open.
+      linkCode.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(drawing);
+    } catch (error) {
+      // Nothing to show is better than a broken picture: the words below say
+      // what is happening, and this leaves room for them.
+      linkCodeFor = "";
+      linkCode.removeAttribute("src");
+      linkCode.hidden = true;
+    }
+  }
+
+  function showLink(state) {
+    // Offered only when there is nothing in progress. A code that has expired
+    // or been refused leaves somebody standing at a screen with a message and
+    // no way to try again short of backing out and coming in again, which is
+    // two presses to do the obvious thing.
+    linkAgain.hidden = true;
+    if (state && state.linked) {
+      stopWatchingLink();
+      linkCodeFor = "";
+      linkCode.hidden = true;
+      linkSaid.textContent = say("link-done") + " " + (state.account || "");
+      return;
+    }
+    if (state && state.pending && state.url) {
+      // Replaced shortly before it runs out, so that a code nobody has got to
+      // yet does not expire in front of them. Done here rather than in the
+      // daemon because the expiry exists to kill a code left on a screen
+      // nobody is watching -- and this panel being open is the evidence that
+      // somebody is.
+      if (state.expiresAt && !state.checking && linkRefreshedFor !== state.expiresAt &&
+          new Date(state.expiresAt).getTime() - Date.now() < linkRefreshWhenLeft) {
+        linkRefreshedFor = state.expiresAt;
+        void openLink();
+        return;
+      }
+      // Fetched rather than pointed at.
+      //
+      // The picture is served only to a page that holds this screen's pass,
+      // and the pass travels in a header. An img cannot send a header, so
+      // setting its src asked for the picture without one and was refused
+      // every time -- the box drew, the code never did. The picture is not
+      // public and should not be: it is the thing somebody scans to take this
+      // screen, and putting the pass in the address to let an img carry it
+      // would leave it in a log.
+      //
+      // Fetched once per attempt. A poll every second and a half must not
+      // re-fetch a picture that has not changed.
+      if (linkCodeFor !== (state.expiresAt || "")) {
+        linkCodeFor = state.expiresAt || "";
+        void drawCode(linkCodeFor);
+      }
+      linkCode.hidden = false;
+      // Two different waits, and saying so matters: once it is checking, the
+      // code has done its job and the phone can go away.
+      linkSaid.textContent = say(state.checking ? "link-checking" : "link-waiting");
+      linkCode.hidden = !!state.checking;
+      return;
+    }
+    stopWatchingLink();
+    linkCodeFor = "";
+    linkCode.hidden = true;
+    linkSaid.textContent = (state && state.error) ? state.error : say("link-failed");
+    linkAgain.hidden = false;
+  }
+
+  async function watchLink() {
+    try {
+      showLink(await send("/api/v1/screen/link", { method: "GET" }).then((r) => r.json()));
+    } catch (error) {
+      stopWatchingLink();
+      linkSaid.textContent = say("link-failed");
+    }
+  }
+
+  linkAgain.addEventListener("click", () => { void openLink(); });
+
+  document.getElementById("link-back").addEventListener("click", () => {
+    stopWatchingLink();
+    // Backing out of the panel gives up the attempt. Leaving a code live on a
+    // screen nobody is watching is the thing this should not do.
+    send("/api/v1/screen/link", { method: "DELETE" }).catch(() => {});
+    linkPanel.hidden = true;
+    actions.hidden = false;
+  });
+
   dismiss.addEventListener("click", close);
-  dismiss.addEventListener("pointerup", close);
   window.addEventListener("keydown", (event) => { if (event.key === "Escape") close(); });
 
   speak();

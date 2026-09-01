@@ -334,3 +334,37 @@ func TestADisabledWatchdogDoesNothing(t *testing.T) {
 		t.Errorf("a disabled watchdog applied %v", steps)
 	}
 }
+
+// The watchdog used to hold the settings the daemon was constructed with, and
+// the store replaces the whole configuration on every edit -- so turning the
+// watchdog on in the file did nothing at all until the next boot, which on a
+// display nobody visits is a long way off.
+func TestTurningTheWatchdogOnStartsItWatching(t *testing.T) {
+	applied := newRecorder()
+	settings := testSettings()
+	settings.Enabled = false
+
+	watchdog := New(settings, applied.remedies())
+	watchdog.AddProbe("broken", func(context.Context) error { return fmt.Errorf("wedged") })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watchdog.Start(ctx)
+
+	time.Sleep(100 * time.Millisecond)
+	if steps := applied.applied(); len(steps) != 0 {
+		t.Fatalf("a disabled watchdog applied %v", steps)
+	}
+
+	enabled := testSettings()
+	watchdog.Reconfigure(enabled)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(applied.applied()) > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("the watchdog was turned on and never started watching")
+}

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -110,10 +111,47 @@ func separateUnknownFields(err error) (unknown, other []string) {
 // identifiers in particular are generated once and never regenerated, because
 // the browser's tab bookkeeping refers to them.
 func (self *Configuration) Normalize() {
-	if self.Device.Identifier == "" {
-		self.Device.Identifier = security.NewIdentifier()
+	// The device's own name for itself, and now the service's name for it too.
+	//
+	// It used to be sixteen random characters. The service takes the device's
+	// identifier verbatim as its own, so that there is one name for one thing
+	// rather than cue minting a second beside it -- and it requires a ULID. A
+	// device carrying the old format cannot link at all, so an old one is
+	// replaced rather than left to fail later with nothing to explain it.
+	//
+	// Replacing it is safe for a device that is already linked: the service
+	// knows that one by the identifier it minted at the time, and the
+	// credential it issued is unaffected. The new one is what a later link
+	// would use.
+	//
+	// It also helps a case that used to be harmless and is not any more. Two
+	// screens flashed from the same disk carry the same identifier, and with
+	// the service taking that as its own name they would be one device
+	// fighting over one row. Each of them regenerates here, once, and they
+	// come apart.
+	// Anything that is not already a lower case ULID is replaced, upper case
+	// written by an older version included. The identifier a device carries
+	// and the identifier it would mint today have to be the same kind of
+	// thing, because everything that reads one -- the file, the interface,
+	// the service -- is entitled to assume one spelling.
+	//
+	// The cost is real and worth stating: a device whose identifier is
+	// replaced is a new screen the next time it links, with none of the
+	// history of the old one. An already-linked device keeps working, because
+	// the identifier crosses the wire only on the link request and every
+	// request after that carries the credential instead.
+	if !security.IsCanonicalDeviceIdentifier(self.Device.Identifier) {
+		self.Device.Identifier = security.NewDeviceIdentifier()
 	}
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
+
+	// Filled in rather than required. A file that names a service keeps what
+	// it names, including through a save from the interface, which cannot
+	// change this one.
+	self.Service.Address = strings.TrimSpace(self.Service.Address)
+	if self.Service.Address == "" {
+		self.Service.Address = DefaultServiceAddress
+	}
 	self.Log.Level = strings.ToUpper(strings.TrimSpace(self.Log.Level))
 
 	// "video:" is what "media:" used to be called. A file written by an older
@@ -253,43 +291,159 @@ func (self *Configuration) Clone() *Configuration {
 	return clone
 }
 
-// RestoreSecrets copies every secret that arrived as the redacted placeholder
-// back from the previous configuration. The web interface is never shown a
-// password, so when it posts a form back it sends the placeholder; without
-// this, opening the settings page and saving it would erase every credential
-// on the device.
-func RestoreSecrets(updated, previous *Configuration) {
-	if updated.VNC.Password.IsRedacted() {
-		updated.VNC.Password = previous.VNC.Password
-	}
-	// Playlist items are matched by identifier rather than by position,
-	// because the interface can reorder them in the same request that saves
-	// them.
-	previousLogins := map[string]*Login{}
-	for index := range previous.Playlist.Items {
-		item := &previous.Playlist.Items[index]
-		if item.Login != nil {
-			previousLogins[item.Identifier] = item.Login
-		}
-	}
-	for index := range updated.Playlist.Items {
-		item := &updated.Playlist.Items[index]
-		if item.Login == nil || !item.Login.Password.IsRedacted() {
-			continue
-		}
-		if previousLogin, found := previousLogins[item.Identifier]; found {
-			item.Login.Password = previousLogin.Password
-		}
-	}
+// RestoreFileOnlySettings puts back the settings only the file may decide.
+//
+// The interface saves the whole document, so a field it does not show still
+// makes the round trip -- and whatever it happened to send back would be
+// written. That is fine for most things and wrong for these: the service
+// address is not offered as a control, so a save must not be able to change it
+// by accident, and must not be able to change it on purpose either.
+//
+// The file remains authoritative. Editing it and reloading is how this
+// changes; nothing that goes through Update can.
+func RestoreFileOnlySettings(updated, previous *Configuration) {
+	updated.Service.Address = previous.Service.Address
+}
 
-	// These two are never sent to the interface at all, so an update that did
-	// not come from a reload would otherwise clear them and log everybody out.
+// RestoreSecrets copies every secret that arrived as the redacted placeholder
+// back from the configuration already in force.
+//
+// The interface is never shown a secret: it reads the configuration, gets
+// "********" where each one is, and posts the whole document back. Taken
+// literally that writes the placeholder into the file as though it were the
+// password, and the thing it guarded stops working.
+//
+// Done by walking the two documents rather than naming each secret, and that
+// is the whole point. It used to be a list -- VNC's password, the service
+// credential, each playlist login -- and the list fell behind the struct: the
+// wireless passphrase is a Secret and was not on it, so saving anything at all
+// from any page replaced a device's wifi password with "********" and took it
+// off the network at the next reconcile. A wireless-only device would have
+// been unreachable, from a save on a page that has nothing to do with wifi.
+//
+// The failure is invisible in review, which is what makes a list the wrong
+// shape: the code compiles, the save succeeds, the interface says "Saved.",
+// and the credential is gone. Every Secret has the same rule, so the rule is
+// applied to every Secret rather than to the ones somebody remembered.
+func RestoreSecrets(updated, previous *Configuration) {
+	restoreSecretsIn(reflect.ValueOf(updated).Elem(), reflect.ValueOf(previous).Elem())
+
+	// Anything still redacted had nothing to be restored from: a playlist item
+	// that did not exist before, which is what the interface produces when
+	// somebody duplicates one. Writing the placeholder as though it were the
+	// password would leave a credential that looks set and is not, and the
+	// only symptom would be a login that quietly stops working. An empty one
+	// is wrong in a way somebody can see.
+	clearRemainingRedactions(reflect.ValueOf(updated).Elem())
+
+	// These two are not Secrets and are never sent to the interface at all, so
+	// an update that did not come from a reload would otherwise clear them and
+	// log everybody out.
 	if updated.Web.SessionSecret == "" {
 		updated.Web.SessionSecret = previous.Web.SessionSecret
 	}
 	if updated.Web.PasswordHash == "" {
 		updated.Web.PasswordHash = previous.Web.PasswordHash
 	}
+}
+
+var secretType = reflect.TypeOf(Secret(""))
+
+// clearRemainingRedactions empties every secret that is still the placeholder.
+func clearRemainingRedactions(value reflect.Value) {
+	if value.Type() == secretType {
+		if value.CanSet() && Secret(value.String()).IsRedacted() {
+			value.Set(reflect.ValueOf(Secret("")))
+		}
+		return
+	}
+	switch value.Kind() {
+	case reflect.Pointer:
+		if !value.IsNil() {
+			clearRemainingRedactions(value.Elem())
+		}
+	case reflect.Struct:
+		for index := 0; index < value.NumField(); index++ {
+			if value.Type().Field(index).IsExported() {
+				clearRemainingRedactions(value.Field(index))
+			}
+		}
+	case reflect.Slice:
+		for index := 0; index < value.Len(); index++ {
+			clearRemainingRedactions(value.Index(index))
+		}
+	}
+}
+
+// restoreSecretsIn walks two values of the same type in step.
+func restoreSecretsIn(updated, previous reflect.Value) {
+	if updated.Type() != previous.Type() {
+		return
+	}
+
+	if updated.Type() == secretType {
+		if updated.CanSet() && Secret(updated.String()).IsRedacted() {
+			updated.Set(previous)
+		}
+		return
+	}
+
+	switch updated.Kind() {
+	case reflect.Pointer:
+		if !updated.IsNil() && !previous.IsNil() {
+			restoreSecretsIn(updated.Elem(), previous.Elem())
+		}
+	case reflect.Struct:
+		for index := 0; index < updated.NumField(); index++ {
+			if !updated.Type().Field(index).IsExported() {
+				continue
+			}
+			restoreSecretsIn(updated.Field(index), previous.Field(index))
+		}
+	case reflect.Slice:
+		// Matched by what the thing is called, never by position: the
+		// interface can reorder a list in the same request that saves it, and
+		// restoring by index would hand one item's password to another.
+		// Anything with no name to match on is left alone, which loses a
+		// secret rather than moving it to the wrong place.
+		byName := map[string]reflect.Value{}
+		for index := 0; index < previous.Len(); index++ {
+			if name, found := nameOf(previous.Index(index)); found {
+				byName[name] = previous.Index(index)
+			}
+		}
+		for index := 0; index < updated.Len(); index++ {
+			name, found := nameOf(updated.Index(index))
+			if !found {
+				continue
+			}
+			if match, found := byName[name]; found {
+				restoreSecretsIn(updated.Index(index), match)
+			}
+		}
+	}
+}
+
+// nameOf is how one element of a list is recognised again after the list has
+// been reordered. Identifier where there is one, otherwise Name -- which is
+// every list in this configuration that contains a secret.
+func nameOf(element reflect.Value) (string, bool) {
+	for element.Kind() == reflect.Pointer {
+		if element.IsNil() {
+			return "", false
+		}
+		element = element.Elem()
+	}
+	if element.Kind() != reflect.Struct {
+		return "", false
+	}
+	for _, field := range []string{"Identifier", "Name"} {
+		value := element.FieldByName(field)
+		if value.IsValid() && value.Kind() == reflect.String && value.String() != "" {
+			return field + "=" + value.String(), true
+		}
+	}
+	return "", false
 }
 
 const fileHeader = `# cue.yaml — the configuration for one display.

@@ -41,6 +41,11 @@ var deliberatelyNotInTheInterface = []struct {
 		"a wrong value here is a device that stops recovering"},
 	{"modeName", "read from the hardware, not chosen"},
 	{"rate", "part of the mode, which is chosen as one string"},
+	{"secret", "the credential this device presents to the service it is " +
+		"linked to. It is written by the device when a link completes and read " +
+		"back by nothing: showing it in the interface would put a credential on " +
+		"the screen of a machine bolted to a wall, and there is nothing an " +
+		"operator could usefully do with it"},
 	{"allowApply", "whether this device may replace its own container; it must not be " +
 		"settable from the interface, because the interface is the thing it grants " +
 		"power over. Anybody who reached the web interface could otherwise turn on " +

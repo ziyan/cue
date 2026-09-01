@@ -8,8 +8,11 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image/jpeg"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -23,14 +26,17 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/display"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	setupnetwork "github.com/ziyan/cue/internal/network/onboarding"
 	"github.com/ziyan/cue/internal/onboarding"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/upgrade"
 	"github.com/ziyan/cue/internal/util/deferutil"
+	"github.com/ziyan/cue/internal/util/picture"
 	"github.com/ziyan/cue/internal/util/reaper"
 	"github.com/ziyan/cue/internal/version"
 	"github.com/ziyan/cue/internal/vncserver"
@@ -52,6 +58,8 @@ type Daemon struct {
 	network    *network.Manager
 	onboarding *onboarding.Onboarding
 	uploads    *media.Store
+	linker     *link.Linker
+	reporter   *service.Reporter
 	upgrades   *upgrade.Checker
 
 	// When this device last had an address that reached something, and when
@@ -68,6 +76,11 @@ type Daemon struct {
 	watchdog *watchdog.Watchdog
 
 	web *web.Server
+
+	// startedWith is the paths this daemon's programs were started against.
+	// They are fixed for the life of the process, and a change to them is
+	// reported rather than applied.
+	startedWith config.Paths
 
 	xProcess        *supervise.Process
 	browserProcess  *supervise.Process
@@ -255,10 +268,13 @@ func (self *Daemon) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	self.startedWith = self.store.Current().Paths
+
 	// The web interface comes up before anything else, so that a device whose
 	// X server will not start is still reachable to say so. That is the case
 	// where somebody most needs to see the logs, and the case where a daemon
 	// that started the interface last would be silent.
+	self.linker = link.New(self.store)
 	self.web = web.New(self.store, self)
 	// Somebody standing in front of the screen can always open the menu,
 	// whatever page is showing. It has to be set after the web server exists,
@@ -291,6 +307,18 @@ func (self *Daemon) Run(ctx context.Context) error {
 	self.upgrades = upgrade.NewChecker(upgrade.Repository, version.Version())
 	self.web = self.web.WithUpgrades(self.upgrades)
 	go self.upgrades.Run(ctx)
+
+	// Telling the service what is on the screen, for as long as this device is
+	// linked to an account. A device that is not linked has no credential and
+	// nothing to say, and this sits idle: there is no separate setting,
+	// because being linked is the choice somebody already made.
+	// What the service may do to this device once it is linked: an allow-list
+	// of the management interface, served over the tunnel and nowhere else.
+	self.reporter = service.New(self.store, self.photograph, self.describe).
+		WithManagement(self.web.FromService()).
+		WithScreen(self.screenForService)
+	self.reporter.Start(ctx)
+	self.web = self.web.WithReporter(self.reporter)
 
 	// Clear away the container that replaced this one, if that is how this
 	// daemon came to be running. The helper is left behind on purpose so that
@@ -328,7 +356,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 		defer deferutil.Recover()
 	}()
 
-	self.startProcesses(ctx, configuration)
+	self.startProcesses(ctx)
 
 	// SIGHUP re-reads the configuration file. The file is also watched, so an
 	// edit is picked up without this; the signal is kept for anybody who has
@@ -383,13 +411,16 @@ func (self *Daemon) Run(ctx context.Context) error {
 			}
 		case updated := <-changes:
 			self.apply(ctx, updated)
+			// A playlist item being deleted is exactly when its video stops
+			// being wanted, and a configuration change is where that happens.
+			self.sweepUploads()
 		}
 	}
 }
 
 // startProcesses brings the three supervised programs up in the order they
 // need each other: the X server first, because the other two connect to it.
-func (self *Daemon) startProcesses(ctx context.Context, configuration *config.Configuration) {
+func (self *Daemon) startProcesses(ctx context.Context) {
 	self.xProcess = supervise.New(self.xserver.Settings())
 	self.xProcess.Start(ctx)
 
@@ -413,10 +444,12 @@ func (self *Daemon) startProcesses(ctx context.Context, configuration *config.Co
 		self.browserProcess = supervise.New(self.browser.Settings())
 		self.browserProcess.Start(ctx)
 
-		if configuration.VNC.Enabled {
-			self.vncProcess = supervise.New(self.vncserver.Settings())
-			self.vncProcess.Start(ctx)
-		}
+		// The configuration as it is now, not as it was when this goroutine
+		// was launched. The X server can take the better part of a minute to
+		// come up, and screen sharing turned on inside that window would
+		// otherwise be missed by both ends: this snapshot still says off, and
+		// applyVNC gave up early because there was no X server yet.
+		self.applyVNC(ctx, self.store.Current())
 	}()
 }
 
@@ -879,4 +912,122 @@ func (self *Daemon) ForgetWireless() error {
 		self.browser.Refresh(ctx)
 	}()
 	return nil
+}
+
+// Linker attaches this device to an account on the hosted service.
+func (self *Daemon) Linker() *link.Linker {
+	return self.linker
+}
+
+// Reporter tells the service what this screen is showing.
+func (self *Daemon) Reporter() *service.Reporter {
+	return self.reporter
+}
+
+// reportedScreenshotWidth is what the service is sent. Smaller than the
+// screen: this goes out every half minute over whatever network the device
+// has, and the picture is looked at in a list beside other devices rather
+// than read.
+const reportedScreenshotWidth = 960
+
+// screenForService opens a connection to this device's VNC server for the
+// service to be spliced to.
+//
+// What travels over it is RFB, the same bytes a viewer on the local network
+// would exchange, so the service pipes it to a browser and noVNC never learns
+// there was a tunnel. The device does no bridging: it has one for its own
+// interface and this deliberately does not use it, because reaching a
+// websocket endpoint through a tunnel would put an HTTP upgrade in the middle
+// of a stream that is already a tunnel.
+//
+// Offered because the device is linked. Somebody chose to attach this screen
+// to an account, and being managed from that account is what they chose.
+func (self *Daemon) screenForService(ctx context.Context) (net.Conn, error) {
+	configuration := self.store.Current()
+	if !configuration.VNC.Enabled {
+		return nil, fmt.Errorf("this device is not running a VNC server, so there is no screen to watch")
+	}
+
+	// The same address the local viewer uses, and the same correction: a
+	// server listening on every interface is reached here on the loopback one.
+	address := self.VNCAddress()
+	if host, port, err := net.SplitHostPort(address); err == nil &&
+		(host == "" || host == "0.0.0.0" || host == "::") {
+		address = net.JoinHostPort("127.0.0.1", port)
+	}
+
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	viewer, err := dialer.DialContext(ctx, "tcp", address)
+	if err != nil {
+		return nil, fmt.Errorf("this device's screen cannot be reached: %w", err)
+	}
+	return viewer, nil
+}
+
+// describe says what this screen is showing, for the account that owns it.
+//
+// Deliberately small. The service stores this without reading it, so it could
+// carry everything the status page knows -- and then every field this device
+// ever reports would be something somebody could come to depend on. What is
+// here is what an owner looking at a list of screens wants: which one this is,
+// what it is showing, whether it is well, and what it is running.
+func (self *Daemon) describe(ctx context.Context) (any, error) {
+	configuration := self.store.Current()
+
+	// The browser is asked, and asking involves talking to it, so it gets a
+	// deadline of its own: a wedged browser must not stop a device reporting
+	// that it is wedged.
+	browserContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	showing := self.browser.State(browserContext)
+
+	description := map[string]any{
+		"version":  version.Version(),
+		"name":     configuration.Device.Name,
+		"location": configuration.Device.Location,
+		"uptime":   time.Since(self.startedAt).Round(time.Second).String(),
+		"showing": map[string]any{
+			"item":  showing.Current,
+			"title": showing.CurrentTitle,
+			"url":   showing.CurrentURL,
+			"since": showing.CurrentSince,
+			"ready": showing.Ready,
+		},
+	}
+	// The screen's shape, when the X server will say. Opening a connection for
+	// it is cheap next to the photograph that goes with this report.
+	if connection, err := display.Open(ctx, configuration.Display.Number, self.xserver.Cookie()); err == nil {
+		screen := connection.Screen()
+		connection.Close()
+		description["screen"] = map[string]any{"width": screen.Width, "height": screen.Height}
+	}
+	return description, nil
+}
+
+// photograph takes the picture the reporter sends.
+//
+// A JPEG rather than the lossless PNG the interface can ask for. Most of what
+// is on these screens is video from a camera, which PNG stores appallingly: on
+// the first real device this ran on a lossless 4K frame was 5.6 megabytes,
+// which is over what the service accepts as well as being wasteful of a
+// connection somebody else is paying for.
+func (self *Daemon) photograph(ctx context.Context) ([]byte, string, error) {
+	configuration := self.store.Current()
+	connection, err := display.Open(ctx, configuration.Display.Number, self.xserver.Cookie())
+	if err != nil {
+		return nil, "", fmt.Errorf("the X server cannot be reached: %w", err)
+	}
+	defer connection.Close()
+
+	screen, err := connection.Capture(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var body bytes.Buffer
+	if err := jpeg.Encode(&body, picture.Shrink(screen, reportedScreenshotWidth),
+		&jpeg.Options{Quality: 70}); err != nil {
+		return nil, "", err
+	}
+	return body.Bytes(), "image/jpeg", nil
 }

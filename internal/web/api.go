@@ -2,7 +2,10 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image/jpeg"
 	"image/png"
@@ -10,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ziyan/cue/internal/audio"
 	"github.com/ziyan/cue/internal/browser"
@@ -17,7 +21,9 @@ import (
 	"github.com/ziyan/cue/internal/display"
 	"github.com/ziyan/cue/internal/hardware"
 	"github.com/ziyan/cue/internal/input"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/network"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/util/drm"
@@ -44,6 +50,17 @@ type Status struct {
 	Sound      []audio.Device     `json:"sound"`
 	Input      []input.Device     `json:"input"`
 	Network    network.State      `json:"network"`
+
+	// Link is whether this device is attached to an account, and any attempt
+	// in progress. Here as well as under /api/v1/link so that the overview
+	// page can say so without a second request.
+	Link link.State `json:"link"`
+
+	// Reporting is whether this device is getting through to the service it
+	// is linked to. Separate from Link because they fail separately: a device
+	// can hold a perfectly good credential and be unable to reach anything,
+	// and somebody looking for a missing picture needs to be told which.
+	Reporting service.State `json:"reporting"`
 
 	// IgnoredSettings are names in the configuration file this version has no
 	// setting for: a mistyped key, or a setting removed by an upgrade. They
@@ -102,6 +119,13 @@ func (self *Server) status(response http.ResponseWriter, request *http.Request) 
 			Now:        time.Now(),
 		},
 		Programs: self.device.Statuses(),
+		Link:     self.device.Linker().State(),
+		Reporting: func() service.State {
+			if self.reporter == nil {
+				return service.State{}
+			}
+			return self.reporter.State()
+		}(),
 		Watchdog: self.device.Watchdog().State(),
 		Machine:  self.metrics.Collect(),
 	}
@@ -249,8 +273,40 @@ func (self *Server) signOut(response http.ResponseWriter, request *http.Request)
 // writeConfiguration; the placeholders are turned back into the real values
 // there, so that saving a form does not erase the passwords it was never
 // shown.
+// errStale says a save was an edit of a configuration that is no longer the
+// one in force. Carried out of the store's update so that the refusal can be
+// answered with the document that is actually there.
+var errStale = errors.New("the configuration changed while it was being edited")
+
+// versionOf names the configuration a caller is looking at.
+//
+// A hash of the document as it is served, so it changes exactly when what
+// somebody is editing changes, and two callers holding the same document agree
+// about its version without either of them being told.
+func versionOf(configuration *config.Configuration) string {
+	// The file form, not the JSON one. JSON renders every secret as the same
+	// placeholder, so two configurations differing only in a password produced
+	// identical bytes and identical versions -- and a save carrying a stale
+	// password went through unnoticed, which is the one case where losing an
+	// edit costs the most. The file form carries the real values, and this is
+	// a hash of it, so nothing is disclosed by serving it.
+	encoded, err := yaml.Marshal(configuration)
+	if err != nil {
+		// Nothing can be said about a document that will not encode, and a
+		// version that is always different is safer than one that is always
+		// the same: every write against it is refused rather than allowed.
+		return `"unknown-` + security.NewIdentifier() + `"`
+	}
+	sum := sha256.Sum256(encoded)
+	return `"` + hex.EncodeToString(sum[:16]) + `"`
+}
+
 func (self *Server) readConfiguration(response http.ResponseWriter, request *http.Request) {
-	writeJSON(response, http.StatusOK, self.store.Current())
+	current := self.store.Current()
+	// In an ETag, so the document served is the document and nothing else. A
+	// caller holds this between being shown a form and submitting it.
+	response.Header().Set("ETag", versionOf(current))
+	writeJSON(response, http.StatusOK, current)
 }
 
 func (self *Server) writeConfiguration(response http.ResponseWriter, request *http.Request) {
@@ -260,7 +316,34 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 		return
 	}
 
+	// Which document this was an edit of.
+	//
+	// Without this the last save wins and the other is gone without anybody
+	// being told: two browser tabs on the settings page do it to each other
+	// today, and a device that can also be configured from the service it is
+	// linked to has two more ways to do it. A caller that says what it was
+	// editing gets told when that is no longer what is there.
+	//
+	// Optional, and that is deliberate. Somebody with curl and a document they
+	// just fetched should not have to learn about this to change a setting;
+	// what it protects against is two editors, and an editor that does not
+	// participate cannot be protected. Every caller of ours sends it.
+	held := request.Header.Get("If-Match")
+
 	err := self.store.Update(func(configuration *config.Configuration) error {
+		// Compared here rather than before the update, because here is where
+		// the store is holding its lock. Checking first and writing second
+		// leaves a gap: two saves can both find the version current, and the
+		// second overwrites the first -- which is the very thing this exists
+		// to prevent, made narrower rather than absent.
+		//
+		// What arrives is a copy of the configuration in force, before any of
+		// the change below has happened, so this is the version the caller
+		// would have been comparing against.
+		if held != "" && versionOf(configuration) != held {
+			return errStale
+		}
+
 		// The password hash and the session secret are never sent out, so
 		// they are never sent back; keeping the existing ones is what stops a
 		// save from locking the operator out of their own device.
@@ -271,12 +354,29 @@ func (self *Server) writeConfiguration(response http.ResponseWriter, request *ht
 		configuration.Web.SessionSecret = secret
 		return nil
 	})
+	if errors.Is(err, errStale) {
+		current := self.store.Current()
+		response.Header().Set("ETag", versionOf(current))
+		// The current document comes back with the refusal, so whoever asked
+		// can show what changed rather than telling somebody to try again and
+		// hoping.
+		writeJSON(response, http.StatusConflict, map[string]any{
+			"error": "somebody else changed this device's configuration while " +
+				"you were editing it",
+			"configuration": current,
+		})
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	writeJSON(response, http.StatusOK, self.store.Current())
+	saved := self.store.Current()
+	// The version of what was just written, so a caller can save twice
+	// without reading in between.
+	response.Header().Set("ETag", versionOf(saved))
+	writeJSON(response, http.StatusOK, saved)
 }
 
 // timezones lists the zones this machine can actually be set to, for the

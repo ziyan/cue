@@ -24,8 +24,10 @@ import (
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
 	"github.com/ziyan/cue/internal/hardware"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
+	"github.com/ziyan/cue/internal/service"
 	"github.com/ziyan/cue/internal/supervise"
 	"github.com/ziyan/cue/internal/timesync"
 	"github.com/ziyan/cue/internal/upgrade"
@@ -118,6 +120,10 @@ type Device interface {
 
 	// Restart restarts one supervised program by name.
 	Restart(ctx context.Context, name string) error
+
+	// Linker attaches this device to an account on the hosted service, and
+	// says whether it already is.
+	Linker() *link.Linker
 }
 
 // Server is the HTTP server.
@@ -131,6 +137,10 @@ type Server struct {
 	// The authority pages shown on this device's own screen carry, which
 	// lasts as long as the page does. See pass.go.
 	passes *passes
+
+	// What is telling the service about this screen. Nil until the daemon
+	// hands one over, and on any build without one.
+	reporter *service.Reporter
 
 	// What is known about newer releases. Nil on a daemon built without one,
 	// and the Upgrade page says so rather than pretending to be up to date.
@@ -146,7 +156,9 @@ type Server struct {
 
 	router   *mux.Router
 	listener net.Listener
-	server   *http.Server
+	// startedWith is the configured address the listener was opened for.
+	startedWith string
+	server      *http.Server
 }
 
 // New builds the server. Nothing listens until Start.
@@ -172,6 +184,15 @@ func (self *Server) WithUpgrades(checker *upgrade.Checker) *Server {
 	return self
 }
 
+// WithReporter gives the server what is telling the service about this screen,
+// so the interface can say whether it is getting through. Without one the
+// Service page simply does not mention reporting, which is what a build with
+// no reporter should show.
+func (self *Server) WithReporter(reporter *service.Reporter) *Server {
+	self.reporter = reporter
+	return self
+}
+
 // WithUploads gives the server the store uploaded pictures and videos live
 // in. Without one it refuses uploads and serves no media, which is what a
 // daemon that could not create the directory should do.
@@ -184,6 +205,7 @@ func (self *Server) WithUploads(store *media.Store) *Server {
 // caller can report the address before anything has connected.
 func (self *Server) Start(ctx context.Context) error {
 	address := self.store.Current().Web.Listen
+	self.startedWith = address
 
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", address)
 	if err != nil {
@@ -221,6 +243,15 @@ func (self *Server) Stop(ctx context.Context) {
 	if err := self.server.Shutdown(ctx); err != nil {
 		log.Warningf("the web interface did not shut down cleanly: %s", err)
 	}
+}
+
+// StartedWith is the address this server was asked to listen on, as it was
+// written in the configuration. Address reports what the listener resolved
+// that to, which is not the same string -- 0.0.0.0:8080 comes back as
+// [::]:8080 -- and comparing the resolved form against the file would say the
+// setting had changed every time anything at all was saved.
+func (self *Server) StartedWith() string {
+	return self.startedWith
 }
 
 // Address is where the server is listening, once it has started.
@@ -277,6 +308,13 @@ func (self *Server) addRoutes() {
 	api.Path("/screen/password").Methods(http.MethodPost).HandlerFunc(self.screenChooseWord)
 	api.Path("/screen/close").Methods(http.MethodPost).HandlerFunc(self.screenClose)
 
+	// Linking from the screen. Starting one needs the device password proved
+	// through this pass; watching it needs only the page to still be open.
+	api.Path("/screen/link").Methods(http.MethodGet).HandlerFunc(self.screenLinkState)
+	api.Path("/screen/link").Methods(http.MethodPost).HandlerFunc(self.screenLinkStart)
+	api.Path("/screen/link").Methods(http.MethodDelete).HandlerFunc(self.screenLinkAbandon)
+	api.Path("/screen/link/code.svg").Methods(http.MethodGet).HandlerFunc(self.screenLinkCode)
+
 	// Setting the device up over the air happens before there is a session,
 	// for the same reason setup and sign-in do.
 	// Setting up from a phone is gated the same way. A device out of its box
@@ -305,6 +343,14 @@ func (self *Server) addRoutes() {
 	guarded.Path("/vnc").Methods(http.MethodGet).HandlerFunc(self.vnc)
 	guarded.Path("/media").Methods(http.MethodGet).HandlerFunc(self.listMedia)
 	guarded.Path("/media").Methods(http.MethodPost).HandlerFunc(self.uploadMedia)
+
+	// Linking from the interface, where there is a session. Forgetting a link
+	// is offered only here; see linkapi.go for why not at the screen.
+	guarded.Path("/link").Methods(http.MethodGet).HandlerFunc(self.linkState)
+	guarded.Path("/link").Methods(http.MethodPost).HandlerFunc(self.linkStart)
+	guarded.Path("/link").Methods(http.MethodDelete).HandlerFunc(self.linkAbandon)
+	guarded.Path("/link/forget").Methods(http.MethodPost).HandlerFunc(self.linkForget)
+	guarded.Path("/link/code.svg").Methods(http.MethodGet).HandlerFunc(self.linkCode)
 
 	// Moving to the next item is how the player says its video has ended, so
 	// it has to be reachable by the browser on this device, which has no

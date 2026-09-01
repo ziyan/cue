@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -19,6 +20,121 @@ import (
 // the letters that are read wrongly off a screen. Identifiers end up in URLs
 // and in support conversations, so they are made to be read aloud.
 var identifierEncoding = base32.NewEncoding("0123456789abcdefghjkmnpqrstvwxyz").WithPadding(base32.NoPadding)
+
+// ulidEncoding is Crockford's, lower case. The same alphabet and the same case
+// as identifierEncoding, and for the same reason: these end up in URLs and in
+// support conversations, and a device that named itself in one case while its
+// playlist items were in the other was two conventions for one idea.
+//
+// The ULID specification writes its examples in upper case, and Crockford's
+// alphabet is defined as case-insensitive on input. Nothing that reads one of
+// these cares which case it arrives in -- IsDeviceIdentifier takes either, and
+// the hosted service normalises before it looks anything up -- so the case
+// here is a choice about what is pleasant to read, and this is the one the
+// rest of the project already made.
+var ulidEncoding = "0123456789abcdefghjkmnpqrstvwxyz"
+
+// NewDeviceIdentifier returns a ULID: 26 characters of Crockford base32 in
+// lower case, a 48-bit millisecond timestamp followed by 80 bits of
+// randomness.
+//
+// A device's identifier is a ULID rather than the shorter random one because
+// the hosted service uses it as its own name for the device. One name for one
+// thing was the point: cue used to mint an identifier of its own beside this
+// one, and two names for a device is two things to match up whenever anybody
+// looks at both systems at once.
+//
+// The timestamp at the front is not needed by anything here. It comes with the
+// format, and it means identifiers sort by when the device first ran, which is
+// a small kindness to whoever reads a list of them.
+func NewDeviceIdentifier() string {
+	milliseconds := time.Now().UnixMilli()
+	random := make([]byte, 10)
+	if _, err := rand.Read(random); err != nil {
+		panic(fmt.Sprintf("security: cannot read randomness: %s", err))
+	}
+
+	// 128 bits, most significant first: six bytes of timestamp then ten of
+	// randomness.
+	value := make([]byte, 16)
+	for index := 0; index < 6; index++ {
+		value[5-index] = byte(milliseconds >> (8 * index))
+	}
+	copy(value[6:], random)
+
+	// Base32 by hand, five bits at a time from the top. encoding/base32 pads
+	// to a multiple of eight characters and a ULID is twenty-six, so doing it
+	// directly is shorter than trimming what that would produce.
+	written := make([]byte, 26)
+	for index := 0; index < 26; index++ {
+		bit := index * 5
+		// The two extra bits at the front of a 130-bit window over 128 bits
+		// are zero, which is what keeps the first character at '7' or below.
+		var chunk int
+		for offset := 0; offset < 5; offset++ {
+			chunk <<= 1
+			at := bit + offset - 2
+			if at >= 0 && at < 128 {
+				chunk |= int(value[at/8]>>(7-at%8)) & 1
+			}
+		}
+		written[index] = ulidEncoding[chunk]
+	}
+	return string(written)
+}
+
+// IsDeviceIdentifier reports whether a string is one of ours: twenty-six
+// characters of Crockford base32 whose timestamp has not overflowed.
+//
+// Written here rather than assumed at the far end, because the service refuses
+// anything else and a device that emitted a name it would not take could not
+// link at all.
+func IsDeviceIdentifier(value string) bool {
+	if len(value) != 26 {
+		return false
+	}
+	// A ULID's 48-bit timestamp leaves two spare bits at the front, so the
+	// first character can never be above '7'.
+	if strings.IndexByte(ulidEncoding, lowerOf(value[0])) > 7 {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if strings.IndexByte(ulidEncoding, lowerOf(value[index])) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerOf(letter byte) byte {
+	if letter >= 'A' && letter <= 'Z' {
+		return letter - 'A' + 'a'
+	}
+	return letter
+}
+
+// IsCanonicalDeviceIdentifier reports whether a string is one of ours *and*
+// written the way this project writes them: lower case, no surrounding
+// whitespace.
+//
+// Separate from IsDeviceIdentifier, which asks only whether a string is shaped
+// like a ULID and takes either case, because the two questions have different
+// answers for the same string and both get asked. What arrives from elsewhere
+// only has to be shaped right; what this project keeps in its own file has to
+// be spelled one way, so that a device is one string wherever it is shown.
+func IsCanonicalDeviceIdentifier(value string) bool {
+	return IsDeviceIdentifier(value) && value == NormaliseDeviceIdentifier(value)
+}
+
+// NormaliseDeviceIdentifier returns the form this project writes: lower case.
+//
+// Identifiers written by an older version are upper case, and both are read
+// everywhere, so this is not about making them usable. It is so that one
+// device is one string wherever it is shown -- the file, the interface, the
+// service -- rather than depending on which version first ran on it.
+func NormaliseDeviceIdentifier(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
 
 // NewIdentifier returns a random identifier of 16 characters, which is 80
 // bits. Used for the device identifier and for playlist items, both of which

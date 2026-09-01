@@ -110,3 +110,30 @@ func TestAVirtualMachinesCardCountsAsHardware(t *testing.T) {
 		t.Errorf("a virtio interface was reported as %q", got)
 	}
 }
+
+// The kinds this package reports are a closed set, and something outside it
+// filters on the names.
+//
+// The web interface hid interfaces of kind "loopback", which this has never
+// reported: the filter matched nothing and the Network page listed docker0,
+// the loopback and every veth a container brought with it. A name that is
+// never produced cannot be noticed by anything -- the code compiles, the
+// filter runs, and it quietly does nothing.
+func TestTheKindsAreAKnownSet(t *testing.T) {
+	known := map[string]bool{
+		KindEthernet: true,
+		KindWireless: true,
+		KindVirtual:  true,
+		KindOther:    true,
+	}
+	for _, kind := range []string{KindEthernet, KindWireless, KindVirtual, KindOther} {
+		if !known[kind] {
+			t.Errorf("%q is reported and not in the set anything else can filter on", kind)
+		}
+	}
+	// The one that caused it: nothing here ever produces "loopback", so
+	// anything hiding that name is hiding nothing.
+	if known["loopback"] {
+		t.Error(`"loopback" is in the set; the interface may rely on it again`)
+	}
+}

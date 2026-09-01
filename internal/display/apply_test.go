@@ -291,3 +291,83 @@ func TestAPositionThatIsNotOneFallsBackToTheAutomaticLayout(t *testing.T) {
 		t.Errorf("a bad position gave %d advancing %d; want the automatic layout", positionX, advance)
 	}
 }
+
+// Mirroring is every screen on one mode at one origin, so the whole of the
+// decision is which mode they can all manage. The case that prompted this: a
+// laptop panel with a single 2560x1440 mode and a 4K television. Laid out side
+// by side they made a 6400x2160 desktop with the page stretched across both
+// and half of it on each, which is not what plugging a second screen into a
+// display daemon is for.
+func TestMirroringPicksTheLargestSizeEveryScreenHas(t *testing.T) {
+	panel := []mode{{width: 2560, height: 1440, rate: 60}}
+	television := []mode{
+		{width: 3840, height: 2160, rate: 30},
+		{width: 2560, height: 1440, rate: 60},
+		{width: 1920, height: 1080, rate: 60},
+	}
+
+	width, height, found, reason := largestSharedSize([][]mode{panel, television})
+	if !found {
+		t.Fatalf("no shared size was found, and they share 2560x1440: %s", reason)
+	}
+	if width != 2560 || height != 1440 {
+		t.Errorf("mirroring at %dx%d; 2560x1440 is the largest they both have", width, height)
+	}
+}
+
+func TestMirroringPrefersTheLargestSharedSizeOverASmallerOne(t *testing.T) {
+	one := []mode{{width: 1920, height: 1080}, {width: 1280, height: 720}}
+	two := []mode{{width: 1920, height: 1080}, {width: 1280, height: 720}, {width: 3840, height: 2160}}
+
+	width, height, found, _ := largestSharedSize([][]mode{one, two})
+	if !found || width != 1920 || height != 1080 {
+		t.Errorf("mirroring at %dx%d; 1920x1080 is the largest shared size", width, height)
+	}
+}
+
+// Side by side is the fallback rather than blanking one of them, and it is
+// said out loud: a screen that quietly shows nothing is the failure worth
+// going out of the way to avoid.
+func TestScreensWithNothingInCommonAreNotMirrored(t *testing.T) {
+	one := []mode{{width: 2560, height: 1440}}
+	two := []mode{{width: 1920, height: 1080}}
+
+	_, _, found, reason := largestSharedSize([][]mode{one, two})
+	if found {
+		t.Error("two screens with no shared mode were mirrored anyway")
+	}
+	if reason == "" {
+		t.Error("nothing was said about why they are side by side")
+	}
+}
+
+// One screen keeps its own preferred mode. Without this, a single 4K screen
+// whose mode list happens to be led by something smaller would be talked onto
+// the wrong one by a mirroring rule with nothing to mirror.
+func TestOneScreenIsNotMirrored(t *testing.T) {
+	if _, _, found, _ := largestSharedSize([][]mode{{{width: 3840, height: 2160}}}); found {
+		t.Error("a single screen was treated as a mirror")
+	}
+	if _, _, found, _ := largestSharedSize(nil); found {
+		t.Error("no screens at all were treated as a mirror")
+	}
+}
+
+// The rate is not part of agreeing on a size, but it is part of driving one:
+// a television that offers 2560x1440 at 30 and at 60 should be given 60.
+func TestMirroringTakesTheFastestModeOfTheAgreedSize(t *testing.T) {
+	modes := map[randr.Mode]mode{
+		1: {identifier: 1, width: 2560, height: 1440, rate: 30},
+		2: {identifier: 2, width: 2560, height: 1440, rate: 60},
+		3: {identifier: 3, width: 1920, height: 1080, rate: 60},
+	}
+	information := testOutput([]randr.Mode{1, 2, 3}, 0)
+
+	chosen, found := modeOfSize(information, modes, 2560, 1440)
+	if !found {
+		t.Fatal("2560x1440 was not found on an output that has it twice")
+	}
+	if chosen.rate != 60 {
+		t.Errorf("chose %gHz; 60 is the faster of the two", chosen.rate)
+	}
+}

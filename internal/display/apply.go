@@ -115,6 +115,10 @@ func (self *Display) plan(settings *config.Display, resources *randr.GetScreenRe
 	usedCrtcs := map[randr.Crtc]bool{}
 	nextX := 0
 
+	// Worked out before anything is placed, because it is a property of all
+	// the screens together rather than of any one of them.
+	mirrorWidth, mirrorHeight, mirroring := self.mirrorSize(settings, resources, modes)
+
 	for _, identifier := range resources.Outputs {
 		information, err := randr.GetOutputInfo(self.connection, identifier, resources.ConfigTimestamp).Reply()
 		if err != nil {
@@ -148,6 +152,20 @@ func (self *Display) plan(settings *config.Display, resources *randr.GetScreenRe
 			log.Warningf("%s: %s", name, err)
 			continue
 		}
+		if mirroring {
+			// Every screen shows the same thing, so every screen is put on
+			// the same mode and in the same place. The mode is the largest
+			// one they all have, not this one's favourite.
+			matching, found := modeOfSize(information, modes, mirrorWidth, mirrorHeight)
+			if !found {
+				// Cannot happen: mirrorSize only returns a size every output
+				// offered. Handled rather than asserted, because the wrong
+				// answer here is a dark screen.
+				log.Warningf("%s: cannot mirror at %dx%d after all", name, mirrorWidth, mirrorHeight)
+			} else {
+				chosen = matching
+			}
+		}
 
 		crtc := information.Crtc
 		if crtc == 0 || usedCrtcs[crtc] {
@@ -169,6 +187,9 @@ func (self *Display) plan(settings *config.Display, resources *randr.GetScreenRe
 		}
 
 		positionX, positionY, advance := positionFor(outputSettings, width, nextX)
+		if mirroring {
+			positionX, positionY, advance = 0, 0, 0
+		}
 		nextX += advance
 
 		placement := placement{
@@ -572,4 +593,109 @@ func physicalSize(width, height int) (uint32, uint32) {
 	const millimetresPerInch = 25.4
 	return uint32(float64(width) * millimetresPerInch / dotsPerInch),
 		uint32(float64(height) * millimetresPerInch / dotsPerInch)
+}
+
+// mirrorSize is the largest size every screen that will be switched on can
+// show, and whether there is one at all.
+//
+// Mirroring in RandR is not a mode of its own: it is every output on the same
+// mode at the same origin. So the whole of the work is agreeing on a mode, and
+// the only ones worth considering are the ones they all have -- a laptop panel
+// that offers a single size decides it on its own, which is the usual case.
+func (self *Display) mirrorSize(settings *config.Display, resources *randr.GetScreenResourcesCurrentReply, modes map[randr.Mode]mode) (int, int, bool) {
+	if !settings.Mirror {
+		return 0, 0, false
+	}
+
+	offered := make([][]mode, 0, len(resources.Outputs))
+
+	for _, identifier := range resources.Outputs {
+		information, err := randr.GetOutputInfo(self.connection, identifier, resources.ConfigTimestamp).Reply()
+		if err != nil || information.Connection != randr.ConnectionConnected {
+			continue
+		}
+		outputSettings := settingsFor(settings, string(information.Name))
+		if outputSettings == nil || outputSettings.Mode == config.ModeOff {
+			continue
+		}
+
+		available := make([]mode, 0, len(information.Modes))
+		for _, candidate := range information.Modes {
+			if described, found := modes[candidate]; found {
+				available = append(available, described)
+			}
+		}
+		if len(available) == 0 {
+			continue
+		}
+		offered = append(offered, available)
+	}
+
+	width, height, found, reason := largestSharedSize(offered)
+	if reason != "" {
+		log.Warningf("%s", reason)
+	}
+	return width, height, found
+}
+
+// largestSharedSize is the decision itself, apart from the X server so that it
+// can be tested. It returns the biggest size every screen offers, and a reason
+// to log when there is none.
+func largestSharedSize(offered [][]mode) (int, int, bool, string) {
+	// One screen is not a mirror of anything, and it keeps its own preferred
+	// mode rather than being talked into the largest size it can manage.
+	if len(offered) < 2 {
+		return 0, 0, false, ""
+	}
+
+	type size struct{ width, height int }
+	shared := map[size]bool{}
+	for _, described := range offered[0] {
+		shared[size{described.width, described.height}] = true
+	}
+	for _, screen := range offered[1:] {
+		has := map[size]bool{}
+		for _, described := range screen {
+			has[size{described.width, described.height}] = true
+		}
+		for known := range shared {
+			if !has[known] {
+				delete(shared, known)
+			}
+		}
+	}
+
+	if len(shared) == 0 {
+		return 0, 0, false, "these screens have no mode in common, so they cannot be mirrored; " +
+			"they are laid out side by side instead. Set display.mirror to false to stop this being said, " +
+			"or give them a size they share"
+	}
+
+	best := size{}
+	for candidate := range shared {
+		if candidate.width*candidate.height > best.width*best.height {
+			best = candidate
+		}
+	}
+	return best.width, best.height, true, ""
+}
+
+// modeOfSize finds this output's mode of exactly that size, preferring the
+// highest refresh rate when it has several.
+func modeOfSize(information *randr.GetOutputInfoReply, modes map[randr.Mode]mode, width, height int) (mode, bool) {
+	var best *mode
+	for _, identifier := range information.Modes {
+		described, found := modes[identifier]
+		if !found || described.width != width || described.height != height {
+			continue
+		}
+		if best == nil || described.rate > best.rate {
+			candidate := described
+			best = &candidate
+		}
+	}
+	if best == nil {
+		return mode{}, false
+	}
+	return *best, true
 }

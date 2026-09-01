@@ -11,16 +11,48 @@ export function whenSignedOut(handler: () => void) {
   onSignedOut = handler;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+// The version of the configuration this interface last read.
+//
+// Held here rather than passed around because every part of the interface
+// edits one document: a page reads it, somebody types, and the save has to say
+// which version it was an edit of. Without that the last save wins and the
+// other is gone with nobody told -- which two tabs on the settings page did to
+// each other before this existed.
+let configurationVersion = "";
+
+export class Conflict extends Error {
+  readonly configuration: Configuration;
+  constructor(said: string, configuration: Configuration) {
+    super(said);
+    this.name = "Conflict";
+    this.configuration = configuration;
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown,
+                          headers?: Record<string, string>): Promise<T> {
   const response = await fetch(path, {
     method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(headers ?? {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (response.status === 401) {
     onSignedOut?.();
     throw new Refused("sign in first");
+  }
+  // Somebody else saved while this was being edited. Carries what is actually
+  // on the device, so a page can show what changed rather than saying "try
+  // again" and hoping.
+  if (response.status === 409) {
+    const told = (await response.json()) as { error?: string; configuration?: Configuration };
+    configurationVersion = response.headers.get("ETag") ?? "";
+    throw new Conflict(
+      told.error ?? "somebody else changed this while you were editing it",
+      told.configuration as Configuration);
   }
   if (!response.ok) {
     let said = `${response.status} ${response.statusText}`;
@@ -32,6 +64,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     }
     throw new Error(said);
   }
+  // Noted wherever it appears, rather than by whoever happens to be asking:
+  // one place that reads it means a save always sends the version of the
+  // document it was actually an edit of, including a save straight after
+  // another save with no read in between.
+  const version = response.headers.get("ETag");
+  if (version && path === "/api/v1/configuration") configurationVersion = version;
+
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -47,6 +86,15 @@ export interface Configuration {
     timezone: string;
     language: string;
     identifier?: string;
+  };
+  service?: {
+    address: string;
+    account?: string;
+    deviceId?: string;
+    // What the service calls this device, which is not always what it calls
+    // itself: an account cannot hold two devices of one name, so a second
+    // screen called "carbon" is recorded there as "carbon 2".
+    name?: string;
   };
   [section: string]: unknown;
 }
@@ -97,6 +145,30 @@ export interface UpgradeState {
   };
 }
 
+// What the daemon knows about this device's attachment to the hosted service:
+// whether it is linked, and whether a code is up and waiting to be scanned.
+export interface LinkState {
+  linked: boolean;
+  account?: string;
+  pending: boolean;
+  url?: string;
+  expiresAt?: string;
+  // Somebody has authorised it and the device is collecting the credential and
+  // proving it works. A different thing to be waiting for: the code has done
+  // its job and the phone can be put away.
+  checking?: boolean;
+  error?: string;
+}
+
+// Whether the device is getting through to the service it is linked to.
+// Separate from being linked, because they fail separately: a device can hold
+// a perfectly good credential and be unable to reach anything.
+export interface ReportingState {
+  attached: boolean;
+  lastReportedAt?: string;
+  trouble?: string;
+}
+
 export interface LogEntry {
   at?: string;
   monotonic?: number;
@@ -120,7 +192,8 @@ export const api = {
   status: () => request<Record<string, unknown>>("GET", "/api/v1/status"),
   configuration: () => request<Configuration>("GET", "/api/v1/configuration"),
   saveConfiguration: (configuration: Configuration) =>
-    request<Configuration>("PUT", "/api/v1/configuration", configuration),
+    request<Configuration>("PUT", "/api/v1/configuration", configuration,
+      configurationVersion ? { "If-Match": configurationVersion } : undefined),
   network: () => request<NetworkState>("GET", "/api/v1/network"),
   scanWireless: (name: string) =>
     request<{ networks: WirelessNetwork[] }>("POST", `/api/v1/network/scan/${encodeURIComponent(name)}`),
@@ -129,6 +202,11 @@ export const api = {
   restart: (program: string) => request<void>("POST", `/api/v1/restart/${encodeURIComponent(program)}`),
   navigate: (url: string) => request<void>("POST", "/api/v1/navigate", { url }),
   xorgLog: () => request<LogEntry[]>("GET", "/api/v1/logs/xorg"),
+
+  link: () => request<LinkState>("GET", "/api/v1/link"),
+  startLink: () => request<LinkState>("POST", "/api/v1/link"),
+  abandonLink: () => request<LinkState>("DELETE", "/api/v1/link"),
+  forgetLink: () => request<LinkState>("POST", "/api/v1/link/forget"),
 
   upgrade: () => request<UpgradeState>("GET", "/api/v1/upgrade"),
   applyUpgrade: () => request<void>("POST", "/api/v1/upgrade"),

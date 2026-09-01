@@ -76,6 +76,7 @@ func (self *Store) Update(change func(configuration *Configuration) error) error
 		return err
 	}
 	RestoreSecrets(updated, previous)
+	RestoreFileOnlySettings(updated, previous)
 	updated.Normalize()
 	if err := updated.Validate(); err != nil {
 		self.mutex.Unlock()

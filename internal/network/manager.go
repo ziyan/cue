@@ -105,10 +105,11 @@ func (self *Manager) Run(ctx context.Context) {
 		return
 	}
 
-	interval := self.store.Current().Network.ReconcileInterval.Duration()
-	if interval <= 0 {
-		interval = 30 * time.Second
-	}
+	// Watched as well as timed. Reconciling on a timer alone means that
+	// saving a wireless network is accepted, written, and then does nothing
+	// visible for up to half a minute -- which reads as "it did not work",
+	// and the usual response to that is to save it again.
+	changes := self.store.Watch()
 
 	// Whether to manage the network is re-read every time round rather than
 	// once at the start. It used to be read once, and a daemon that started
@@ -132,10 +133,19 @@ func (self *Manager) Run(ctx context.Context) {
 			self.stopAll()
 		}
 
+		// Read the interval each time round rather than once before the
+		// loop: read once, it is the interval the daemon booted with and
+		// changing it in the file does nothing.
+		interval := self.store.Current().Network.ReconcileInterval.Duration()
+		if interval <= 0 {
+			interval = 30 * time.Second
+		}
+
 		select {
 		case <-ctx.Done():
 			self.stopAll()
 			return
+		case <-changes:
 		case <-time.After(interval):
 		}
 	}

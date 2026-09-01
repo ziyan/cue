@@ -13,6 +13,7 @@ import (
 
 	"github.com/ziyan/cue/internal/browser"
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/link"
 	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/network"
 	"github.com/ziyan/cue/internal/supervise"
@@ -26,6 +27,7 @@ import (
 // are real components that were never started, which is the state the
 // interface has to cope with anyway on a device whose display will not start.
 type fakeDevice struct {
+	linker    *link.Linker
 	statuses  []supervise.Status
 	browser   *browser.Browser
 	watchdog  *watchdog.Watchdog
@@ -55,6 +57,7 @@ func newFakeDevice(t *testing.T, store *config.Store) *fakeDevice {
 		t.Fatalf("xserver: %s", err)
 	}
 	return &fakeDevice{
+		linker:    link.New(store),
 		browser:   browser.New(configuration, ":9", "/nonexistent/Xauthority"),
 		watchdog:  watchdog.New(&configuration.Watchdog, watchdog.Remedies{}),
 		xserver:   server,
@@ -97,6 +100,8 @@ func (self *fakeDevice) JoinFromSetup(ssid, passphrase string) error {
 }
 func (self *fakeDevice) Network() *network.Manager             { return nil }
 func (self *fakeDevice) Restart(context.Context, string) error { return nil }
+
+func (self *fakeDevice) Linker() *link.Linker { return self.linker }
 
 func newTestServer(t *testing.T, configuration *config.Configuration) *Server {
 	t.Helper()
@@ -409,6 +414,29 @@ func do(server *Server, method, path string, body interface{}, session *http.Coo
 		request.AddCookie(session)
 	}
 
+	response := httptest.NewRecorder()
+	server.router.ServeHTTP(response, request)
+	return response
+}
+
+// doWith is do() with extra headers, for the conditional-write tests.
+func doWith(server *Server, method, path string, body interface{}, session *http.Cookie,
+	headers map[string]string) *httptest.ResponseRecorder {
+	var reader *strings.Reader
+	if body != nil {
+		encoded, _ := json.Marshal(body)
+		reader = strings.NewReader(string(encoded))
+	} else {
+		reader = strings.NewReader("")
+	}
+	request := httptest.NewRequest(method, path, reader)
+	request.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	if session != nil {
+		request.AddCookie(session)
+	}
 	response := httptest.NewRecorder()
 	server.router.ServeHTTP(response, request)
 	return response

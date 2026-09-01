@@ -6,7 +6,7 @@ import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import { useBeforeUnload } from "react-router";
 
-import { api, type Configuration } from "./api";
+import { api, Conflict, type Configuration } from "./api";
 import type { Status } from "./status";
 
 // One load and one save for every settings page, because they are all views of
@@ -62,6 +62,15 @@ export function useSettings() {
       setConfiguration(returned);
       setSaved("Saved.");
     } catch (error) {
+      // Somebody else saved while this was being edited. The device sends back
+      // what is actually on it, so the page shows that rather than leaving
+      // somebody looking at an edit that did not happen.
+      if (error instanceof Conflict) {
+        asItArrived.current = JSON.stringify(error.configuration);
+        setConfiguration(error.configuration);
+        setProblem(error.message + " — what is shown is now what the device has.");
+        return;
+      }
       setProblem(error instanceof Error ? error.message : String(error));
     }
   }, [configuration]);

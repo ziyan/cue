@@ -148,9 +148,16 @@ func matrixFromSVG(t *testing.T, body string, size int) [][]bool {
 	for row := range matrix {
 		matrix[row] = make([]bool, size)
 	}
-	// Every dark module is one black rect. The white ground is a rect too, and
-	// it is skipped by matching only the black ones.
-	for _, rect := range regexp.MustCompile(`<rect x="(\d+)" y="(\d+)"[^>]*fill="#000"`).FindAllStringSubmatch(body, -1) {
+	// Every dark module is one rect. The ground is a rect too, and it is
+	// skipped by matching only the ones in the module colour.
+	//
+	// Read from the code rather than written out here. This used to look for
+	// fill="#000", so softening the palette made every module invisible to it
+	// and the test reported that the page was drawing the wrong code -- which
+	// it was not. A test that names a colour is a test about a colour.
+	modules := regexp.MustCompile(
+		`<rect x="(\d+)" y="(\d+)"[^>]*fill="` + regexp.QuoteMeta(codeModules) + `"`)
+	for _, rect := range modules.FindAllStringSubmatch(body, -1) {
 		column, _ := strconv.Atoi(rect[1])
 		row, _ := strconv.Atoi(rect[2])
 		if row >= size || column >= size {

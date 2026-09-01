@@ -10,6 +10,7 @@ import SettingsRemoteOutlinedIcon from "@mui/icons-material/SettingsRemoteOutlin
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import SystemUpdateAltOutlinedIcon from "@mui/icons-material/SystemUpdateAltOutlined";
+import CloudOutlinedIcon from "@mui/icons-material/CloudOutlined";
 import type { SvgIconComponent } from "@mui/icons-material";
 
 export interface Page {
@@ -47,6 +48,9 @@ export const groups: Page[][] = [
     { path: "/time", title: "Time", Icon: ScheduleOutlinedIcon },
   ],
   [
+    // Where this device reports to, if anywhere. A cloud: it is the one page
+    // about something that is not this machine.
+    { path: "/service", title: "Service", Icon: CloudOutlinedIcon },
     { path: "/logs", title: "Logs", Icon: DescriptionOutlinedIcon },
     { path: "/upgrade", title: "Upgrade", Icon: SystemUpdateAltOutlinedIcon },
   ],

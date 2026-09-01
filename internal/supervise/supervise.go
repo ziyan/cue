@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -130,7 +131,9 @@ type Settings struct {
 	// with logging enabled writes tens of lines a second about WebRTC.
 	CaptureOutput bool
 
-	// OutputLevel is the level captured output is logged at. Unset means
+	// OutputLevel is the level captured output is logged at, and is read
+	// through outputLevel rather than directly so that SetOutputLevel can
+	// change it while the program runs. Unset means
 	// DEBUG, which keeps a busy program out of the way until somebody turns
 	// the level up to look at it. go-logging numbers CRITICAL as zero, so
 	// "unset" and "critical" are the same value here; nothing wants a child's
@@ -206,6 +209,12 @@ type Process struct {
 
 	cancel   context.CancelFunc
 	finished chan struct{}
+
+	// level overrides settings.OutputLevel once SetOutputLevel has been
+	// called. Held apart from the settings because the output pumps read it
+	// on every line, from their own goroutines, while the configuration is
+	// changing under them.
+	level atomic.Int32
 }
 
 // New returns a supervisor for one program. Nothing runs until Start.
@@ -702,7 +711,7 @@ func (self *Process) RecentOutput() []string {
 // logOutput writes one captured line at the configured level. go-logging has
 // no level-taking method, so the level is dispatched here.
 func (self *Process) logOutput(line string) {
-	switch self.settings.OutputLevel {
+	switch self.outputLevel() {
 	case logging.CRITICAL:
 		log.Criticalf("%s: %s", self.settings.Name, line)
 	case logging.ERROR:
@@ -716,6 +725,24 @@ func (self *Process) logOutput(line string) {
 	default:
 		log.Debugf("%s: %s", self.settings.Name, line)
 	}
+}
+
+// SetOutputLevel changes how loudly the program's own output is logged,
+// without restarting it. log.browserOutput is exactly this: turning it on is
+// how somebody looking at a device from a distance gets to see what the
+// browser is saying, and having to restart the browser to find out why it is
+// misbehaving usually destroys the evidence.
+func (self *Process) SetOutputLevel(level logging.Level) {
+	self.level.Store(int32(level))
+}
+
+// outputLevel is the level in force: whatever SetOutputLevel was last given,
+// or the one the settings were built with.
+func (self *Process) outputLevel() logging.Level {
+	if level := self.level.Load(); level != 0 {
+		return logging.Level(level)
+	}
+	return self.settings.OutputLevel
 }
 
 // CommandLine is the arguments for the start about to happen: whatever

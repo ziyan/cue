@@ -6,6 +6,50 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+### Fixed
+
+- Settings that were accepted, saved, shown as saved, and then silently did
+  nothing until the container was restarted. The VNC server is now started,
+  stopped and restarted to follow the `vnc` section, so turning screen sharing
+  on, moving it off the loopback or setting a password on it takes effect when
+  it is saved; the same for the clock and the `time` section. The watchdog now
+  follows its own section instead of the one the daemon booted with. The
+  timezone, the log level and `log.browserOutput` are applied on a change.
+  `audio.enabled` and `audio.sink` restart the browser, and
+  `display.virtualTerminal`, `display.extraArguments` and
+  `display.xorgConfiguration` restart the X server, none of which they did.
+- A screen that changes size no longer leaves the page in a corner. Nothing
+  resized the browser's window when the display did: there is no window
+  manager in the image, and Chromium does not follow a screen change by
+  itself, so plugging in a monitor that made the screen larger left a
+  1024x768 page on a 1280x1024 screen with black around two sides of it, and a
+  smaller screen clipped the page instead. The daemon now resizes the window
+  where it stands, without restarting the browser.
+- `display.reconcileInterval` is read each time round the arrange loop rather
+  than once, so changing it takes effect.
+- The network is reconciled when the configuration changes rather than up to
+  `network.reconcileInterval` later, and that interval can itself be changed
+  without restarting.
+
+### Added
+
+- `display.mirror`, on by default: a second screen plugged in shows what the
+  first one shows, at the largest size they both have, rather than being laid
+  out beside it. A laptop with a television plugged into it used to make one
+  6400x2160 desktop with the page stretched across both and half of it on each.
+  Turn it off for a video wall. Screens with no size in common are laid out
+  side by side as before, and the log says why.
+
+### Changed
+
+- Device identifiers are written in lower case, matching the playlist item
+  identifiers they sit beside. An identifier that is not a lower case ULID is
+  replaced the next time the configuration is read, the upper case ULIDs an
+  earlier version wrote included; such a device is a new screen the next time
+  it links, though one already linked keeps its row and goes on working.
+- `web.listen` and the `paths` section still need cue restarted, and now say
+  so in the log rather than being quietly ignored.
+
 ## [0.3.1] - 2026-08-29
 
 ### Changed
@@ -23,6 +67,18 @@ A device can take the upgrade itself, if it is set up to. Set `upgrade.allowAppl
 
 The image says where it came from. It carried no metadata at all, so a registry had nothing to tie it back to this repository and a person holding it had no way to find the source. It now carries the standard OCI labels, including `org.opencontainers.image.source`, which is the one a registry reads to link the package to its repository — and a linked package can take the repository's visibility instead of being published private, which is how the first release ended up with an image nobody following the README could pull. (#1)
 ## [0.1.0] - 2026-08-28
+
+### Added
+
+- The image says where it came from. It carried no metadata at all, so a
+  registry had nothing to tie it back to this repository and a person holding
+  it had no way to find the source. It now carries the standard OCI labels,
+  including `org.opencontainers.image.source`, which is the one a registry
+  reads to link the package to its repository — and a linked package can take
+  the repository's visibility instead of being published private, which is how
+  the first release ended up with an image that nobody following the README
+  could pull.
+
 
 ### Added
 
