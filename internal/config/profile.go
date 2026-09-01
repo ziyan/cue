@@ -342,3 +342,23 @@ func contains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// FindCredential returns the named credential, or nil.
+//
+// The name comes from a playlist item that may have arrived from the service,
+// so a name this device does not hold is an ordinary thing rather than a fault
+// in the file: somebody has applied a playlist to a screen that has not been
+// given the password yet. What must not happen is signing in anyway with
+// nothing, which is a wrong-credential attempt repeated on every rotation and
+// is how an account gets locked out.
+func (self *Configuration) FindCredential(name string) *Credential {
+	if name == "" {
+		return nil
+	}
+	for index := range self.Credentials {
+		if self.Credentials[index].Name == name {
+			return &self.Credentials[index]
+		}
+	}
+	return nil
+}

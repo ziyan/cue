@@ -1,4 +1,5 @@
 import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
 import { Section } from "../components/Section";
 import { Readout } from "../components/Readout";
 import { Row, Choice, Text, Toggle } from "../components/Fields";
@@ -21,6 +22,12 @@ interface SoundDevice {
   capture?: boolean;
 }
 
+interface Credential {
+  name?: string;
+  username?: string;
+  password?: string;
+}
+
 function describe(one: InputDevice): string {
   const kinds: string[] = [];
   if (one.touch && one.direct) kinds.push("touchscreen");
@@ -39,6 +46,13 @@ export function Access() {
         const vnc = configuration.vnc as { listen: string; password: string; viewOnly: boolean };
         const web = configuration.web as { listen: string; sessionLifetime: string };
         const log = configuration.log as { level: string };
+        const credentials = (configuration.credentials ?? []) as Credential[];
+
+        const changeCredentials = (change: (draft: Credential[]) => void) =>
+          settings.change((draft) => {
+            const list = ((draft as { credentials?: Credential[] }).credentials ??= []);
+            change(list);
+          });
         const inputs = ((status as unknown as { input?: InputDevice[] }).input ?? [])
           .filter((one) => one.keyboard || one.pointer || one.touch);
         const sound = (status as unknown as { sound?: SoundDevice[] }).sound ?? [];
@@ -118,6 +132,33 @@ export function Access() {
                     (draft.web as { sessionLifetime: string }).sessionLifetime = asSeconds(value, 60);
                   })} />
               </Row>
+            </Section>
+
+            <Section title="Saved sign-ins">
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                A dashboard behind a login refers to one of these by name, so the password
+                stays on this screen. A playlist can then be shared with other screens
+                without carrying it.
+              </Typography>
+              {credentials.map((credential, index) => (
+                <Row key={index}>
+                  <Text label="Name" value={credential.name ?? ""}
+                    hint="What a playlist item refers to it by"
+                    onChange={(value) => changeCredentials((list) => { list[index]!.name = value; })} />
+                  <Text label="Username" value={credential.username ?? ""}
+                    onChange={(value) => changeCredentials((list) => { list[index]!.username = value; })} />
+                  <Text label="Password" type="password" value={credential.password ?? ""}
+                    onChange={(value) => changeCredentials((list) => { list[index]!.password = value; })} />
+                  <Button size="small" color="error" onClick={() =>
+                    changeCredentials((list) => { list.splice(index, 1); })}>
+                    Remove
+                  </Button>
+                </Row>
+              ))}
+              <Button size="small" onClick={() =>
+                changeCredentials((list) => { list.push({ name: "", username: "", password: "" }); })}>
+                Add a sign-in
+              </Button>
             </Section>
           </>
         );
