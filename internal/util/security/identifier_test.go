@@ -85,3 +85,32 @@ func TestWhatCountsAsADeviceIdentifier(t *testing.T) {
 		}
 	}
 }
+
+// The case is part of what these are: playlist item identifiers have always
+// been lower case, and a device that named itself in upper case while its own
+// playlist was in lower case was two conventions for one idea.
+func TestADeviceIdentifierIsLowerCase(t *testing.T) {
+	for range 200 {
+		identifier := NewDeviceIdentifier()
+		if identifier != strings.ToLower(identifier) {
+			t.Fatalf("minted an identifier with upper case in it: %q", identifier)
+		}
+	}
+}
+
+// Upper case is what an older version wrote, and those files are still out
+// there. Reading one has to keep working, because the alternative is a device
+// deciding its identifier is unusable and minting a new one -- which to the
+// service is a different screen.
+func TestAnIdentifierWrittenInUpperCaseIsStillOurs(t *testing.T) {
+	const written = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	if !IsDeviceIdentifier(written) {
+		t.Errorf("an identifier written by an older version was refused: %q", written)
+	}
+	if got := NormaliseDeviceIdentifier(" " + written + " "); got != "01arz3ndektsv4rrffq69g5fav" {
+		t.Errorf("normalised to %q", got)
+	}
+	if !IsDeviceIdentifier(NormaliseDeviceIdentifier(written)) {
+		t.Error("the normalised form is not itself a device identifier")
+	}
+}

@@ -59,7 +59,7 @@ The file holds the passwords the screen signs in with. It is written with mode
 
     device:
       name: Reception          # shown in the interface and on the screen's own page
-      identifier: 01ARZ3NDEK... # a ULID, generated once, never changes
+      identifier: 01arz3ndek... # a ULID, generated once, never changes
       location: Ground floor   # free text
       timezone: Europe/London  # empty means UTC
       language: ja             # empty leaves the browser to decide
@@ -466,8 +466,13 @@ server, works out that the clock is wrong, and cannot do anything about it —
 which produces a device showing certificate errors with a healthy-looking time
 client on it.
 
-`identifier` is a ULID: twenty-six characters of Crockford base32, a timestamp
-followed by randomness. It is generated on first run and never changes, and it
+`identifier` is a ULID: twenty-six characters of Crockford base32 in lower
+case, a timestamp followed by randomness. Crockford's alphabet is
+case-insensitive, and an identifier written in upper case by an older version
+is read as it always was — and rewritten in lower case, keeping the same
+identifier, so that a device is one string wherever it is shown. The service
+normalises before it looks anything up, so a device that flips case this way
+is still the same device to it. It is generated on first run and never changes, and it
 is the name the hosted service uses for this device as well — one name for one
 thing, rather than the service minting a second beside it.
 

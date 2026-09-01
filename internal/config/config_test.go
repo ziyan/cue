@@ -528,3 +528,19 @@ func TestClonedDevicesStopSharingAnIdentifier(t *testing.T) {
 			first.Device.Identifier)
 	}
 }
+
+// A device that has been running since before identifiers were written in
+// lower case keeps its identifier, in the new case. Keeping it is the point:
+// minting a new one would be a new screen as far as the service is concerned,
+// and the whole reason the identifier is the service's primary key is that a
+// screen relinked is the same screen.
+func TestAnUpperCaseIdentifierIsKeptAndLowered(t *testing.T) {
+	configuration := Default()
+	configuration.Device.Identifier = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	configuration.Normalize()
+
+	if configuration.Device.Identifier != "01arz3ndektsv4rrffq69g5fav" {
+		t.Errorf("the identifier became %q; it should be the same one in lower case",
+			configuration.Device.Identifier)
+	}
+}

@@ -132,6 +132,11 @@ func (self *Configuration) Normalize() {
 	if !security.IsDeviceIdentifier(self.Device.Identifier) {
 		self.Device.Identifier = security.NewDeviceIdentifier()
 	}
+	// Written upper case by an older version. Both are read everywhere and
+	// the service normalises before it looks anything up, so a device that
+	// flips case here is still the same device to it -- and a relink finds
+	// the row it already had rather than making a second one.
+	self.Device.Identifier = security.NormaliseDeviceIdentifier(self.Device.Identifier)
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
 
 	// Filled in rather than required. A file that names a service keeps what

@@ -21,13 +21,22 @@ import (
 // and in support conversations, so they are made to be read aloud.
 var identifierEncoding = base32.NewEncoding("0123456789abcdefghjkmnpqrstvwxyz").WithPadding(base32.NoPadding)
 
-// ulidEncoding is Crockford's, upper case. The same alphabet as
-// identifierEncoding and the same reasons for it, in the case a ULID is
-// canonically written in.
-var ulidEncoding = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+// ulidEncoding is Crockford's, lower case. The same alphabet and the same case
+// as identifierEncoding, and for the same reason: these end up in URLs and in
+// support conversations, and a device that named itself in one case while its
+// playlist items were in the other was two conventions for one idea.
+//
+// The ULID specification writes its examples in upper case, and Crockford's
+// alphabet is defined as case-insensitive on input. Nothing that reads one of
+// these cares which case it arrives in -- IsDeviceIdentifier takes either, and
+// the hosted service normalises before it looks anything up -- so the case
+// here is a choice about what is pleasant to read, and this is the one the
+// rest of the project already made.
+var ulidEncoding = "0123456789abcdefghjkmnpqrstvwxyz"
 
-// NewDeviceIdentifier returns a ULID: 26 characters of Crockford base32, a
-// 48-bit millisecond timestamp followed by 80 bits of randomness.
+// NewDeviceIdentifier returns a ULID: 26 characters of Crockford base32 in
+// lower case, a 48-bit millisecond timestamp followed by 80 bits of
+// randomness.
 //
 // A device's identifier is a ULID rather than the shorter random one because
 // the hosted service uses it as its own name for the device. One name for one
@@ -86,22 +95,32 @@ func IsDeviceIdentifier(value string) bool {
 	}
 	// A ULID's 48-bit timestamp leaves two spare bits at the front, so the
 	// first character can never be above '7'.
-	if strings.IndexByte(ulidEncoding, upperOf(value[0])) > 7 {
+	if strings.IndexByte(ulidEncoding, lowerOf(value[0])) > 7 {
 		return false
 	}
 	for index := 0; index < len(value); index++ {
-		if strings.IndexByte(ulidEncoding, upperOf(value[index])) < 0 {
+		if strings.IndexByte(ulidEncoding, lowerOf(value[index])) < 0 {
 			return false
 		}
 	}
 	return true
 }
 
-func upperOf(letter byte) byte {
-	if letter >= 'a' && letter <= 'z' {
-		return letter - 'a' + 'A'
+func lowerOf(letter byte) byte {
+	if letter >= 'A' && letter <= 'Z' {
+		return letter - 'A' + 'a'
 	}
 	return letter
+}
+
+// NormaliseDeviceIdentifier returns the form this project writes: lower case.
+//
+// Identifiers written by an older version are upper case, and both are read
+// everywhere, so this is not about making them usable. It is so that one
+// device is one string wherever it is shown -- the file, the interface, the
+// service -- rather than depending on which version first ran on it.
+func NormaliseDeviceIdentifier(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 // NewIdentifier returns a random identifier of 16 characters, which is 80

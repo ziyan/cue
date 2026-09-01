@@ -33,6 +33,10 @@ All notable changes to this project are recorded here, in the categories of
 
 ### Changed
 
+- Device identifiers are written in lower case, matching the playlist item
+  identifiers they sit beside. An identifier written in upper case by an older
+  version is kept and rewritten in the new case rather than being replaced —
+  the same device, spelled one way. Both cases are still read.
 - `web.listen` and the `paths` section still need cue restarted, and now say
   so in the log rather than being quietly ignored.
 
