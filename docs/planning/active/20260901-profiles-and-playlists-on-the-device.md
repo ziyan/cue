@@ -271,12 +271,34 @@ passphrase rescue it — a new SSID needs a new key by definition, so a profile
 that moves the SSID and cannot carry the key has disconnection as its only
 possible outcome.
 
-Allowing it later means merging by name and keeping per-device fields the
-profile does not mention, as `RestoreSecrets` already matches slices on
-`Identifier` or `Name` rather than on position. That is its own design, with
-its own question — what becomes of an interface the device has and the profile
-does not name? — and should not arrive as a side effect of "the network
-section can be managed".
+Allowing it later should not be merge-by-name after all. The same wireless card
+is `wlan0`, `wlp2s0` or `wlx4c11ae…` depending on the machine and which
+predictable-naming rules are in force, so a name-keyed profile would apply to
+some screens in a mixed fleet and silently not to others — which is worse than
+failing, because it looks as though it worked. Addressing by *role* — wireless
+and wired — is what makes one profile mean the same thing on unlike hardware,
+and it works here because the device does not learn wireless-ness from the name
+either: `internal/network/network.go` classifies each interface with
+`kindOf(name, link.Type())`, from the kernel's link type. A role is a question
+the device can already answer about hardware it can see.
+
+Not built. It wants its own plan, with the question it inherits answered rather
+than assumed: what becomes of an interface the device has and the profile does
+not name? cue.sh's record of the interface decision is
+`docs/decisions/20260901-profiles-and-network-interfaces.md` in that repository.
+
+The passphrase is not closed by roles either. The device-side rule that makes
+an SSID safe to put in a profile is that **the device must refuse a network
+change that would leave it unable to join, and say so** — keeping the network
+it is on and logging that it was asked to move and could not. That turns forty
+screens off the air into a visible no-op, which is something somebody can fix.
+
+**2026-09-01 — one credential store, not two.** The playlist half needs a
+dashboard login the slide references by name while the device holds the secret;
+wireless needs the same thing for a passphrase when a profile names an SSID.
+Those are one design, and doing them separately would put two answers to "where
+do secrets live" in one file and two places in the local interface for somebody
+to type them. The section is named once, when the playlist reaches it.
 
 **2026-09-01 — a playlist's login credentials stay on the device.**
 `playlist.items[].login.password` is a `config.Secret`, so a playlist lifted off
