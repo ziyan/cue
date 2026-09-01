@@ -358,6 +358,7 @@ func TestEveryVNCSettingReachesTheServer(t *testing.T) {
 func TestEveryDisplaySettingIsClassified(t *testing.T) {
 	appliedWithoutARestart := map[string]string{
 		"Wallpaper":         "drawn by the daemon, not the server",
+		"Mirror":            "outputs are placed over RandR by applyLayout",
 		"Outputs":           "arranged over RandR by applyLayout",
 		"Modeline":          "added over RandR by applyLayout",
 		"ModeName":          "chosen over RandR by applyLayout",

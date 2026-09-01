@@ -101,6 +101,7 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
       number: 0                # the X display number
       virtualTerminal: 2       # the console to draw on: 2 means /dev/tty2
       wallpaper: true         # the Cue mark, until the browser has drawn
+      mirror: true             # every screen shows the same picture
       cursor: auto            # hidden, auto, or always
       cursorIdleTimeout: 3s   # how long it stays up after it stops moving
       framebuffer: ""          # force a size, e.g. 1920x1080, for a television that lies
@@ -114,7 +115,7 @@ would not start ever appears — but logged at DEBUG so it stays out of the way.
         - name: "*"            # a socket name like HDMI-1, or * for anything unnamed
           mode: preferred      # preferred, off, or 1920x1080
           rate: 0              # hertz, when several modes share a size
-          position: 0x0        # where it sits; every output at 0x0 is mirrored
+          position: 0x0        # where it sits, when mirror is off
           rotate: normal       # normal, left, right, inverted
           primary: false
 
@@ -169,6 +170,23 @@ pointer up like any other machine.
 `true` and `false` are still accepted and mean `always` and `hidden`: that is
 what this setting used to be, and it is written into the file of every device
 already in service.
+
+`mirror` decides what a second screen is for. On, which is the default, every
+screen shows the same picture: they are all put on the largest size they all
+have, at the same origin. Off, they are laid out side by side into one wide
+desktop and `position` decides where each one sits.
+
+On is the default because this is a daemon for showing one page on a screen,
+and a second screen plugged into one of these is almost always another place to
+show the same thing. Laid out side by side, a laptop panel and a television
+make one very wide desktop with the page stretched across both and half of it
+on each — which looks like a fault rather than a layout. Turn it off for a
+video wall, where two screens really are one picture.
+
+Mirroring needs a size both screens have. A laptop panel and a television
+usually share one, because the panel's native size is normally somewhere in the
+television's list. When they share nothing at all, cue lays them out side by
+side and says so in the log rather than blanking one of them.
 
 ## browser
 

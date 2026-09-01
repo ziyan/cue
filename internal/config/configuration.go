@@ -236,6 +236,26 @@ type Display struct {
 	// it. Defaults to "cue".
 	ModeName string `yaml:"modeName,omitempty" json:"modeName"`
 
+	// Mirror shows the same picture on every screen that is plugged in,
+	// rather than laying them out side by side into one wide desktop.
+	//
+	// On by default, because this is a daemon for showing one page on a
+	// screen. A second screen plugged into one of these is almost always
+	// another place to show the same thing -- a second monitor in the next
+	// room, a projector in a meeting room -- and laying them out side by side
+	// gives a page stretched across two screens with half of it on each,
+	// which nobody wants and which looks like a fault.
+	//
+	// It needs a mode both screens have. A laptop panel and a television
+	// usually share one -- the panel's native size is normally in the
+	// television's list -- and when they share nothing at all this falls back
+	// to side by side and says so, rather than blanking one of them.
+	//
+	// Turn it off for a video wall, where two screens really are one wide
+	// picture. Per-output "position" is ignored while this is on: mirroring
+	// is what "both at the same place" means.
+	Mirror bool `yaml:"mirror" json:"mirror"`
+
 	// Outputs configures the physical connectors. An entry whose Name is "*"
 	// applies to every connected output that no other entry names, which is
 	// what makes the default configuration work on a machine nobody has

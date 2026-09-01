@@ -31,6 +31,15 @@ All notable changes to this project are recorded here, in the categories of
   `network.reconcileInterval` later, and that interval can itself be changed
   without restarting.
 
+### Added
+
+- `display.mirror`, on by default: a second screen plugged in shows what the
+  first one shows, at the largest size they both have, rather than being laid
+  out beside it. A laptop with a television plugged into it used to make one
+  6400x2160 desktop with the page stretched across both and half of it on each.
+  Turn it off for a video wall. Screens with no size in common are laid out
+  side by side as before, and the log says why.
+
 ### Changed
 
 - Device identifiers are written in lower case, matching the playlist item

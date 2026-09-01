@@ -42,6 +42,7 @@ func Default() *Configuration {
 			ModeName:          "cue",
 			BlankAfter:        0,
 			ReconcileInterval: Duration(5 * time.Second),
+			Mirror:            true,
 		},
 		Browser: Browser{
 			Binary:              "chromium",

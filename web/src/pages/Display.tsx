@@ -34,6 +34,7 @@ interface DisplaySettings {
   cursor?: string;
   cursorIdleTimeout?: string;
   wallpaper?: boolean;
+  mirror?: boolean;
   modeline?: string;
   xorgConfiguration?: string;
 }
@@ -130,7 +131,12 @@ export function Display() {
               <Typography variant="h2" color="text.secondary" sx={{ mb: 1.5 }}>
                 Colour, size and the console
               </Typography>
-              {outputs.map((output, index) => (
+              <Row>
+                <Toggle label="Show the same picture on every screen" checked={display.mirror !== false}
+                  hint="On, a second screen plugged in shows what the first one shows, at the largest size they both have. Off lays them out side by side into one wide desktop, which is what a video wall wants and what everything else does not. Where each screen sits is ignored while this is on."
+                  onChange={(value) => set((draft) => { draft.mirror = value; })} />
+              </Row>
+              {display.mirror === false && outputs.map((output, index) => (
                 <Row key={index}>
                   <Text label={`Where ${output.name} sits`} value={output.position ?? ""}
                     hint="0x0. Only means anything with more than one screen"
