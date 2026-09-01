@@ -148,17 +148,14 @@ func (self *Browser) loginNeeded(ctx context.Context, session *pageSession, logi
 // an account gets locked out, and the account being locked out is much worse
 // than the screen showing a login page.
 func (self *Browser) attemptLogin(ctx context.Context, identifier string, item config.Item) {
-	login, err := self.resolveLogin(item.Login)
-	if err != nil {
-		// Said every time rather than once, and at warning: the screen is
-		// sitting on a login page and will go on sitting there, and the
-		// remedy is somebody adding the credential to this device. A line
-		// once at startup would have scrolled away by the time anybody looked.
-		log.Warningf("cannot sign in to %s: %s", describeItem(item, identifier), err)
-		return
-	}
-
-	minimum := login.MinimumInterval.Duration()
+	// The interval is applied before anything else, including working out
+	// which credential to use. Every visible page is checked against its rules
+	// every five seconds, so a login that cannot be attempted -- because it
+	// names a credential this device does not hold -- would otherwise say so
+	// twelve times a minute for ever, on a screen nobody visits, burying
+	// everything else in the log. MinimumInterval exists to stop a login being
+	// retried too often, and not being able to try at all is a kind of trying.
+	minimum := item.Login.MinimumInterval.Duration()
 	if minimum <= 0 {
 		minimum = 30 * time.Second
 	}
@@ -171,6 +168,16 @@ func (self *Browser) attemptLogin(ctx context.Context, identifier string, item c
 	}
 	self.lastLogin[identifier] = time.Now()
 	self.mutex.Unlock()
+
+	login, err := self.resolveLogin(item.Login)
+	if err != nil {
+		// Said on every attempt rather than once, and at warning: the screen
+		// is sitting on a login page and will go on sitting there, and the
+		// remedy is somebody adding the credential to this device. A line once
+		// at startup would have scrolled away by the time anybody looked.
+		log.Warningf("cannot sign in to %s: %s", describeItem(item, identifier), err)
+		return
+	}
 
 	target := self.targetFor(identifier)
 	session, err := self.session(ctx, target)
