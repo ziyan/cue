@@ -298,12 +298,14 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 	nextPoll := time.Now()
 
 	for {
-		if err := self.reportOnce(ctx, client); err != nil {
-			return err
-		}
-		if err := self.describeOnce(ctx, client); err != nil {
-			return err
-		}
+		// Asked before the screen is photographed, and the order is the whole
+		// of what a nudge is worth. Reporting first means a nudge waits out a
+		// photograph -- a 2560x1440 screen encoded to JPEG and sent over the
+		// tunnel -- before the device asks what it should be showing. Measured
+		// against the real service that put sixteen seconds between somebody
+		// clicking and the device asking, for a request that takes
+		// milliseconds. It is also the sensible order on a fresh connection:
+		// find out what to show, then photograph what is being shown.
 		if !time.Now().Before(nextPoll) {
 			// A profile that will not fetch or will not apply is not a reason
 			// to drop a connection that is otherwise working: the screen goes
@@ -315,6 +317,12 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 				log.Debugf("%s", err)
 			}
 			nextPoll = time.Now().Add(pollInterval(self.store.Current()))
+		}
+		if err := self.reportOnce(ctx, client); err != nil {
+			return err
+		}
+		if err := self.describeOnce(ctx, client); err != nil {
+			return err
 		}
 		if !connection.alive() {
 			return fmt.Errorf("service: the connection went away")

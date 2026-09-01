@@ -88,6 +88,13 @@ func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client)
 		// nothing here may touch them. Not an error and not a release: the
 		// common case for a screen nobody has put on a playlist yet, which is
 		// every screen in service today.
+		//
+		// Said at debug, because otherwise this answer leaves no trace at all
+		// and "the items are unchanged" cannot be told apart from "nothing
+		// ever asked". That distinction is the whole of the test for this
+		// behaviour, and the first time it was checked it had to be settled
+		// from the service's access log because the device had nothing to say.
+		log.Debugf("the service has no playlist for this device; its own items are left alone")
 		return nil
 
 	case http.StatusNotModified:
