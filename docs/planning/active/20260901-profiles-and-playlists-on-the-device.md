@@ -148,7 +148,12 @@ that arrives while a poll is already running does not start a second one.
 
 The same polling treatment for `GET /api/v1/device/playlist`, mapping each
 slide to a `config.Item` field for field, including `identifier` — which is
-load-bearing, because `internal/browser/playlist.go` keys browser tabs by it.
+load-bearing, though not for the reason first given here. Tabs are allocated
+*positionally* and re-navigated; the identifier is what maps an item to the tab
+showing it. So an identifier that changed between polls would break
+which-item-is-showing, the `show` and `next` routes, and what this device
+reports it is displaying — all real, none of them the visible teardown
+originally claimed.
 
 Acceptance: a playlist of two slides appears in the configuration, the screen
 shows the first, and a second poll returning the same document changes nothing
@@ -369,6 +374,14 @@ than once, from reading a test that has since changed. The reasoning that
 depended on it survives — a device that changes the case of its identifier is
 still the same device, because the service normalises — but the direction was
 wrong, and the direction is what somebody would check.
+
+**2026-09-01 — every playlist apply reloaded every page.** Tabs are reused by
+position and each was navigated unconditionally, so editing one slide reloaded
+all of them — on a wall of dashboards behind logins, all of them signing in
+again because somebody fixed a typo in a title. Found while checking the
+identifier claim above rather than by anything failing: reading the code to see
+whether the mechanism was what this plan said turned up the reload. A tab
+already at the right address is now left alone.
 
 **2026-09-01 — a test proved the conditional request, not the thing it was
 written for.** "A second poll fetches nothing" passed with the disk check
