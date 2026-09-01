@@ -6,7 +6,32 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-01
+
+### Added
+
+
+- `display.mirror`, on by default: a second screen plugged in shows what the
+  first one shows, at the largest size they both have, rather than being laid
+  out beside it. A laptop with a television plugged into it used to make one
+  6400x2160 desktop with the page stretched across both and half of it on each.
+  Turn it off for a video wall. Screens with no size in common are laid out
+  side by side as before, and the log says why.
+A screen can be attached to an account on the hosted service by scanning a code. Open the menu at the screen and give the device password, or open the new Service page in the web interface; either shows a QR code to point a phone at. Authorise the device on the phone and the screen says so a moment later. What the code carries is not enough to attach the device on its own, so photographing the screen does not hand it away, and the credential the device receives is stored in `cue.yaml` and never shown again. (#3)
+
+### Changed
+
+
+- Device identifiers are written in lower case, matching the playlist item
+  identifiers they sit beside. An identifier that is not a lower case ULID is
+  replaced the next time the configuration is read, the upper case ULIDs an
+  earlier version wrote included; such a device is a new screen the next time
+  it links, though one already linked keeps its row and goes on working.
+- `web.listen` and the `paths` section still need cue restarted, and now say
+  so in the log rather than being quietly ignored.
+
 ### Fixed
+
 
 - Settings that were accepted, saved, shown as saved, and then silently did
   nothing until the container was restarted. The VNC server is now started,
@@ -30,26 +55,6 @@ All notable changes to this project are recorded here, in the categories of
 - The network is reconciled when the configuration changes rather than up to
   `network.reconcileInterval` later, and that interval can itself be changed
   without restarting.
-
-### Added
-
-- `display.mirror`, on by default: a second screen plugged in shows what the
-  first one shows, at the largest size they both have, rather than being laid
-  out beside it. A laptop with a television plugged into it used to make one
-  6400x2160 desktop with the page stretched across both and half of it on each.
-  Turn it off for a video wall. Screens with no size in common are laid out
-  side by side as before, and the log says why.
-
-### Changed
-
-- Device identifiers are written in lower case, matching the playlist item
-  identifiers they sit beside. An identifier that is not a lower case ULID is
-  replaced the next time the configuration is read, the upper case ULIDs an
-  earlier version wrote included; such a device is a new screen the next time
-  it links, though one already linked keeps its row and goes on working.
-- `web.listen` and the `paths` section still need cue restarted, and now say
-  so in the log rather than being quietly ignored.
-
 ## [0.3.1] - 2026-08-29
 
 ### Changed
