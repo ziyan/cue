@@ -354,3 +354,58 @@ func TestNoSecretCanArriveInAProfile(t *testing.T) {
 		})
 	}
 }
+
+// The dangerous thing about a list of credentials is the CONTAINER, not the
+// field inside it. A list is managed whole, so a profile naming credentials
+// replaces the device's — and a null, or a list with the passwords stripped
+// out, replaces it with nothing. Every dashboard on that screen back to a
+// login page, and nothing saying why.
+//
+// A guard that refused only the password field would miss both, because
+// neither carries one. This checks the list itself is refused whatever is or
+// is not in it.
+func TestAProfileCannotClearTheCredentialsBySendingAnEmptyOne(t *testing.T) {
+	for what, document := range map[string]string{
+		"a null":                  "credentials: null\n",
+		"an empty list":           "credentials: []\n",
+		"entries with no secrets": "credentials:\n  - name: the-dashboard\n    username: screen\n",
+	} {
+		t.Run(what, func(t *testing.T) {
+			configuration := Default()
+			configuration.Credentials = []Credential{{
+				Name:     "the-dashboard",
+				Username: "screen",
+				Password: Secret("a-test-password"),
+			}}
+
+			applied(t, configuration, document)
+
+			if len(configuration.Credentials) != 1 {
+				t.Fatalf("%s left this device with %d credential(s); it had one",
+					what, len(configuration.Credentials))
+			}
+			if !configuration.Credentials[0].Password.IsSet() {
+				t.Errorf("%s cleared the password, so every dashboard on this screen "+
+					"goes back to a login page", what)
+			}
+			if contains(configuration.Service.ProfileKeys, "credentials") {
+				t.Error("the credentials list entered the managed set")
+			}
+		})
+	}
+}
+
+// Where a screen is is a fact about that screen. A profile lifted from one and
+// applied across a fleet would relabel every one of them with the first one's
+// location -- harmless, and wrong, and the sort of wrong nobody notices until
+// they are looking for a screen.
+func TestAProfileCannotRelabelWhereAScreenIs(t *testing.T) {
+	configuration := Default()
+	configuration.Device.Location = "Reception"
+
+	applied(t, configuration, "device:\n  location: The other building\n")
+
+	if configuration.Device.Location != "Reception" {
+		t.Errorf("this screen now thinks it is in %q", configuration.Device.Location)
+	}
+}

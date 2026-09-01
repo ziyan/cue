@@ -42,6 +42,20 @@ var refusedByProfile = []string{
 	// too.
 	"device.identifier",
 
+	// What this screen is called and where it is. Both are facts about one
+	// screen: a profile lifted from a device and applied across a fleet would
+	// rename every one of them "Reception" and put them all in the same
+	// building. The service strips these when it extracts a profile, and this
+	// refuses them again, for the same reason the identifier is refused twice
+	// -- a stripping list that is wrong once is wrong on every screen it
+	// touches.
+	//
+	// device.timezone and device.language are NOT here. A fleet in one place
+	// shares a zone and a language, and saying so once rather than forty times
+	// is what a profile is for.
+	"device.name",
+	"device.location",
+
 	// Everything about being linked: the address, the credential, the
 	// account, and the poll interval that governs asking for the profile at
 	// all. A profile that could set the last of those could stop a fleet
