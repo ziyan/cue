@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -154,7 +155,7 @@ func TestAProfileCannotSetWhatItMustNotSet(t *testing.T) {
 		"the poll interval":       "service:\n  pollInterval: 9999s\n",
 		"the admin password":      "web:\n  passwordHash: not-a-real-hash-placeholder\n",
 		"the session secret":      "web:\n  sessionSecret: placeholder-for-a-test\n",
-		"the network":             "network:\n  manage: true\n",
+		"the interface list":      "network:\n  interfaces:\n    - name: wlan0\n      wireless:\n        ssid: elsewhere\n",
 		"the paths":               "paths:\n  state: /tmp/elsewhere\n",
 		"the playlist":            "playlist:\n  items:\n    - url: https://example.com/\n",
 	} {
@@ -232,5 +233,62 @@ func TestApplyingTheSameProfileTwiceChangesNothing(t *testing.T) {
 	}
 	if changed {
 		t.Error("the same profile applied twice reported a change the second time")
+	}
+}
+
+// The network settings that are safe to share, as against the one that is not.
+// A profile carrying manage, onboarding, lostAfter or the reconcile interval is
+// saying the same sentence on every machine, which is what a profile is for.
+func TestAProfileCanSetTheNetworkSettingsThatAreNotCredentials(t *testing.T) {
+	configuration := Default()
+	configuration.Network.Manage = false
+
+	applied(t, configuration, "network:\n  manage: true\n  lostAfter: 900s\n")
+
+	if !configuration.Network.Manage {
+		t.Error("a profile could not turn network management on")
+	}
+	if configuration.Network.LostAfter.Duration() != 900*time.Second {
+		t.Errorf("lostAfter is %s", configuration.Network.LostAfter.Duration())
+	}
+}
+
+// The one that would take a fleet off the network. A profile naming the
+// interface list replaces it whole, and a wireless passphrase lives inside an
+// interface and never travels -- so every device it touched would be left with
+// an SSID it cannot join, and the way to fix that remotely is the network it
+// has just lost. Applied to forty screens it is forty site visits.
+func TestAProfileCannotReplaceTheInterfaceList(t *testing.T) {
+	configuration := Default()
+	configuration.Network.Interfaces = []Interface{{
+		Name:     "wlan0",
+		Wireless: &Wireless{SSID: "office", Passphrase: Secret("a-test-passphrase")},
+	}}
+
+	applied(t, configuration, `
+network:
+  manage: true
+  interfaces:
+    - name: wlan0
+      wireless:
+        ssid: office-new
+`)
+
+	if len(configuration.Network.Interfaces) != 1 {
+		t.Fatalf("the device has %d interface(s); the profile must not change the list",
+			len(configuration.Network.Interfaces))
+	}
+	wireless := configuration.Network.Interfaces[0].Wireless
+	if wireless == nil || wireless.SSID != "office" {
+		t.Error("a profile moved this device to another network")
+	}
+	if wireless == nil || !wireless.Passphrase.IsSet() {
+		t.Error("a profile removed this device's passphrase, which takes it off the network")
+	}
+	if !configuration.Network.Manage {
+		t.Error("refusing the interface list also refused the rest of the section")
+	}
+	if contains(configuration.Service.ProfileKeys, "network.interfaces") {
+		t.Error("the refused list entered the managed set")
 	}
 }

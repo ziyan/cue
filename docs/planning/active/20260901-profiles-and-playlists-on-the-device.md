@@ -249,6 +249,35 @@ going back to defaults on a wall, from an authentication blip. Releasing has to
 be something cue.sh says on purpose, never something the device infers from not
 being recognised.
 
+**2026-09-01 — a profile may carry the network settings but never the
+interface list.** Asked for so that an operator can change the network on many
+devices at once. The scalars are safe and are allowed: `network.manage`,
+`network.onboarding`, `network.lostAfter`, `network.reconcileInterval` carry no
+credential and are the same sentence on every machine.
+
+`network.interfaces` is refused, and the reason is the merge rather than the
+field. A list is managed whole, so a profile naming it replaces the device's
+list outright — and a wireless passphrase lives inside an interface and never
+travels, because it serialises as `********`. A profile moving an office to a
+new SSID would therefore leave every screen it touched with an SSID and no key,
+unable to join, and the thing that would let somebody fix that remotely is the
+network it has just lost. Forty screens is forty site visits.
+
+It is worse than the wireless case alone: replacing a list does not care what
+is in it, so a profile carrying only a wired interface still deletes the
+wireless one from every device that had it. There is no subset of interfaces
+that is safe to send while the merge replaces the list. Nor can carrying the
+passphrase rescue it — a new SSID needs a new key by definition, so a profile
+that moves the SSID and cannot carry the key has disconnection as its only
+possible outcome.
+
+Allowing it later means merging by name and keeping per-device fields the
+profile does not mention, as `RestoreSecrets` already matches slices on
+`Identifier` or `Name` rather than on position. That is its own design, with
+its own question — what becomes of an interface the device has and the profile
+does not name? — and should not arrive as a side effect of "the network
+section can be managed".
+
 **2026-09-01 — a playlist's login credentials stay on the device.**
 `playlist.items[].login.password` is a `config.Secret`, so a playlist lifted off
 a device through a JSON path would carry `********` and set the literal mask as

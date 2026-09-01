@@ -53,8 +53,30 @@ var refusedByProfile = []string{
 	"web.passwordHash",
 	"web.sessionSecret",
 
-	// Wireless passphrases, and which interfaces this machine has.
-	"network",
+	// Which interfaces this machine has, and how each one gets an address.
+	//
+	// Refused while a list is managed whole, which is what it is: a profile
+	// naming this replaces the device's list outright, and a wireless
+	// interface's passphrase lives inside it and never travels. So a profile
+	// moving an office to a new SSID would leave every screen it touched with
+	// an SSID and no key, unable to join, and the thing that would let
+	// somebody fix that remotely is the network it has just lost. It is worse
+	// than the wireless case suggests: replacing the list does not care what
+	// is in it, so a profile carrying only a wired interface still deletes the
+	// wireless one from every device that had it.
+	//
+	// The rest of the section is fine and is not refused -- manage,
+	// onboarding, lostAfter and reconcileInterval are scalars, carry no
+	// credential, and are genuinely the same sentence on every machine, which
+	// is what a profile is for.
+	//
+	// Allowing interfaces would mean merging by name and keeping per-device
+	// fields the profile does not mention, the way RestoreSecrets already
+	// matches slices on Identifier or Name rather than on position. That is a
+	// real design with its own questions -- what becomes of an interface the
+	// device has and the profile does not name? -- and it should not arrive
+	// as a side effect of "the network section can be managed".
+	"network.interfaces",
 
 	// Where state is kept, which is fixed by the image's layout.
 	"paths",
