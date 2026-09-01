@@ -214,3 +214,29 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
 </body>
 </html>
 `))
+
+// poll is the service's nudge: something it holds for this device has changed,
+// so ask for it now rather than at the next interval.
+//
+// Deliberately says nothing about what changed and takes no body. The nudge
+// only ever makes a poll earlier -- correctness is entirely in the poll itself,
+// which asks for everything and is conditional -- so a nudge carrying detail
+// would be a second, weaker description of the same thing, and the two would
+// eventually disagree.
+//
+// Answered 202 rather than 200: the poll has been asked for, not done. This
+// returns immediately because the service sends these in parallel across a
+// selection of devices and must not wait on the slowest screen.
+//
+// Reachable only over the tunnel. It is on the service's allow-list in
+// fromservice.go and not on the local router at all: nothing on this machine
+// or its network can nudge, because there is nothing to gain by nudging and a
+// route that anybody can call is a route somebody will call in a loop.
+func (self *Server) poll(response http.ResponseWriter, request *http.Request) {
+	if self.reporter == nil {
+		writeError(response, http.StatusServiceUnavailable, "this device is not reporting to a service")
+		return
+	}
+	self.reporter.PollNow()
+	writeJSON(response, http.StatusAccepted, map[string]interface{}{"polling": true})
+}

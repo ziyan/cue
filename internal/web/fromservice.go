@@ -61,6 +61,11 @@ func (self *Server) fromService() http.Handler {
 	api.Path("/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.restart)
 	api.Path("/playlist/next").Methods(http.MethodPost).HandlerFunc(self.showNext)
 
+	// The nudge. The service calls this when it has changed the profile or
+	// playlist for this device, so the change lands at once rather than at the
+	// next poll.
+	api.Path("/poll").Methods(http.MethodPost).HandlerFunc(self.poll)
+
 	// Enough to tell whether the device is answering at all, which is what
 	// anything watching it asks first.
 	router.Path("/healthz").Methods(http.MethodGet).HandlerFunc(self.health)

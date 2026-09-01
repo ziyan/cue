@@ -34,11 +34,19 @@ type stubService struct {
 
 	screenshots atomic.Int64
 	states      atomic.Int64
+	profiles    atomic.Int64
 
 	mutex     sync.Mutex
 	lastImage []byte
 	lastType  string
 	lastState []byte
+
+	// What the stub answers when asked for a profile, and what it says the
+	// version of that answer is.
+	profile     string
+	profileTag  string
+	profileCode int
+	lastAsked   string
 }
 
 func newStubService(t *testing.T) *stubService {
@@ -69,6 +77,30 @@ func newStubService(t *testing.T) *stubService {
 		stub.states.Add(1)
 		response.WriteHeader(http.StatusNoContent)
 	})
+	routes.HandleFunc("/api/v1/device/profile", func(response http.ResponseWriter, request *http.Request) {
+		stub.mutex.Lock()
+		document, tag, code := stub.profile, stub.profileTag, stub.profileCode
+		stub.lastAsked = request.Header.Get("If-None-Match")
+		stub.mutex.Unlock()
+		stub.profiles.Add(1)
+
+		if code != 0 && code != http.StatusOK {
+			response.WriteHeader(code)
+			return
+		}
+		if tag != "" && request.Header.Get("If-None-Match") == tag {
+			response.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if tag != "" {
+			response.Header().Set("ETag", tag)
+		}
+		response.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if document == "" {
+			document = "{}"
+		}
+		_, _ = response.Write([]byte(document))
+	})
 	routes.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]any{"id": "device-1", "name": "carbon"})
@@ -76,6 +108,19 @@ func newStubService(t *testing.T) *stubService {
 
 	stub.Stub = servicetest.New(t, routes, nil)
 	return stub
+}
+
+// serves sets what the stub answers when asked for a profile.
+func (self *stubService) serves(document, tag string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.profile, self.profileTag, self.profileCode = document, tag, http.StatusOK
+}
+
+func (self *stubService) refuses(code int) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.profileCode = code
 }
 
 func newStore(t *testing.T, address, credential string) *config.Store {
@@ -660,4 +705,128 @@ func TestLinkingIsNoticedAtOnce(t *testing.T) {
 		t.Errorf("the first picture took %s; the device is waiting for a timer "+
 			"rather than noticing it was linked", took)
 	}
+}
+
+// The device asks for its profile over the same tunnel it reports on, and what
+// the service says becomes the device's own configuration.
+func TestAProfileFromTheServiceReachesTheConfiguration(t *testing.T) {
+	stub := newStubService(t)
+	stub.serves(`{"browser":{"darkMode":true}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	store.Current().Browser.DarkMode = false
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return store.Current().Browser.DarkMode
+	})
+
+	keys := store.Current().Service.ProfileKeys
+	if len(keys) != 1 || keys[0] != "browser.darkMode" {
+		t.Errorf("recorded %v as taken from the profile", keys)
+	}
+}
+
+// The common answer is 304, which is what makes a short interval affordable.
+// Asking without the version it already has would mean a device fetching and
+// re-applying the same document every minute for ever.
+func TestTheDeviceAsksWithTheVersionItAlreadyHas(t *testing.T) {
+	stub := newStubService(t)
+	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	store.Current().Service.PollInterval = config.Duration(shortestPoll)
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return !store.Current().Browser.DarkMode
+	})
+
+	// Nudged rather than waited for, so this does not depend on an interval.
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "a second ask", func() bool {
+		return stub.profiles.Load() >= 2
+	})
+
+	stub.mutex.Lock()
+	asked := stub.lastAsked
+	stub.mutex.Unlock()
+	if asked != `"one"` {
+		t.Errorf("asked with If-None-Match %q; it should send the version it applied", asked)
+	}
+}
+
+// A refused profile changes nothing. This is a successful HTTP conversation
+// rather than a failed request, so it does not fall out of "a failed poll
+// changes nothing" on its own: without this, revoking a device -- or any
+// moment where the tunnel has no device on its context -- would silently
+// revert every managed setting on that screen.
+func TestARefusedProfileReleasesNothing(t *testing.T) {
+	stub := newStubService(t)
+	// darkMode false, because the default is true: a profile that agreed with
+	// the default would be applied and prove nothing, and the wait below would
+	// pass before anything had happened.
+	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return len(store.Current().Service.ProfileKeys) == 1
+	})
+
+	stub.refuses(http.StatusUnauthorized)
+	before := stub.profiles.Load()
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "the refused ask", func() bool {
+		return stub.profiles.Load() > before
+	})
+
+	if store.Current().Browser.DarkMode {
+		t.Error("a 401 released a managed setting; only an empty document may do that")
+	}
+	if len(store.Current().Service.ProfileKeys) != 1 {
+		t.Errorf("a 401 changed what this device claims to be managed by: %v",
+			store.Current().Service.ProfileKeys)
+	}
+}
+
+// An empty document is how a device is un-managed, and it has to be told
+// apart from every kind of not being told anything.
+func TestAnEmptyDocumentReleasesWhatTheProfileGave(t *testing.T) {
+	stub := newStubService(t)
+	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return !store.Current().Browser.DarkMode
+	})
+
+	stub.serves(`{}`, `"two"`)
+	reporter.PollNow()
+
+	waitFor(t, 10*time.Second, "the setting to be released", func() bool {
+		return store.Current().Browser.DarkMode == config.Default().Browser.DarkMode &&
+			len(store.Current().Service.ProfileKeys) == 0
+	})
 }
