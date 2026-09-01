@@ -23,8 +23,9 @@ kinds of change are worth knowing apart, because the second one costs a few
 seconds of black screen and the third does not happen until somebody says so.
 
 **Applied straight away, nothing restarts.** The playlist and everything in
-it, the display arrangement — outputs, modes, wallpaper, blanking, the pointer
-— the timezone, the log level, the watchdog's intervals and thresholds, the
+it, the display arrangement — outputs, modes, wallpaper, blanking, the pointer,
+and the size of the browser's window, which is resized where it stands rather
+than by restarting it — the timezone, the log level, the watchdog's intervals and thresholds, the
 network, the session lifetime, the trusted origins, and how loudly the
 browser's own output is logged.
 

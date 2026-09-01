@@ -28,12 +28,15 @@ import (
 // network receives none at all — which would mean this worked on the
 // developer's machine and silently did nothing on a device.
 func (self *Daemon) arrangeDisplay(ctx context.Context) {
-	interval := self.store.Current().Display.ReconcileInterval.Duration()
-	if interval <= 0 {
-		interval = 5 * time.Second
-	}
-
 	for {
+		// Read each time round rather than once before the loop: read once,
+		// it is the interval the daemon booted with and changing it in the
+		// file does nothing at all.
+		interval := self.store.Current().Display.ReconcileInterval.Duration()
+		if interval <= 0 {
+			interval = 5 * time.Second
+		}
+
 		select {
 		case <-ctx.Done():
 			return
@@ -85,6 +88,16 @@ func (self *Daemon) applyLayout(ctx context.Context) {
 
 	screen := connection.Screen()
 	self.browser.SetScreenSize(screen.Width, screen.Height)
+
+	// SetScreenSize only decides the size the browser is next started with.
+	// The window that is on the screen now has to be resized where it is,
+	// because nothing else will: there is no window manager, and Chromium
+	// does not follow a screen change on its own.
+	if fitted, err := connection.FitWindowsToScreen(); err != nil {
+		log.Debugf("%s", err)
+	} else if fitted > 0 {
+		log.Noticef("resized %d window(s) to the new %dx%d screen", fitted, screen.Width, screen.Height)
+	}
 
 	// Before the browser has anything on the screen, and after it if it goes
 	// away. Cheap, and it is the difference between a screen that is starting

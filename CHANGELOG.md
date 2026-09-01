@@ -18,6 +18,15 @@ All notable changes to this project are recorded here, in the categories of
   `audio.enabled` and `audio.sink` restart the browser, and
   `display.virtualTerminal`, `display.extraArguments` and
   `display.xorgConfiguration` restart the X server, none of which they did.
+- A screen that changes size no longer leaves the page in a corner. Nothing
+  resized the browser's window when the display did: there is no window
+  manager in the image, and Chromium does not follow a screen change by
+  itself, so plugging in a monitor that made the screen larger left a
+  1024x768 page on a 1280x1024 screen with black around two sides of it, and a
+  smaller screen clipped the page instead. The daemon now resizes the window
+  where it stands, without restarting the browser.
+- `display.reconcileInterval` is read each time round the arrange loop rather
+  than once, so changing it takes effect.
 - The network is reconciled when the configuration changes rather than up to
   `network.reconcileInterval` later, and that interval can itself be changed
   without restarting.
