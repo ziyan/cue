@@ -237,6 +237,12 @@ func (self *Server) poll(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusServiceUnavailable, "this device is not reporting to a service")
 		return
 	}
+	// Logged, because otherwise a nudge leaves no trace on this side at all.
+	// Proving one had arrived meant reading the service's access log and
+	// arguing from the timing against a poll that was due anyway -- which was
+	// unprovable the first time it was tried. A line here settles it from the
+	// device, which is where somebody debugging a screen is looking.
+	log.Debugf("the service asked this device to poll now")
 	self.reporter.PollNow()
 	writeJSON(response, http.StatusAccepted, map[string]interface{}{"polling": true})
 }

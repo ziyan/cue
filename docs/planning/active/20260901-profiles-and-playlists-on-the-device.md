@@ -306,14 +306,50 @@ wrongly.
 - [x] **2026-09-01** — the merge itself: `internal/config/profile.go`, the
   refusal list, releasing, and eleven tests. `service.pollInterval` and
   `service.profileKeys` added to the schema.
-- [ ] Milestone 1 — the device polls and merges (remaining: the poller in
-  `internal/service`, conditional requests, and writing through `store.Update`)
-- [ ] Milestone 2 — releasing
-- [ ] Milestone 3 — the nudge
+- [x] **2026-09-01** — Milestone 1, the device polls and merges. Poller in
+  `internal/service/profile.go`, conditional requests, written through
+  `store.Update`. Four tests against a stub of the service.
+- [x] **2026-09-01** — Milestone 2, releasing. Proved end to end on carbon
+  against the real cue.sh, not only against the stub.
+- [x] **2026-09-01** — Milestone 3, the nudge. `POST /api/v1/poll` on the
+  service-facing allow-list.
 - [ ] Milestone 4 — the playlist
 - [ ] Milestone 5 — media, fetched once and played from disk
 - [ ] Milestone 6 — eviction, proved rather than built
 
 ## Outcomes and retrospective
 
-Written at each milestone.
+**2026-09-01, milestones 1 to 3.** A profile applied on cue.sh reaches a real
+device and changes it, and a setting removed from that profile is released back
+to the device's own default. Watched on carbon against the deployed cue.sh
+rather than against a stub.
+
+The evidence, from cue.sh's access log and carbon's own log together. cue.sh
+applied a profile setting `browser.darkMode: false` at 17:28:58.814; carbon
+fetched it 386ms later and had written its own file at 13:28:59.210 local,
+restarting the browser 70ms after that. cue.sh then removed the setting,
+leaving the profile assigned, so the document became `{}`; carbon fetched that
+439ms later and had applied it 15ms after cue.sh's own log line.
+
+What was released is the part worth recording. `browser.darkMode` is *absent*
+from `/etc/cue/cue.yaml`, not set back to `true`. Had it come back as a value,
+the device would be asserting a choice nobody made, and it would have frozen
+there on the day the default changed. `forceDarkContent` and
+`ignoreCertificateErrors`, which are carbon's own settings from before any of
+this, were untouched throughout — the "silent elsewhere" half holding while the
+"wins where it speaks" half released.
+
+The nudge works, and proving it took more than it should have. cue.sh's first
+measurement — 386ms from applying to fetching — was real but not conclusive,
+because a scheduled poll was due at almost the same moment. It was settled on
+the second step: a fetch twelve seconds after a scheduled poll had just
+returned `304` is not a coincidence. Nothing on the device logged an arriving
+nudge at all, which is why the argument had to be made from the service's side;
+there is now a debug line in the handler, because a screen that is not
+converging is debugged from the screen.
+
+Two of the four poller tests passed for the wrong reason when first written:
+`browser.darkMode` defaults to `true`, so a stub serving `true` was applied and
+proved nothing, and the wait for it succeeded before anything had happened.
+Both now start from a value the profile actually changes. Worth assuming there
+are others of that shape not yet found.
