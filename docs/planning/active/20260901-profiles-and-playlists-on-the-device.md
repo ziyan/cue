@@ -276,6 +276,30 @@ from "not managed" is a fact about the assignment, which cue.sh holds.
 
 ## Surprises and discoveries
 
+**2026-09-01 — a device whose identifier was regenerated is not necessarily
+broken by that, and a 401 is not necessarily about the identifier.** Micro came
+back from a deploy refusing to attach with `401`, and its `service.deviceId`
+(upper case, from when it linked) disagreed with its freshly minted
+`device.identifier`. The obvious story — the identifier change broke the link —
+was wrong, and worth not having told: the tunnel handshake sends only
+`Authorization: Bearer <credential>` and no identifier at all, so a 401 can only
+ever be about the credential. The real cause was on the service, and was
+neither half's bug: the account that secret names had been deleted, so creating
+the device row failed a foreign key. The remedy is relinking.
+
+What was true is the smaller thing: a device carrying two names for itself
+would register as a new screen on its next link. The regenerate rule is the
+right one for an identifier that cannot be salvaged and the wrong one for a
+device that is already linked, and only a device linked before the rule existed
+is exposed.
+
+**2026-09-01 — the service normalises identifiers to lower case, not upper.**
+Recorded because this plan's author asserted the opposite in conversation more
+than once, from reading a test that has since changed. The reasoning that
+depended on it survives — a device that changes the case of its identifier is
+still the same device, because the service normalises — but the direction was
+wrong, and the direction is what somebody would check.
+
 **2026-09-01 — the eviction stage did not need to exist.** The design gave the
 device a stage for removing media nothing points at any more.
 `Daemon.sweepUploads` has done that since before this work, and since earlier
