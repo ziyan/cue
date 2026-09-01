@@ -329,11 +329,23 @@ func validateLogin(login *Login, path string, add func(string, string, ...interf
 	if login.PasswordSelector == "" {
 		add(path+".passwordSelector", "must not be empty")
 	}
-	if login.UsernameSelector != "" && login.Username == "" {
-		add(path+".username", "must not be empty when a username field is named")
-	}
-	if !login.Password.IsSet() {
-		add(path+".password", "must not be empty")
+	// A login that names a credential takes its username and password from
+	// the device's own credentials list, so it has neither of its own and
+	// requiring them here would refuse every playlist that came from the
+	// service -- which is the whole point of the reference.
+	//
+	// Whether the named credential exists is deliberately not checked. A
+	// playlist may arrive before somebody has typed the password in, and
+	// refusing the document would leave the screen showing the old playlist
+	// with nothing to say why. Instead the item is shown and not signed in,
+	// loudly, on every attempt.
+	if login.Credential == "" {
+		if login.UsernameSelector != "" && login.Username == "" {
+			add(path+".username", "must not be empty when a username field is named")
+		}
+		if !login.Password.IsSet() {
+			add(path+".password", "must not be empty unless credential names one this device holds")
+		}
 	}
 	if login.MinimumInterval < 0 {
 		add(path+".minimumInterval", "must not be negative")

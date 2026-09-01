@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"github.com/ziyan/cue/internal/media"
 	"os"
 	"path/filepath"
@@ -408,5 +409,39 @@ func TestEveryDisplaySettingIsClassified(t *testing.T) {
 					"Add it to one or the other.", field.Name)
 			}
 		})
+	}
+}
+
+// The service is told which sign-ins this device holds, by name and by name
+// only, so that it can say which screens are missing one before a playlist is
+// assigned rather than after.
+func TestTheReportNamesTheCredentialsHeldAndNothingElse(t *testing.T) {
+	configuration := config.Default()
+	configuration.Credentials = []config.Credential{
+		{Name: "the-dashboard", Username: "screen", Password: config.Secret("a-test-password")},
+		{Name: "another", Username: "someone", Password: config.Secret("another-test-password")},
+		{Name: "", Username: "nameless"},
+	}
+
+	names := credentialNames(configuration)
+
+	if len(names) != 2 {
+		t.Fatalf("reported %v; the nameless one cannot be referred to and should not be listed", names)
+	}
+	if names[0] != "another" || names[1] != "the-dashboard" {
+		t.Errorf("reported %v; sorted, so two reports of the same device are the same bytes", names)
+	}
+
+	// Nothing but names. A username is not a secret but it is not the
+	// service's business either, and sending it would be a thing to have to
+	// justify later.
+	encoded, err := json.Marshal(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"screen", "someone", "a-test-password", "another-test-password"} {
+		if strings.Contains(string(encoded), leaked) {
+			t.Errorf("the report carries %q", leaked)
+		}
 	}
 }

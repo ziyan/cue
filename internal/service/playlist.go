@@ -1,0 +1,216 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/ziyan/cue/internal/config"
+)
+
+// Asking the service what this device should show.
+//
+// The same conditional treatment as the profile, and a different answer to the
+// same question about emptiness. For a profile, no profile and an empty
+// profile mean the same thing: release everything and take nothing new. For a
+// playlist that reasoning inverts, and applying it would be a disaster -- a
+// playlist is content rather than an overlay, so a device with none assigned
+// receiving an empty document would wipe the items somebody set up on it
+// locally, on the first poll, on every screen that had never been given one.
+//
+// So the wire tells them apart:
+//
+//	204  no playlist is assigned; leave what this screen shows alone
+//	200  this playlist is assigned; replace the items with it
+//	304  the same playlist this device already has
+//
+// Which makes the third state expressible: an assigned but empty playlist is a
+// 200 with no items, meaning show nothing. It is only expressible because
+// having none is not a document.
+
+// devicePlaylist is the document the service serves.
+type devicePlaylist struct {
+	Interval int          `json:"interval"`
+	Items    []deviceItem `json:"items"`
+}
+
+type deviceItem struct {
+	Identifier string           `json:"identifier"`
+	URL        string           `json:"url"`
+	Title      string           `json:"title"`
+	Duration   int              `json:"duration"`
+	Reload     bool             `json:"reload"`
+	Disabled   bool             `json:"disabled"`
+	Media      *deviceItemMedia `json:"media"`
+	Login      *config.Login    `json:"login"`
+	Dismiss    []config.Dismiss `json:"dismiss"`
+}
+
+// deviceItemMedia names a file two ways. mediaId is the service's own name for
+// it and is what this device fetches with; file is a digest of the bytes and is
+// what this device stores under, because the store is content-addressed and
+// that is what makes "do I already have this?" a question about the local disk
+// with no round trip.
+type deviceItemMedia struct {
+	File    string `json:"file"`
+	MediaID string `json:"mediaId"`
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Sound   bool   `json:"sound"`
+}
+
+// pollPlaylistOnce asks what this device should show and takes it.
+func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client) error {
+	asking, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(asking, http.MethodGet,
+		"http://"+tunnelHost+"/api/v1/device/playlist", nil)
+	if err != nil {
+		return err
+	}
+	if tag := self.playlistTag(); tag != "" {
+		request.Header.Set("If-None-Match", tag)
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	switch response.StatusCode {
+	case http.StatusNoContent:
+		// No playlist is assigned. This device's own items are its own, and
+		// nothing here may touch them. Not an error and not a release: the
+		// common case for a screen nobody has put on a playlist yet, which is
+		// every screen in service today.
+		return nil
+
+	case http.StatusNotModified:
+		return nil
+
+	case http.StatusOK:
+		// Handled below.
+
+	case http.StatusUnauthorized:
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+		return fmt.Errorf("service: the playlist was refused; nothing changed")
+
+	default:
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4<<10))
+		return fmt.Errorf("service: asking for the playlist answered %s", response.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, largestProfile))
+	if err != nil {
+		return err
+	}
+
+	var served devicePlaylist
+	if err := json.Unmarshal(body, &served); err != nil {
+		return fmt.Errorf("service: the playlist is not a playlist document: %w", err)
+	}
+
+	items := make([]config.Item, 0, len(served.Items))
+	for _, slide := range served.Items {
+		items = append(items, itemOf(slide))
+	}
+
+	changed := false
+	err = self.store.Update(func(configuration *config.Configuration) error {
+		if sameItems(configuration.Playlist.Items, items) &&
+			(served.Interval <= 0 || configuration.Playlist.Interval.Duration() == time.Duration(served.Interval)*time.Second) {
+			return nil
+		}
+		changed = true
+		configuration.Playlist.Items = items
+		if served.Interval > 0 {
+			configuration.Playlist.Interval = config.Duration(time.Duration(served.Interval) * time.Second)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("service: cannot apply the playlist: %w", err)
+	}
+
+	self.setPlaylistTag(response.Header.Get("ETag"))
+
+	if changed {
+		log.Noticef("the service's playlist changed what this device shows: %d item(s)", len(items))
+	}
+	return nil
+}
+
+// itemOf turns a slide into an item, field for field.
+//
+// The identifier is carried across rather than minted here, and it is
+// load-bearing: internal/browser/playlist.go keys browser tabs by it, so an
+// identifier that changed between polls would tear down and rebuild every tab,
+// visibly reloading the wall and restarting anything part-way through.
+func itemOf(slide deviceItem) config.Item {
+	item := config.Item{
+		Identifier: slide.Identifier,
+		URL:        slide.URL,
+		Title:      slide.Title,
+		Duration:   config.Duration(time.Duration(slide.Duration) * time.Second),
+		Reload:     slide.Reload,
+		Disabled:   slide.Disabled,
+		Login:      slide.Login,
+		Dismiss:    slide.Dismiss,
+	}
+	if slide.Media != nil {
+		item.Media = &config.ItemMedia{
+			// The digest, not the service's identifier: the store is
+			// content-addressed, so the same bytes shared by several items or
+			// several playlists are one file on a disk that is not large.
+			File:  slide.Media.File,
+			Name:  slide.Media.Name,
+			Kind:  slide.Media.Kind,
+			Sound: slide.Media.Sound,
+		}
+	}
+	return item
+}
+
+// sameItems reports whether the playlist is already what was served, so that
+// an unchanged document does not rewrite the file.
+//
+// Compared rather than trusted to the ETag alone, because the ETag is the
+// service's answer about its own document and says nothing about what this
+// device did with it -- a device whose file was edited locally has to be
+// corrected at the next poll, which is the whole point of being managed.
+func sameItems(mine, theirs []config.Item) bool {
+	if len(mine) != len(theirs) {
+		return false
+	}
+	for index := range mine {
+		left, err := json.Marshal(mine[index])
+		if err != nil {
+			return false
+		}
+		right, err := json.Marshal(theirs[index])
+		if err != nil {
+			return false
+		}
+		if string(left) != string(right) {
+			return false
+		}
+	}
+	return true
+}
+
+func (self *Reporter) playlistTag() string {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.lastPlaylistTag
+}
+
+func (self *Reporter) setPlaylistTag(tag string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.lastPlaylistTag = tag
+}

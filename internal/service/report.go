@@ -74,8 +74,10 @@ type Reporter struct {
 	cancel    context.CancelFunc
 	waitGroup sync.WaitGroup
 
-	// lastProfileTag is the ETag of the profile last applied.
-	lastProfileTag string
+	// lastProfileTag is the ETag of the profile last applied, and
+	// lastPlaylistTag the same for the playlist.
+	lastProfileTag  string
+	lastPlaylistTag string
 
 	// pollNow carries the service's nudge. Buffered by one and written to
 	// without blocking, so a nudge is either "there is one waiting" or
@@ -301,6 +303,9 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 			// to drop a connection that is otherwise working: the screen goes
 			// on being watched and reported, and the next poll tries again.
 			if err := self.pollProfileOnce(ctx, client); err != nil {
+				log.Debugf("%s", err)
+			}
+			if err := self.pollPlaylistOnce(ctx, client); err != nil {
 				log.Debugf("%s", err)
 			}
 			nextPoll = time.Now().Add(pollInterval(self.store.Current()))

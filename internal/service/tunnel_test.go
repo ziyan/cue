@@ -35,6 +35,7 @@ type stubService struct {
 	screenshots atomic.Int64
 	states      atomic.Int64
 	profiles    atomic.Int64
+	playlists   atomic.Int64
 
 	mutex     sync.Mutex
 	lastImage []byte
@@ -47,6 +48,13 @@ type stubService struct {
 	profileTag  string
 	profileCode int
 	lastAsked   string
+
+	// The same for the playlist. playlistCode defaults to 204, which is what
+	// a device with none assigned is told and is the state every screen in
+	// service is in.
+	playlist     string
+	playlistTag  string
+	playlistCode int
 }
 
 func newStubService(t *testing.T) *stubService {
@@ -101,6 +109,29 @@ func newStubService(t *testing.T) *stubService {
 		}
 		_, _ = response.Write([]byte(document))
 	})
+	routes.HandleFunc("/api/v1/device/playlist", func(response http.ResponseWriter, request *http.Request) {
+		stub.mutex.Lock()
+		document, tag, code := stub.playlist, stub.playlistTag, stub.playlistCode
+		stub.mutex.Unlock()
+		stub.playlists.Add(1)
+
+		if code == 0 {
+			code = http.StatusNoContent
+		}
+		if code != http.StatusOK {
+			response.WriteHeader(code)
+			return
+		}
+		if tag != "" && request.Header.Get("If-None-Match") == tag {
+			response.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if tag != "" {
+			response.Header().Set("ETag", tag)
+		}
+		response.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = response.Write([]byte(document))
+	})
 	routes.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]any{"id": "device-1", "name": "carbon"})
@@ -115,6 +146,13 @@ func (self *stubService) serves(document, tag string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.profile, self.profileTag, self.profileCode = document, tag, http.StatusOK
+}
+
+// showsPlaylist makes the stub answer 200 with this document.
+func (self *stubService) showsPlaylist(document, tag string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.playlist, self.playlistTag, self.playlistCode = document, tag, http.StatusOK
 }
 
 func (self *stubService) refuses(code int) {
@@ -829,4 +867,130 @@ func TestAnEmptyDocumentReleasesWhatTheProfileGave(t *testing.T) {
 		return store.Current().Browser.DarkMode == config.Default().Browser.DarkMode &&
 			len(store.Current().Service.ProfileKeys) == 0
 	})
+}
+
+// The one that would have wiped every screen in service. A device with no
+// playlist assigned is answered 204, and its own items -- set up on the device,
+// by somebody standing at it -- must survive that untouched. Getting this wrong
+// is not a bug on one screen; it is every unmanaged screen going blank the
+// first time it polls.
+func TestNoPlaylistAssignedLeavesTheDevicesOwnItemsAlone(t *testing.T) {
+	stub := newStubService(t)
+	// The stub answers 204 by default, which is what an unassigned device gets.
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	mine := []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+	store.Current().Playlist.Items = mine
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the device to ask for a playlist", func() bool {
+		return stub.playlists.Load() > 0
+	})
+
+	items := store.Current().Playlist.Items
+	if len(items) != 1 || items[0].Identifier != "mine" {
+		t.Fatalf("a device with no playlist assigned lost its own items: %v", items)
+	}
+}
+
+// An assigned playlist replaces what the screen shows, identifier and all.
+func TestAnAssignedPlaylistReplacesTheItems(t *testing.T) {
+	stub := newStubService(t)
+	stub.showsPlaylist(`{"interval":45,"items":[
+		{"identifier":"01aaa","url":"https://example.com/one","title":"One"},
+		{"identifier":"01bbb","url":"https://example.com/two","duration":20}
+	]}`, `"p1"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	store.Current().Playlist.Items = []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		return len(store.Current().Playlist.Items) == 2
+	})
+
+	items := store.Current().Playlist.Items
+	if items[0].Identifier != "01aaa" || items[1].Identifier != "01bbb" {
+		t.Errorf("identifiers are %q and %q; they must be carried across, because "+
+			"browser tabs are keyed by them", items[0].Identifier, items[1].Identifier)
+	}
+	if items[1].Duration.Duration() != 20*time.Second {
+		t.Errorf("the second item lasts %s; the document said 20 seconds", items[1].Duration.Duration())
+	}
+	if store.Current().Playlist.Interval.Duration() != 45*time.Second {
+		t.Errorf("the interval is %s", store.Current().Playlist.Interval.Duration())
+	}
+}
+
+// An item's media is stored under the digest rather than the service's own
+// identifier, so the same bytes in several items or several playlists are one
+// file on a disk that is not large.
+func TestMediaIsCarriedByItsDigest(t *testing.T) {
+	stub := newStubService(t)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"0123456789abcdef0123456789abcdef","mediaId":"01m1zzz","name":"promo.mp4","kind":"video","sound":true}}]}`, `"p1"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		return len(store.Current().Playlist.Items) == 1
+	})
+
+	media := store.Current().Playlist.Items[0].Media
+	if media == nil {
+		t.Fatal("the item lost its media")
+	}
+	if media.File != "0123456789abcdef0123456789abcdef" {
+		t.Errorf("stored under %q; it must be the digest", media.File)
+	}
+	if media.Kind != "video" || !media.Sound {
+		t.Errorf("kind %q, sound %v; both change what the screen does", media.Kind, media.Sound)
+	}
+}
+
+// A slide's login travels with its credential reference, so a dashboard behind
+// a sign-in keeps signing in when a playlist is applied to it -- without the
+// password having gone anywhere near the service.
+func TestALoginTravelsWithItsCredentialName(t *testing.T) {
+	stub := newStubService(t)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","url":"https://example.com/",
+		"login":{"whenUrlMatches":"/login","passwordSelector":"#password",
+		"credential":"the-dashboard"}}]}`, `"p1"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		return len(store.Current().Playlist.Items) == 1
+	})
+
+	login := store.Current().Playlist.Items[0].Login
+	if login == nil {
+		t.Fatal("the item lost its login, so this screen will sit on a sign-in page")
+	}
+	if login.Credential != "the-dashboard" {
+		t.Errorf("the credential name is %q", login.Credential)
+	}
+	if login.Password.IsSet() {
+		t.Error("a password arrived from the service; it never should")
+	}
 }

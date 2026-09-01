@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -993,6 +994,18 @@ func (self *Daemon) describe(ctx context.Context) (any, error) {
 			"since": showing.CurrentSince,
 			"ready": showing.Ready,
 		},
+		// The names of the sign-ins this device holds, and nothing else about
+		// them. A playlist's item refers to a credential by name, so the
+		// service can tell before anybody assigns anything which screens are
+		// missing one -- which turns "this screen will sit on a login page and
+		// say so" from a state to recover from into one to avoid.
+		//
+		// Names only. No username, no password, not even whether a password is
+		// set: a name is chosen by whoever typed it in and is already in the
+		// playlist documents the service holds, so it discloses nothing that
+		// is not there. Sorted, so a report is the same twice and a reader
+		// diffing two of them sees only real changes.
+		"credentials": credentialNames(configuration),
 	}
 	// The screen's shape, when the X server will say. Opening a connection for
 	// it is cheap next to the photograph that goes with this report.
@@ -1030,4 +1043,16 @@ func (self *Daemon) photograph(ctx context.Context) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return body.Bytes(), "image/jpeg", nil
+}
+
+// credentialNames is the sorted names of the sign-ins this device holds.
+func credentialNames(configuration *config.Configuration) []string {
+	names := make([]string, 0, len(configuration.Credentials))
+	for _, credential := range configuration.Credentials {
+		if credential.Name != "" {
+			names = append(names, credential.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
