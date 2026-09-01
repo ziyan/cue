@@ -34,9 +34,10 @@ All notable changes to this project are recorded here, in the categories of
 ### Changed
 
 - Device identifiers are written in lower case, matching the playlist item
-  identifiers they sit beside. An identifier written in upper case by an older
-  version is kept and rewritten in the new case rather than being replaced —
-  the same device, spelled one way. Both cases are still read.
+  identifiers they sit beside. An identifier that is not a lower case ULID is
+  replaced the next time the configuration is read, the upper case ULIDs an
+  earlier version wrote included; such a device is a new screen the next time
+  it links, though one already linked keeps its row and goes on working.
 - `web.listen` and the `paths` section still need cue restarted, and now say
   so in the log rather than being quietly ignored.
 

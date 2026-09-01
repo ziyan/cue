@@ -529,18 +529,44 @@ func TestClonedDevicesStopSharingAnIdentifier(t *testing.T) {
 	}
 }
 
-// A device that has been running since before identifiers were written in
-// lower case keeps its identifier, in the new case. Keeping it is the point:
-// minting a new one would be a new screen as far as the service is concerned,
-// and the whole reason the identifier is the service's primary key is that a
-// screen relinked is the same screen.
-func TestAnUpperCaseIdentifierIsKeptAndLowered(t *testing.T) {
+// An identifier that is not a lower case ULID is replaced, whatever is wrong
+// with it: the wrong case, the wrong length, the wrong alphabet, or nothing at
+// all. Everything that reads one is entitled to assume a single spelling.
+func TestAnIdentifierThatIsNotALowerCaseULIDIsReplaced(t *testing.T) {
+	for what, written := range map[string]string{
+		"upper case":                 "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		"mixed case":                 "01arz3ndektsv4rrffq69G5FAV",
+		"the older short identifier": "w3rfksymb3rgs998",
+		"empty":                      "",
+		"not in the alphabet":        "01arz3ndektsv4rrffq69g5fal",
+	} {
+		t.Run(what, func(t *testing.T) {
+			configuration := Default()
+			configuration.Device.Identifier = written
+			configuration.Normalize()
+
+			if configuration.Device.Identifier == written {
+				t.Fatalf("%s was kept: %q", what, configuration.Device.Identifier)
+			}
+			if !security.IsCanonicalDeviceIdentifier(configuration.Device.Identifier) {
+				t.Errorf("replaced with %q, which is not a lower case ULID either",
+					configuration.Device.Identifier)
+			}
+		})
+	}
+}
+
+// The one that is already right is left alone. It is generated once and never
+// changes, and a device that minted a fresh identifier every time its
+// configuration was read would be a new screen to the service every time.
+func TestALowerCaseULIDIsKept(t *testing.T) {
+	const written = "01arz3ndektsv4rrffq69g5fav"
 	configuration := Default()
-	configuration.Device.Identifier = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	configuration.Device.Identifier = written
 	configuration.Normalize()
 
-	if configuration.Device.Identifier != "01arz3ndektsv4rrffq69g5fav" {
-		t.Errorf("the identifier became %q; it should be the same one in lower case",
-			configuration.Device.Identifier)
+	if configuration.Device.Identifier != written {
+		t.Errorf("a good identifier was replaced: %q became %q",
+			written, configuration.Device.Identifier)
 	}
 }

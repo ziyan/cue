@@ -467,20 +467,21 @@ which produces a device showing certificate errors with a healthy-looking time
 client on it.
 
 `identifier` is a ULID: twenty-six characters of Crockford base32 in lower
-case, a timestamp followed by randomness. Crockford's alphabet is
-case-insensitive, and an identifier written in upper case by an older version
-is read as it always was — and rewritten in lower case, keeping the same
-identifier, so that a device is one string wherever it is shown. The service
-normalises before it looks anything up, so a device that flips case this way
-is still the same device to it. It is generated on first run and never changes, and it
+case, a timestamp followed by randomness. It is generated on first run and never changes, and it
 is the name the hosted service uses for this device as well — one name for one
 thing, rather than the service minting a second beside it.
 
-A device carrying the older sixteen-character identifier is given a ULID the
-next time its configuration is read. That is a deliberate exception to "never
-changes": the service refuses anything that is not a ULID, so an old one could
-not link at all, and failing at the far end with nothing on this side to
-explain it is worse than a rename nobody was relying on.
+An identifier that is not a lower case ULID is replaced the next time the
+configuration is read — the older sixteen-character one, and the upper case
+ULIDs an earlier version wrote. That is a deliberate exception to "never
+changes". The service refuses anything that is not a ULID, so an old short one
+could not link at all, and everything that reads an identifier is entitled to
+assume a single spelling rather than checking two.
+
+A device whose identifier is replaced is a new screen the next time it links,
+with none of the history of the old one. A device that is *already* linked
+keeps working and keeps its row: the identifier crosses the wire only on the
+link request, and every request after that carries the credential instead.
 
 One consequence worth knowing if you flash disks. Two screens imaged from the
 same disk used to share an identifier harmlessly, because the service minted

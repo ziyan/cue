@@ -129,14 +129,20 @@ func (self *Configuration) Normalize() {
 	// the service taking that as its own name they would be one device
 	// fighting over one row. Each of them regenerates here, once, and they
 	// come apart.
-	if !security.IsDeviceIdentifier(self.Device.Identifier) {
+	// Anything that is not already a lower case ULID is replaced, upper case
+	// written by an older version included. The identifier a device carries
+	// and the identifier it would mint today have to be the same kind of
+	// thing, because everything that reads one -- the file, the interface,
+	// the service -- is entitled to assume one spelling.
+	//
+	// The cost is real and worth stating: a device whose identifier is
+	// replaced is a new screen the next time it links, with none of the
+	// history of the old one. An already-linked device keeps working, because
+	// the identifier crosses the wire only on the link request and every
+	// request after that carries the credential instead.
+	if !security.IsCanonicalDeviceIdentifier(self.Device.Identifier) {
 		self.Device.Identifier = security.NewDeviceIdentifier()
 	}
-	// Written upper case by an older version. Both are read everywhere and
-	// the service normalises before it looks anything up, so a device that
-	// flips case here is still the same device to it -- and a relink finds
-	// the row it already had rather than making a second one.
-	self.Device.Identifier = security.NormaliseDeviceIdentifier(self.Device.Identifier)
 	self.Device.Name = strings.TrimSpace(self.Device.Name)
 
 	// Filled in rather than required. A file that names a service keeps what

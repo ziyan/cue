@@ -113,6 +113,19 @@ func lowerOf(letter byte) byte {
 	return letter
 }
 
+// IsCanonicalDeviceIdentifier reports whether a string is one of ours *and*
+// written the way this project writes them: lower case, no surrounding
+// whitespace.
+//
+// Separate from IsDeviceIdentifier, which asks only whether a string is shaped
+// like a ULID and takes either case, because the two questions have different
+// answers for the same string and both get asked. What arrives from elsewhere
+// only has to be shaped right; what this project keeps in its own file has to
+// be spelled one way, so that a device is one string wherever it is shown.
+func IsCanonicalDeviceIdentifier(value string) bool {
+	return IsDeviceIdentifier(value) && value == NormaliseDeviceIdentifier(value)
+}
+
 // NormaliseDeviceIdentifier returns the form this project writes: lower case.
 //
 // Identifiers written by an older version are upper case, and both are read
