@@ -3,8 +3,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/ziyan/cue/internal/media"
 	"io"
 	"net"
 	"net/http"
@@ -55,6 +58,11 @@ type stubService struct {
 	playlist     string
 	playlistTag  string
 	playlistCode int
+
+	// The bytes the stub serves for a media identifier, and how many times it
+	// has been asked for any of them.
+	mediaBytes map[string][]byte
+	fetches    atomic.Int64
 }
 
 func newStubService(t *testing.T) *stubService {
@@ -132,6 +140,22 @@ func newStubService(t *testing.T) *stubService {
 		response.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = response.Write([]byte(document))
 	})
+	routes.HandleFunc("/api/v1/device/media/", func(response http.ResponseWriter, request *http.Request) {
+		identifier := strings.TrimPrefix(request.URL.Path, "/api/v1/device/media/")
+		stub.mutex.Lock()
+		content, found := stub.mediaBytes[identifier]
+		stub.mutex.Unlock()
+		stub.fetches.Add(1)
+
+		if !found {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		whole := sha256.Sum256(content)
+		response.Header().Set("Digest", hex.EncodeToString(whole[:]))
+		response.Header().Set("Content-Type", "video/mp4")
+		_, _ = response.Write(content)
+	})
 	routes.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]any{"id": "device-1", "name": "carbon"})
@@ -153,6 +177,20 @@ func (self *stubService) showsPlaylist(document, tag string) {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	self.playlist, self.playlistTag, self.playlistCode = document, tag, http.StatusOK
+}
+
+// holdsMedia makes the stub serve these bytes for an identifier, and returns
+// the name this device's store will give them: the first thirty-two characters
+// of their digest.
+func (self *stubService) holdsMedia(identifier string, content []byte) string {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.mediaBytes == nil {
+		self.mediaBytes = map[string][]byte{}
+	}
+	self.mediaBytes[identifier] = content
+	whole := sha256.Sum256(content)
+	return hex.EncodeToString(whole[:])[:32]
 }
 
 func (self *stubService) refuses(code int) {
@@ -993,4 +1031,126 @@ func TestALoginTravelsWithItsCredentialName(t *testing.T) {
 	if login.Password.IsSet() {
 		t.Error("a password arrived from the service; it never should")
 	}
+}
+
+// newStoreWithMedia is a device that can keep what it fetches.
+func newStoreWithMedia(t *testing.T, address, credential string) (*config.Store, *media.Store) {
+	t.Helper()
+	store := newStore(t, address, credential)
+	uploads, err := media.Open(filepath.Join(t.TempDir(), "media"))
+	if err != nil {
+		t.Fatalf("cannot open a media store: %s", err)
+	}
+	return store, uploads
+}
+
+// A playlist's video is fetched once and kept, and asking again fetches
+// nothing. That is what makes playback independent of the network: the file is
+// on the disk before the item is ever shown.
+func TestMediaIsFetchedOnceAndThenHeld(t *testing.T) {
+	stub := newStubService(t)
+	content := []byte("pretend this is an mp4, at some length")
+	file := stub.holdsMedia("01m1media", content)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"`+file+`","mediaId":"01m1media","name":"promo.mp4","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the file to be fetched", func() bool {
+		_, err := uploads.Details(file)
+		return err == nil
+	})
+
+	if got := stub.fetches.Load(); got != 1 {
+		t.Errorf("fetched %d time(s); once is the point", got)
+	}
+
+	// A CHANGED playlist that still uses the same file must fetch nothing.
+	//
+	// Deliberately a new document with a new version rather than the same one
+	// again: an unchanged playlist answers 304 and never reaches the fetching
+	// code at all, so re-polling it would prove only that the conditional
+	// request works. What is being proved here is the property the naming
+	// exists for -- reordering items or changing a duration moves no bytes,
+	// because having a file is a question about the local disk.
+	stub.showsPlaylist(`{"items":[
+		{"identifier":"01aaa","media":{"file":"`+file+`","mediaId":"01m1media","kind":"video"},"duration":90},
+		{"identifier":"01bbb","url":"https://example.com/added"}]}`, `"p2"`)
+
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "the changed playlist to arrive", func() bool {
+		return len(store.Current().Playlist.Items) == 2
+	})
+	if got := stub.fetches.Load(); got != 1 {
+		t.Errorf("fetched %d time(s); the changed playlist uses a file this device already had", got)
+	}
+}
+
+// Bytes that are not the ones asked for are thrown away. Keeping them would
+// mean a screen playing half a video for ever with everything reporting
+// success, which is the failure the digest naming exists to make impossible.
+func TestMediaThatArrivesWrongIsNotKept(t *testing.T) {
+	stub := newStubService(t)
+	stub.holdsMedia("01m1media", []byte("these are not the bytes you asked for"))
+
+	// A playlist asking for a digest that is not what the stub will serve.
+	wanted := "0123456789abcdef0123456789abcdef"
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"`+wanted+`","mediaId":"01m1media","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the fetch to be tried", func() bool {
+		return stub.fetches.Load() > 0
+	})
+
+	if _, err := uploads.Details(wanted); err == nil {
+		t.Error("the wrong bytes were stored under the name that was asked for")
+	}
+	held, err := uploads.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held) != 0 {
+		t.Errorf("the store kept %d file(s) that arrived wrong", len(held))
+	}
+}
+
+// A file that will not fetch must not stop the playlist arriving, and must be
+// tried again. Remembering the version with a file missing would mean 304 for
+// ever after, so one failed transfer would leave a blank item nothing retries.
+func TestAMissingFileDoesNotStopThePlaylistAndIsTriedAgain(t *testing.T) {
+	stub := newStubService(t)
+	// The playlist names a file the stub does not hold, so fetching 404s.
+	stub.showsPlaylist(`{"items":[
+		{"identifier":"01aaa","url":"https://example.com/one"},
+		{"identifier":"01bbb","media":{"file":"0123456789abcdef0123456789abcdef",
+		 "mediaId":"01m1gone","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied anyway", func() bool {
+		return len(store.Current().Playlist.Items) == 2
+	})
+
+	before := stub.fetches.Load()
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "the file to be tried again", func() bool {
+		return stub.fetches.Load() > before
+	})
 }

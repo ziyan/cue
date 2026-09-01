@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/util/deferutil"
 )
 
@@ -66,6 +67,11 @@ type Reporter struct {
 
 	// How the service reaches this device's screen, when it is allowed to.
 	screen Screen
+
+	// Where the files a playlist refers to are kept. Nil is a build with no
+	// store: playlists still arrive and pages still show, and only uploaded
+	// pictures and videos are missing.
+	media *media.Store
 
 	mutex     sync.Mutex
 	attached  bool

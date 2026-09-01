@@ -370,6 +370,18 @@ depended on it survives — a device that changes the case of its identifier is
 still the same device, because the service normalises — but the direction was
 wrong, and the direction is what somebody would check.
 
+**2026-09-01 — a test proved the conditional request, not the thing it was
+written for.** "A second poll fetches nothing" passed with the disk check
+disabled, because an unchanged playlist answers `304` and returns before it
+reaches the fetching code at all. What the naming exists for is that a *changed*
+playlist reusing a file moves no bytes — reordering items, changing a duration —
+and that is what the test now serves: a new document with a new version and the
+same file. It fails with the check removed and passes with it.
+
+Worth keeping because the vacuous version looked stronger than the real one:
+"poll the same thing twice and nothing happens" reads like a sharper claim than
+"poll a different thing and only the new parts move".
+
 **2026-09-01 — the eviction stage did not need to exist.** The design gave the
 device a stage for removing media nothing points at any more.
 `Daemon.sweepUploads` has done that since before this work, and since earlier
@@ -407,8 +419,12 @@ wrongly.
   against the real cue.sh, not only against the stub.
 - [x] **2026-09-01** — Milestone 3, the nudge. `POST /api/v1/poll` on the
   service-facing allow-list.
-- [ ] Milestone 4 — the playlist
-- [ ] Milestone 5 — media, fetched once and played from disk
+- [x] **2026-09-01** — Milestone 4, the playlist. 204 leaves a device's own
+  items alone, 200 replaces them, 304 is the one it has. Slides map field for
+  field including the identifier and the login's credential reference.
+- [x] **2026-09-01** — Milestone 5, media. Fetched once by identifier, stored
+  under the digest, verified on arrival. Not yet watched on a device with its
+  uplink pulled.
 - [ ] Milestone 6 — eviction, proved rather than built
 
 ## Outcomes and retrospective

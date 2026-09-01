@@ -115,6 +115,12 @@ func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client)
 		return fmt.Errorf("service: the playlist is not a playlist document: %w", err)
 	}
 
+	// Fetched before the playlist is applied, so a screen switches to a
+	// playlist it can already show rather than to one whose videos arrive over
+	// the next few minutes. The old playlist goes on showing meanwhile, which
+	// is the right thing for it to be doing.
+	missing := self.fetchMedia(ctx, client, served.Items)
+
 	items := make([]config.Item, 0, len(served.Items))
 	for _, slide := range served.Items {
 		items = append(items, itemOf(slide))
@@ -137,7 +143,16 @@ func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client)
 		return fmt.Errorf("service: cannot apply the playlist: %w", err)
 	}
 
-	self.setPlaylistTag(response.Header.Get("ETag"))
+	// The version is remembered only when every file arrived. A device that
+	// remembered it with a file missing would be told 304 for ever after and
+	// never try again, so one failed transfer would leave a permanently blank
+	// item that nothing retries.
+	if missing == 0 {
+		self.setPlaylistTag(response.Header.Get("ETag"))
+	} else {
+		log.Warningf("%d file(s) in this playlist are not on this device yet; "+
+			"the items that use them will show nothing until they are", missing)
+	}
 
 	if changed {
 		log.Noticef("the service's playlist changed what this device shows: %d item(s)", len(items))
