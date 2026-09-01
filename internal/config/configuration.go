@@ -128,6 +128,32 @@ type Service struct {
 	// 2". The service's name is the one that matches the two systems up, so it
 	// is kept and shown rather than assuming the local name carried.
 	Name string `yaml:"name,omitempty" json:"name"`
+
+	// PollInterval is how often this device asks the service for the profile
+	// and playlist it should have. A setting rather than a constant because
+	// every other interval here is one and operators do tune them; on the
+	// refusal list below because a profile that set it badly would stop a
+	// fleet polling, and the only fix would be per-screen by hand -- which is
+	// the situation profiles exist to abolish. Clamped when it is read.
+	PollInterval Duration `yaml:"pollInterval,omitempty" json:"pollInterval"`
+
+	// ProfileKeys are the configuration keys this device last took from a
+	// profile, as sorted dotted paths.
+	//
+	// Provenance rather than a setting, and it lives in this file rather than
+	// beside it for two reasons. It has to be written in the same atomic write
+	// as the values it describes, or a crash between two files leaves a device
+	// that can never release what a profile gave it. And it has to survive
+	// what the file survives: /etc/cue and /var/lib/cue are different mounts,
+	// so a configuration restored from a backup against provenance kept
+	// elsewhere would freeze a profile's values for ever.
+	//
+	// Sorted, and that is a requirement rather than tidiness: versionOf hashes
+	// the marshalled file to make the configuration's ETag, so a list that
+	// reordered between writes would move the version on every poll and make
+	// conditional writes from the web interface fail against a document nobody
+	// edited.
+	ProfileKeys []string `yaml:"profileKeys,omitempty" json:"-"`
 }
 
 // DefaultServiceAddress is where a device reports to unless its file says
