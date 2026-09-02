@@ -726,13 +726,35 @@ func (self *Daemon) sweepUploads() {
 		}
 	}
 
+	// What each file is called, read before the sweep, because afterwards
+	// there is nothing left to ask. A line saying "removed 1 upload(s)" is no
+	// help at all to somebody wondering where their video went; the name they
+	// gave it is the only part of this they would recognise.
+	names := map[string]string{}
+	if held, err := self.uploads.List(); err == nil {
+		for _, one := range held {
+			names[one.File] = one.Name
+		}
+	}
+
 	removed, err := self.uploads.Sweep(wanted)
 	if err != nil {
 		log.Warningf("cannot tidy up unused uploads: %s", err)
 		return
 	}
 	if len(removed) > 0 {
-		log.Noticef("removed %d upload(s) nothing refers to any more", len(removed))
+		// Named, and at warning rather than notice. Deleting a file somebody
+		// uploaded is not routine tidying: the bytes are gone, this device is
+		// where they lived, and it happens within a second of the playlist
+		// changing -- which on a screen given a playlist by a service is
+		// before anybody could look at it and change their mind.
+		for _, file := range removed {
+			if name := names[file]; name != "" {
+				log.Warningf("deleted the upload %q (%s); no playlist item refers to it any more", name, file)
+			} else {
+				log.Warningf("deleted the upload %s; no playlist item refers to it any more", file)
+			}
+		}
 	}
 }
 

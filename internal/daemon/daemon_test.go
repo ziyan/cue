@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"github.com/op/go-logging"
 	"github.com/ziyan/cue/internal/media"
 	"os"
 	"path/filepath"
@@ -443,5 +444,55 @@ func TestTheReportNamesTheCredentialsHeldAndNothingElse(t *testing.T) {
 		if strings.Contains(string(encoded), leaked) {
 			t.Errorf("the report carries %q", leaked)
 		}
+	}
+}
+
+// Deleting an upload is not routine tidying, so it says which file went and
+// what somebody called it.
+//
+// The line used to read "removed 1 upload(s) nothing refers to any more",
+// which is no help to whoever is trying to work out where their video went --
+// the name they gave it is the only part of this they would recognise. A real
+// screen lost a real video to this sweep, three hundred milliseconds after a
+// service assigned it a playlist, and the log said nothing that would have
+// identified it.
+func TestSweepingSaysWhichUploadItDeletedAndWhatItWasCalled(t *testing.T) {
+	directory := t.TempDir()
+	uploads, err := media.Open(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := uploads.Add("promo.mp4", "video/mp4", strings.NewReader("not really a video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Aged past the settle time, because the store deliberately leaves a file
+	// alone for a while after it is written -- a guard against sweeping an
+	// upload that is still arriving, and no help at all to the case here,
+	// which is an old file that stops being referenced.
+	old := time.Now().Add(-2 * time.Hour)
+	for _, suffix := range []string{".media", ".json"} {
+		_ = os.Chtimes(filepath.Join(directory, stored.File+suffix), old, old)
+	}
+
+	var written strings.Builder
+	backend := logging.AddModuleLevel(logging.NewLogBackend(&written, "", 0))
+	backend.SetLevel(logging.DEBUG, "")
+	logging.SetBackend(backend)
+
+	configuration := config.Default()
+	configuration.Playlist.Items = nil
+	daemon := &Daemon{
+		uploads: uploads,
+		store:   config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration),
+	}
+	daemon.sweepUploads()
+
+	if !strings.Contains(written.String(), "promo.mp4") {
+		t.Errorf("the log does not name the file somebody uploaded: %s", written.String())
+	}
+	if !strings.Contains(written.String(), stored.File) {
+		t.Errorf("the log does not say which stored file went: %s", written.String())
 	}
 }
