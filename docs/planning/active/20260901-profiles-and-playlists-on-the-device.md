@@ -375,6 +375,19 @@ depended on it survives — a device that changes the case of its identifier is
 still the same device, because the service normalises — but the direction was
 wrong, and the direction is what somebody would check.
 
+**2026-09-02 — the playlist is swapped in only when every file has arrived.**
+The first version applied it regardless and let the item with a missing file
+show nothing, on the grounds that one blank item beats a playlist that never
+arrives. That is the wrong trade for a wall. A screen showing the playlist it
+already had is a screen doing its job; a screen showing a gap where a video
+should be is one somebody has to be told about. Waiting costs a poll interval,
+and swapping early costs whatever was on the wall until the file turns up.
+
+Each file was already atomic on its own — the store writes to a temporary
+name, hashes what arrives, and only then renames it into place, so a
+half-fetched video is never something an item can point at. What was missing
+was the same guarantee across the set.
+
 **2026-09-01 — every playlist apply reloaded every page.** Tabs are reused by
 position and each was navigated unconditionally, so editing one slide reloaded
 all of them — on a wall of dashboards behind logins, all of them signing in

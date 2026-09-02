@@ -139,7 +139,30 @@ func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client)
 	// playlist it can already show rather than to one whose videos arrive over
 	// the next few minutes. The old playlist goes on showing meanwhile, which
 	// is the right thing for it to be doing.
-	missing := self.fetchMedia(ctx, client, served.Items)
+	// Every file first, and the playlist only if they all arrived.
+	//
+	// The swap is all or nothing on purpose. A playlist applied with a file
+	// still missing puts an item on the screen that shows nothing, and the
+	// earlier version of this did exactly that on the grounds that one blank
+	// item beats a playlist that never arrives. That is the wrong trade for a
+	// wall: a screen showing the playlist it had is a screen doing its job,
+	// while a screen showing a gap where a video should be is one somebody has
+	// to be told about. Waiting costs a poll interval; swapping early costs
+	// whatever is on the wall until the file turns up.
+	//
+	// Each file is already atomic on its own -- the store writes to a
+	// temporary name, hashes what arrives, and only then renames it into
+	// place, so a half-fetched video is never something an item could point at.
+	// What was missing was the same guarantee across the set.
+	if missing := self.fetchMedia(ctx, client, served.Items); missing > 0 {
+		// Deliberately without remembering the version. The next poll asks for
+		// this document again and tries the files again, rather than being
+		// told 304 for ever about a playlist it never applied.
+		log.Warningf("not changing what this screen shows yet: %d file(s) in the new "+
+			"playlist are not on this device, and it will keep showing what it has "+
+			"until they are", missing)
+		return nil
+	}
 
 	items := make([]config.Item, 0, len(served.Items))
 	for _, slide := range served.Items {
@@ -167,12 +190,7 @@ func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client)
 	// remembered it with a file missing would be told 304 for ever after and
 	// never try again, so one failed transfer would leave a permanently blank
 	// item that nothing retries.
-	if missing == 0 {
-		self.setPlaylistTag(response.Header.Get("ETag"))
-	} else {
-		log.Warningf("%d file(s) in this playlist are not on this device yet; "+
-			"the items that use them will show nothing until they are", missing)
-	}
+	self.setPlaylistTag(response.Header.Get("ETag"))
 
 	if changed {
 		log.Noticef("the service's playlist changed what this device shows: %d item(s)", len(items))

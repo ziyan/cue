@@ -1126,33 +1126,76 @@ func TestMediaThatArrivesWrongIsNotKept(t *testing.T) {
 	}
 }
 
-// A file that will not fetch must not stop the playlist arriving, and must be
-// tried again. Remembering the version with a file missing would mean 304 for
-// ever after, so one failed transfer would leave a blank item nothing retries.
-func TestAMissingFileDoesNotStopThePlaylistAndIsTriedAgain(t *testing.T) {
+// A playlist whose files have not all arrived is not swapped in.
+//
+// The screen goes on showing what it has. A playlist applied with a file still
+// missing puts an item on the wall that shows nothing, and a screen showing the
+// playlist it had is a screen doing its job -- waiting costs a poll interval,
+// swapping early costs whatever is on the wall until the file turns up.
+//
+// And it must try again: remembering the version of a document that was never
+// applied would mean being told 304 for ever about a playlist this device does
+// not have.
+func TestAPlaylistIsNotSwappedInUntilEveryFileHasArrived(t *testing.T) {
 	stub := newStubService(t)
-	// The playlist names a file the stub does not hold, so fetching 404s.
+	// Names a file the stub does not hold, so fetching it 404s.
 	stub.showsPlaylist(`{"items":[
 		{"identifier":"01aaa","url":"https://example.com/one"},
 		{"identifier":"01bbb","media":{"file":"0123456789abcdef0123456789abcdef",
 		 "mediaId":"01m1gone","kind":"video"}}]}`, `"p1"`)
 
 	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	mine := []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+	store.Current().Playlist.Items = mine
+
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil).WithMedia(uploads)
 	defer func() { _ = reporter.Close() }()
 	reporter.Start(context.Background())
 
-	waitFor(t, 10*time.Second, "the playlist to be applied anyway", func() bool {
-		return len(store.Current().Playlist.Items) == 2
+	waitFor(t, 10*time.Second, "the fetch to be tried", func() bool {
+		return stub.fetches.Load() > 0
 	})
 
+	items := store.Current().Playlist.Items
+	if len(items) != 1 || items[0].Identifier != "mine" {
+		t.Fatalf("the screen was changed before its files arrived: %v", items)
+	}
+
+	// Asked for again rather than believed to be up to date.
 	before := stub.fetches.Load()
 	reporter.PollNow()
 	waitFor(t, 10*time.Second, "the file to be tried again", func() bool {
 		return stub.fetches.Load() > before
 	})
+}
+
+// And once the file is there, the same playlist goes in.
+func TestThePlaylistGoesInOnceItsFilesArrive(t *testing.T) {
+	stub := newStubService(t)
+	content := []byte("pretend this is an mp4")
+	file := stub.holdsMedia("01m1media", content)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"`+file+`","mediaId":"01m1media","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	store.Current().Playlist.Items = []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		items := store.Current().Playlist.Items
+		return len(items) == 1 && items[0].Identifier == "01aaa"
+	})
+
+	if _, err := uploads.Details(file); err != nil {
+		t.Errorf("the playlist went in without its file being held: %s", err)
+	}
 }
 
 // A duration on the wire may be a bare number of seconds or a string, because
