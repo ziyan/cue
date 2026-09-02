@@ -1154,3 +1154,40 @@ func TestAMissingFileDoesNotStopThePlaylistAndIsTriedAgain(t *testing.T) {
 		return stub.fetches.Load() > before
 	})
 }
+
+// A duration on the wire may be a bare number of seconds or a string, because
+// this device's own configuration writes "45s" while the playlist document
+// carries 45 -- the same idea, two encodings, between the same two programs.
+// The service read the first and wrote the second and got it wrong once
+// already, and an int where a string arrives does not make one duration wrong,
+// it fails to unmarshal the whole document and leaves the wall on its old
+// playlist with a debug line to say why.
+func TestADurationOnTheWireMayBeSecondsOrAString(t *testing.T) {
+	for what, document := range map[string]string{
+		"bare seconds": `{"interval":30,"items":[{"identifier":"01aaa","url":"https://example.com/","duration":45}]}`,
+		"a string":     `{"interval":"30s","items":[{"identifier":"01aaa","url":"https://example.com/","duration":"45s"}]}`,
+	} {
+		t.Run(what, func(t *testing.T) {
+			stub := newStubService(t)
+			stub.showsPlaylist(document, `"p-`+what+`"`)
+
+			store := newStore(t, stub.Server.URL, stub.Credential)
+			reporter := New(store, func(context.Context) ([]byte, string, error) {
+				return []byte("bytes"), "image/jpeg", nil
+			}, nil)
+			defer func() { _ = reporter.Close() }()
+			reporter.Start(context.Background())
+
+			waitFor(t, 10*time.Second, "the playlist to arrive", func() bool {
+				return len(store.Current().Playlist.Items) == 1
+			})
+
+			if got := store.Current().Playlist.Items[0].Duration.Duration(); got != 45*time.Second {
+				t.Errorf("the item lasts %s, want 45s", got)
+			}
+			if got := store.Current().Playlist.Interval.Duration(); got != 30*time.Second {
+				t.Errorf("the interval is %s, want 30s", got)
+			}
+		})
+	}
+}

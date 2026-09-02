@@ -32,16 +32,29 @@ import (
 // having none is not a document.
 
 // devicePlaylist is the document the service serves.
+//
+// The durations are config.Duration rather than int, and that is not tidiness.
+// The same idea has two encodings between these two programs: this device's own
+// configuration writes a duration as "45s", because that is what an operator
+// types in a file, while this document carries a bare number of seconds. The
+// service reads the first and writes the second, and got it wrong in that
+// direction -- an int where a string arrives does not produce a wrong duration,
+// it fails to unmarshal the whole document, so the first read of a real screen
+// returned nothing at all.
+//
+// config.Duration takes either. So if a service ever sends "45s" here, this
+// device takes it, instead of failing to apply the entire playlist and leaving
+// a wall showing the old one with only a debug line to say why.
 type devicePlaylist struct {
-	Interval int          `json:"interval"`
-	Items    []deviceItem `json:"items"`
+	Interval config.Duration `json:"interval"`
+	Items    []deviceItem    `json:"items"`
 }
 
 type deviceItem struct {
 	Identifier string           `json:"identifier"`
 	URL        string           `json:"url"`
 	Title      string           `json:"title"`
-	Duration   int              `json:"duration"`
+	Duration   config.Duration  `json:"duration"`
 	Reload     bool             `json:"reload"`
 	Disabled   bool             `json:"disabled"`
 	Media      *deviceItemMedia `json:"media"`
@@ -136,13 +149,13 @@ func (self *Reporter) pollPlaylistOnce(ctx context.Context, client *http.Client)
 	changed := false
 	err = self.store.Update(func(configuration *config.Configuration) error {
 		if sameItems(configuration.Playlist.Items, items) &&
-			(served.Interval <= 0 || configuration.Playlist.Interval.Duration() == time.Duration(served.Interval)*time.Second) {
+			(served.Interval <= 0 || configuration.Playlist.Interval == served.Interval) {
 			return nil
 		}
 		changed = true
 		configuration.Playlist.Items = items
 		if served.Interval > 0 {
-			configuration.Playlist.Interval = config.Duration(time.Duration(served.Interval) * time.Second)
+			configuration.Playlist.Interval = served.Interval
 		}
 		return nil
 	})
@@ -178,7 +191,7 @@ func itemOf(slide deviceItem) config.Item {
 		Identifier: slide.Identifier,
 		URL:        slide.URL,
 		Title:      slide.Title,
-		Duration:   config.Duration(time.Duration(slide.Duration) * time.Second),
+		Duration:   slide.Duration,
 		Reload:     slide.Reload,
 		Disabled:   slide.Disabled,
 		Login:      slide.Login,
