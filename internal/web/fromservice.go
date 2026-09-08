@@ -55,11 +55,24 @@ func (self *Server) fromService() http.Handler {
 	api.Path("/media").Methods(http.MethodGet).HandlerFunc(self.listMedia)
 	api.Path("/media").Methods(http.MethodPost).HandlerFunc(self.uploadMedia)
 
+	// The bytes of one upload, so that a playlist lifted off this device can
+	// take its pictures and videos with it. The service can already list these
+	// files, add one, and read the configuration that names them, so handing
+	// back one it is about to store is not new exposure -- and without it a
+	// playlist extracted from a screen arrives with its videos missing and
+	// nothing but the operator's memory to say what they were.
+	api.Path("/media/{file}").Methods(http.MethodGet, http.MethodHead).HandlerFunc(self.serveMedia)
+
 	// Making it do something.
 	api.Path("/show/{item}").Methods(http.MethodPost).HandlerFunc(self.show)
 	api.Path("/navigate").Methods(http.MethodPost).HandlerFunc(self.navigate)
 	api.Path("/restart/{program}").Methods(http.MethodPost).HandlerFunc(self.restart)
 	api.Path("/playlist/next").Methods(http.MethodPost).HandlerFunc(self.showNext)
+
+	// The nudge. The service calls this when it has changed the profile or
+	// playlist for this device, so the change lands at once rather than at the
+	// next poll.
+	api.Path("/poll").Methods(http.MethodPost).HandlerFunc(self.poll)
 
 	// Enough to tell whether the device is answering at all, which is what
 	// anything watching it asks first.

@@ -39,6 +39,9 @@ var deliberatelyNotInTheInterface = []struct {
 	{"trustedOrigins", "for a reverse proxy in front of the device"},
 	{"reconcileInterval", "how often the network is checked; the default is right, and " +
 		"a wrong value here is a device that stops recovering"},
+	{"pollInterval", "how often the service is asked for this device's profile and " +
+		"playlist; the same shape of setting as reconcileInterval, and a wrong value " +
+		"here is a device that stops converging on what it was told to show"},
 	{"modeName", "read from the hardware, not chosen"},
 	{"rate", "part of the mode, which is chosen as one string"},
 	{"secret", "the credential this device presents to the service it is " +

@@ -3,8 +3,11 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/ziyan/cue/internal/media"
 	"io"
 	"net"
 	"net/http"
@@ -34,11 +37,32 @@ type stubService struct {
 
 	screenshots atomic.Int64
 	states      atomic.Int64
+	profiles    atomic.Int64
+	playlists   atomic.Int64
 
 	mutex     sync.Mutex
 	lastImage []byte
 	lastType  string
 	lastState []byte
+
+	// What the stub answers when asked for a profile, and what it says the
+	// version of that answer is.
+	profile     string
+	profileTag  string
+	profileCode int
+	lastAsked   string
+
+	// The same for the playlist. playlistCode defaults to 204, which is what
+	// a device with none assigned is told and is the state every screen in
+	// service is in.
+	playlist     string
+	playlistTag  string
+	playlistCode int
+
+	// The bytes the stub serves for a media identifier, and how many times it
+	// has been asked for any of them.
+	mediaBytes map[string][]byte
+	fetches    atomic.Int64
 }
 
 func newStubService(t *testing.T) *stubService {
@@ -69,6 +93,69 @@ func newStubService(t *testing.T) *stubService {
 		stub.states.Add(1)
 		response.WriteHeader(http.StatusNoContent)
 	})
+	routes.HandleFunc("/api/v1/device/profile", func(response http.ResponseWriter, request *http.Request) {
+		stub.mutex.Lock()
+		document, tag, code := stub.profile, stub.profileTag, stub.profileCode
+		stub.lastAsked = request.Header.Get("If-None-Match")
+		stub.mutex.Unlock()
+		stub.profiles.Add(1)
+
+		if code != 0 && code != http.StatusOK {
+			response.WriteHeader(code)
+			return
+		}
+		if tag != "" && request.Header.Get("If-None-Match") == tag {
+			response.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if tag != "" {
+			response.Header().Set("ETag", tag)
+		}
+		response.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if document == "" {
+			document = "{}"
+		}
+		_, _ = response.Write([]byte(document))
+	})
+	routes.HandleFunc("/api/v1/device/playlist", func(response http.ResponseWriter, request *http.Request) {
+		stub.mutex.Lock()
+		document, tag, code := stub.playlist, stub.playlistTag, stub.playlistCode
+		stub.mutex.Unlock()
+		stub.playlists.Add(1)
+
+		if code == 0 {
+			code = http.StatusNoContent
+		}
+		if code != http.StatusOK {
+			response.WriteHeader(code)
+			return
+		}
+		if tag != "" && request.Header.Get("If-None-Match") == tag {
+			response.WriteHeader(http.StatusNotModified)
+			return
+		}
+		if tag != "" {
+			response.Header().Set("ETag", tag)
+		}
+		response.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = response.Write([]byte(document))
+	})
+	routes.HandleFunc("/api/v1/device/media/", func(response http.ResponseWriter, request *http.Request) {
+		identifier := strings.TrimPrefix(request.URL.Path, "/api/v1/device/media/")
+		stub.mutex.Lock()
+		content, found := stub.mediaBytes[identifier]
+		stub.mutex.Unlock()
+		stub.fetches.Add(1)
+
+		if !found {
+			response.WriteHeader(http.StatusNotFound)
+			return
+		}
+		whole := sha256.Sum256(content)
+		response.Header().Set("Digest", hex.EncodeToString(whole[:]))
+		response.Header().Set("Content-Type", "video/mp4")
+		_, _ = response.Write(content)
+	})
 	routes.HandleFunc("/api/v1/device/self", func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(map[string]any{"id": "device-1", "name": "carbon"})
@@ -76,6 +163,40 @@ func newStubService(t *testing.T) *stubService {
 
 	stub.Stub = servicetest.New(t, routes, nil)
 	return stub
+}
+
+// serves sets what the stub answers when asked for a profile.
+func (self *stubService) serves(document, tag string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.profile, self.profileTag, self.profileCode = document, tag, http.StatusOK
+}
+
+// showsPlaylist makes the stub answer 200 with this document.
+func (self *stubService) showsPlaylist(document, tag string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.playlist, self.playlistTag, self.playlistCode = document, tag, http.StatusOK
+}
+
+// holdsMedia makes the stub serve these bytes for an identifier, and returns
+// the name this device's store will give them: the first thirty-two characters
+// of their digest.
+func (self *stubService) holdsMedia(identifier string, content []byte) string {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	if self.mediaBytes == nil {
+		self.mediaBytes = map[string][]byte{}
+	}
+	self.mediaBytes[identifier] = content
+	whole := sha256.Sum256(content)
+	return hex.EncodeToString(whole[:])[:32]
+}
+
+func (self *stubService) refuses(code int) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.profileCode = code
 }
 
 func newStore(t *testing.T, address, credential string) *config.Store {
@@ -170,12 +291,22 @@ func TestAPictureThatCannotBeTakenKeepsTheConnection(t *testing.T) {
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
-	waitFor(t, 10*time.Second, "the reporter to attach", func() bool {
-		return reporter.State().Attached
+
+	// Waited for the thing being asserted, rather than for attaching.
+	//
+	// Attaching and photographing are two different events, and the gap
+	// between them is three round trips over the tunnel -- asking who this
+	// device is, then the profile, then the playlist -- before the first
+	// picture is taken. Waiting for Attached and then reading tries asserts
+	// the second event at the moment the first one happens, which passes on a
+	// quiet machine and fails on a busy one. It failed twice on a CI runner
+	// and never once locally, which is exactly the shape of that mistake.
+	waitFor(t, 10*time.Second, "a picture to be attempted", func() bool {
+		return tries.Load() >= 1
 	})
-	if tries.Load() < 1 {
-		t.Error("no picture was attempted")
-	}
+
+	// Which is the subject: the photograph failed, and the connection is
+	// still up.
 	if state := reporter.State(); !state.Attached {
 		t.Error("a failed photograph dropped the connection")
 	}
@@ -659,5 +790,457 @@ func TestLinkingIsNoticedAtOnce(t *testing.T) {
 	if took > 5*time.Second {
 		t.Errorf("the first picture took %s; the device is waiting for a timer "+
 			"rather than noticing it was linked", took)
+	}
+}
+
+// The device asks for its profile over the same tunnel it reports on, and what
+// the service says becomes the device's own configuration.
+func TestAProfileFromTheServiceReachesTheConfiguration(t *testing.T) {
+	stub := newStubService(t)
+	stub.serves(`{"browser":{"darkMode":true}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	store.Current().Browser.DarkMode = false
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return store.Current().Browser.DarkMode
+	})
+
+	keys := store.Current().Service.ProfileKeys
+	if len(keys) != 1 || keys[0] != "browser.darkMode" {
+		t.Errorf("recorded %v as taken from the profile", keys)
+	}
+}
+
+// The common answer is 304, which is what makes a short interval affordable.
+// Asking without the version it already has would mean a device fetching and
+// re-applying the same document every minute for ever.
+func TestTheDeviceAsksWithTheVersionItAlreadyHas(t *testing.T) {
+	stub := newStubService(t)
+	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	store.Current().Service.PollInterval = config.Duration(shortestPoll)
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return !store.Current().Browser.DarkMode
+	})
+
+	// Nudged rather than waited for, so this does not depend on an interval.
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "a second ask", func() bool {
+		return stub.profiles.Load() >= 2
+	})
+
+	stub.mutex.Lock()
+	asked := stub.lastAsked
+	stub.mutex.Unlock()
+	if asked != `"one"` {
+		t.Errorf("asked with If-None-Match %q; it should send the version it applied", asked)
+	}
+}
+
+// A refused profile changes nothing. This is a successful HTTP conversation
+// rather than a failed request, so it does not fall out of "a failed poll
+// changes nothing" on its own: without this, revoking a device -- or any
+// moment where the tunnel has no device on its context -- would silently
+// revert every managed setting on that screen.
+func TestARefusedProfileReleasesNothing(t *testing.T) {
+	stub := newStubService(t)
+	// darkMode false, because the default is true: a profile that agreed with
+	// the default would be applied and prove nothing, and the wait below would
+	// pass before anything had happened.
+	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return len(store.Current().Service.ProfileKeys) == 1
+	})
+
+	stub.refuses(http.StatusUnauthorized)
+	before := stub.profiles.Load()
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "the refused ask", func() bool {
+		return stub.profiles.Load() > before
+	})
+
+	if store.Current().Browser.DarkMode {
+		t.Error("a 401 released a managed setting; only an empty document may do that")
+	}
+	if len(store.Current().Service.ProfileKeys) != 1 {
+		t.Errorf("a 401 changed what this device claims to be managed by: %v",
+			store.Current().Service.ProfileKeys)
+	}
+}
+
+// An empty document is how a device is un-managed, and it has to be told
+// apart from every kind of not being told anything.
+func TestAnEmptyDocumentReleasesWhatTheProfileGave(t *testing.T) {
+	stub := newStubService(t)
+	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the profile to be applied", func() bool {
+		return !store.Current().Browser.DarkMode
+	})
+
+	stub.serves(`{}`, `"two"`)
+	reporter.PollNow()
+
+	waitFor(t, 10*time.Second, "the setting to be released", func() bool {
+		return store.Current().Browser.DarkMode == config.Default().Browser.DarkMode &&
+			len(store.Current().Service.ProfileKeys) == 0
+	})
+}
+
+// The one that would have wiped every screen in service. A device with no
+// playlist assigned is answered 204, and its own items -- set up on the device,
+// by somebody standing at it -- must survive that untouched. Getting this wrong
+// is not a bug on one screen; it is every unmanaged screen going blank the
+// first time it polls.
+func TestNoPlaylistAssignedLeavesTheDevicesOwnItemsAlone(t *testing.T) {
+	stub := newStubService(t)
+	// The stub answers 204 by default, which is what an unassigned device gets.
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	mine := []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+	store.Current().Playlist.Items = mine
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the device to ask for a playlist", func() bool {
+		return stub.playlists.Load() > 0
+	})
+
+	items := store.Current().Playlist.Items
+	if len(items) != 1 || items[0].Identifier != "mine" {
+		t.Fatalf("a device with no playlist assigned lost its own items: %v", items)
+	}
+}
+
+// An assigned playlist replaces what the screen shows, identifier and all.
+func TestAnAssignedPlaylistReplacesTheItems(t *testing.T) {
+	stub := newStubService(t)
+	stub.showsPlaylist(`{"interval":45,"items":[
+		{"identifier":"01aaa","url":"https://example.com/one","title":"One"},
+		{"identifier":"01bbb","url":"https://example.com/two","duration":20}
+	]}`, `"p1"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	store.Current().Playlist.Items = []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		return len(store.Current().Playlist.Items) == 2
+	})
+
+	items := store.Current().Playlist.Items
+	if items[0].Identifier != "01aaa" || items[1].Identifier != "01bbb" {
+		t.Errorf("identifiers are %q and %q; they must be carried across, because "+
+			"browser tabs are keyed by them", items[0].Identifier, items[1].Identifier)
+	}
+	if items[1].Duration.Duration() != 20*time.Second {
+		t.Errorf("the second item lasts %s; the document said 20 seconds", items[1].Duration.Duration())
+	}
+	if store.Current().Playlist.Interval.Duration() != 45*time.Second {
+		t.Errorf("the interval is %s", store.Current().Playlist.Interval.Duration())
+	}
+}
+
+// An item's media is stored under the digest rather than the service's own
+// identifier, so the same bytes in several items or several playlists are one
+// file on a disk that is not large.
+func TestMediaIsCarriedByItsDigest(t *testing.T) {
+	stub := newStubService(t)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"0123456789abcdef0123456789abcdef","mediaId":"01m1zzz","name":"promo.mp4","kind":"video","sound":true}}]}`, `"p1"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		return len(store.Current().Playlist.Items) == 1
+	})
+
+	media := store.Current().Playlist.Items[0].Media
+	if media == nil {
+		t.Fatal("the item lost its media")
+	}
+	if media.File != "0123456789abcdef0123456789abcdef" {
+		t.Errorf("stored under %q; it must be the digest", media.File)
+	}
+	if media.Kind != "video" || !media.Sound {
+		t.Errorf("kind %q, sound %v; both change what the screen does", media.Kind, media.Sound)
+	}
+}
+
+// A slide's login travels with its credential reference, so a dashboard behind
+// a sign-in keeps signing in when a playlist is applied to it -- without the
+// password having gone anywhere near the service.
+func TestALoginTravelsWithItsCredentialName(t *testing.T) {
+	stub := newStubService(t)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","url":"https://example.com/",
+		"login":{"whenUrlMatches":"/login","passwordSelector":"#password",
+		"credential":"the-dashboard"}}]}`, `"p1"`)
+
+	store := newStore(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		return len(store.Current().Playlist.Items) == 1
+	})
+
+	login := store.Current().Playlist.Items[0].Login
+	if login == nil {
+		t.Fatal("the item lost its login, so this screen will sit on a sign-in page")
+	}
+	if login.Credential != "the-dashboard" {
+		t.Errorf("the credential name is %q", login.Credential)
+	}
+	if login.Password.IsSet() {
+		t.Error("a password arrived from the service; it never should")
+	}
+}
+
+// newStoreWithMedia is a device that can keep what it fetches.
+func newStoreWithMedia(t *testing.T, address, credential string) (*config.Store, *media.Store) {
+	t.Helper()
+	store := newStore(t, address, credential)
+	uploads, err := media.Open(filepath.Join(t.TempDir(), "media"))
+	if err != nil {
+		t.Fatalf("cannot open a media store: %s", err)
+	}
+	return store, uploads
+}
+
+// A playlist's video is fetched once and kept, and asking again fetches
+// nothing. That is what makes playback independent of the network: the file is
+// on the disk before the item is ever shown.
+func TestMediaIsFetchedOnceAndThenHeld(t *testing.T) {
+	stub := newStubService(t)
+	content := []byte("pretend this is an mp4, at some length")
+	file := stub.holdsMedia("01m1media", content)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"`+file+`","mediaId":"01m1media","name":"promo.mp4","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the file to be fetched", func() bool {
+		_, err := uploads.Details(file)
+		return err == nil
+	})
+
+	if got := stub.fetches.Load(); got != 1 {
+		t.Errorf("fetched %d time(s); once is the point", got)
+	}
+
+	// A CHANGED playlist that still uses the same file must fetch nothing.
+	//
+	// Deliberately a new document with a new version rather than the same one
+	// again: an unchanged playlist answers 304 and never reaches the fetching
+	// code at all, so re-polling it would prove only that the conditional
+	// request works. What is being proved here is the property the naming
+	// exists for -- reordering items or changing a duration moves no bytes,
+	// because having a file is a question about the local disk.
+	stub.showsPlaylist(`{"items":[
+		{"identifier":"01aaa","media":{"file":"`+file+`","mediaId":"01m1media","kind":"video"},"duration":90},
+		{"identifier":"01bbb","url":"https://example.com/added"}]}`, `"p2"`)
+
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "the changed playlist to arrive", func() bool {
+		return len(store.Current().Playlist.Items) == 2
+	})
+	if got := stub.fetches.Load(); got != 1 {
+		t.Errorf("fetched %d time(s); the changed playlist uses a file this device already had", got)
+	}
+}
+
+// Bytes that are not the ones asked for are thrown away. Keeping them would
+// mean a screen playing half a video for ever with everything reporting
+// success, which is the failure the digest naming exists to make impossible.
+func TestMediaThatArrivesWrongIsNotKept(t *testing.T) {
+	stub := newStubService(t)
+	stub.holdsMedia("01m1media", []byte("these are not the bytes you asked for"))
+
+	// A playlist asking for a digest that is not what the stub will serve.
+	wanted := "0123456789abcdef0123456789abcdef"
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"`+wanted+`","mediaId":"01m1media","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the fetch to be tried", func() bool {
+		return stub.fetches.Load() > 0
+	})
+
+	if _, err := uploads.Details(wanted); err == nil {
+		t.Error("the wrong bytes were stored under the name that was asked for")
+	}
+	held, err := uploads.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held) != 0 {
+		t.Errorf("the store kept %d file(s) that arrived wrong", len(held))
+	}
+}
+
+// A playlist whose files have not all arrived is not swapped in.
+//
+// The screen goes on showing what it has. A playlist applied with a file still
+// missing puts an item on the wall that shows nothing, and a screen showing the
+// playlist it had is a screen doing its job -- waiting costs a poll interval,
+// swapping early costs whatever is on the wall until the file turns up.
+//
+// And it must try again: remembering the version of a document that was never
+// applied would mean being told 304 for ever about a playlist this device does
+// not have.
+func TestAPlaylistIsNotSwappedInUntilEveryFileHasArrived(t *testing.T) {
+	stub := newStubService(t)
+	// Names a file the stub does not hold, so fetching it 404s.
+	stub.showsPlaylist(`{"items":[
+		{"identifier":"01aaa","url":"https://example.com/one"},
+		{"identifier":"01bbb","media":{"file":"0123456789abcdef0123456789abcdef",
+		 "mediaId":"01m1gone","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	mine := []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+	store.Current().Playlist.Items = mine
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the fetch to be tried", func() bool {
+		return stub.fetches.Load() > 0
+	})
+
+	items := store.Current().Playlist.Items
+	if len(items) != 1 || items[0].Identifier != "mine" {
+		t.Fatalf("the screen was changed before its files arrived: %v", items)
+	}
+
+	// Asked for again rather than believed to be up to date.
+	before := stub.fetches.Load()
+	reporter.PollNow()
+	waitFor(t, 10*time.Second, "the file to be tried again", func() bool {
+		return stub.fetches.Load() > before
+	})
+}
+
+// And once the file is there, the same playlist goes in.
+func TestThePlaylistGoesInOnceItsFilesArrive(t *testing.T) {
+	stub := newStubService(t)
+	content := []byte("pretend this is an mp4")
+	file := stub.holdsMedia("01m1media", content)
+	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
+		"file":"`+file+`","mediaId":"01m1media","kind":"video"}}]}`, `"p1"`)
+
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	store.Current().Playlist.Items = []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
+
+	reporter := New(store, func(context.Context) ([]byte, string, error) {
+		return []byte("bytes"), "image/jpeg", nil
+	}, nil).WithMedia(uploads)
+	defer func() { _ = reporter.Close() }()
+	reporter.Start(context.Background())
+
+	waitFor(t, 10*time.Second, "the playlist to be applied", func() bool {
+		items := store.Current().Playlist.Items
+		return len(items) == 1 && items[0].Identifier == "01aaa"
+	})
+
+	if _, err := uploads.Details(file); err != nil {
+		t.Errorf("the playlist went in without its file being held: %s", err)
+	}
+}
+
+// A duration on the wire may be a bare number of seconds or a string, because
+// this device's own configuration writes "45s" while the playlist document
+// carries 45 -- the same idea, two encodings, between the same two programs.
+// The service read the first and wrote the second and got it wrong once
+// already, and an int where a string arrives does not make one duration wrong,
+// it fails to unmarshal the whole document and leaves the wall on its old
+// playlist with a debug line to say why.
+func TestADurationOnTheWireMayBeSecondsOrAString(t *testing.T) {
+	for what, document := range map[string]string{
+		"bare seconds": `{"interval":30,"items":[{"identifier":"01aaa","url":"https://example.com/","duration":45}]}`,
+		"a string":     `{"interval":"30s","items":[{"identifier":"01aaa","url":"https://example.com/","duration":"45s"}]}`,
+	} {
+		t.Run(what, func(t *testing.T) {
+			stub := newStubService(t)
+			stub.showsPlaylist(document, `"p-`+what+`"`)
+
+			store := newStore(t, stub.Server.URL, stub.Credential)
+			reporter := New(store, func(context.Context) ([]byte, string, error) {
+				return []byte("bytes"), "image/jpeg", nil
+			}, nil)
+			defer func() { _ = reporter.Close() }()
+			reporter.Start(context.Background())
+
+			waitFor(t, 10*time.Second, "the playlist to arrive", func() bool {
+				return len(store.Current().Playlist.Items) == 1
+			})
+
+			if got := store.Current().Playlist.Items[0].Duration.Duration(); got != 45*time.Second {
+				t.Errorf("the item lasts %s, want 45s", got)
+			}
+			if got := store.Current().Playlist.Interval.Duration(); got != 30*time.Second {
+				t.Errorf("the interval is %s, want 30s", got)
+			}
+		})
 	}
 }

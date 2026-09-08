@@ -456,10 +456,26 @@ func (self *Browser) Navigate(ctx context.Context, address string) error {
 	return self.navigateTab(ctx, target, address)
 }
 
+// navigateTab points a tab at an address, unless it is already there.
+//
+// The check is the point. Tabs are reused by position, and every item is
+// navigated every time the playlist is applied, so without this a playlist
+// edit reloads every page on the screen rather than the one that changed --
+// including the ones that were signed in, and the ones that took a minute to
+// draw. With a service applying playlists to a fleet, that is a wall of
+// dashboards all signing themselves in again because somebody fixed a typo in
+// a title.
+//
+// A page that has navigated away on its own -- a dashboard that has dropped
+// back to a login screen -- does not match, and is pointed back where it
+// belongs, which is what should happen.
 func (self *Browser) navigateTab(ctx context.Context, target, address string) error {
 	session, err := self.session(ctx, target)
 	if err != nil {
 		return err
+	}
+	if current, err := session.CurrentURL(ctx); err == nil && current == address {
+		return nil
 	}
 	return session.Navigate(ctx, address)
 }

@@ -139,3 +139,42 @@ func TestTheServiceCannotMoveTheDeviceElsewhere(t *testing.T) {
 		t.Errorf("the service moved this device from %q to %q", was, now)
 	}
 }
+
+// A playlist lifted off a screen has to be able to take its pictures and
+// videos with it, so the service can read one upload by name.
+//
+// Not new exposure: the service can already list these files, add one, and
+// read the configuration that names them. What it could not do was read one
+// back, which meant an extracted playlist arrived with its videos missing and
+// nothing but somebody's memory to say what they had been.
+func TestTheServiceCanReadOneUploadByName(t *testing.T) {
+	server := newTestServer(t, config.Default())
+	defer func() { _ = server.device.Linker().Close() }()
+
+	stored, err := server.uploads.Add("promo.mp4", "video/mp4",
+		strings.NewReader("pretend this is a video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := server.FromService()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/media/"+stored.File, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("reading %s answered %d, want 200", stored.File, response.Code)
+	}
+	if response.Body.String() != "pretend this is a video" {
+		t.Errorf("the bytes came back as %q", response.Body.String())
+	}
+
+	// A name it does not hold is a 404 rather than anything that discloses
+	// what it does hold.
+	missing := httptest.NewRequest(http.MethodGet, "/api/v1/media/0123456789abcdef0123456789abcdef", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, missing)
+	if response.Code != http.StatusNotFound {
+		t.Errorf("a file this device does not have answered %d, want 404", response.Code)
+	}
+}

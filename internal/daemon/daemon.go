@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -315,6 +316,7 @@ func (self *Daemon) Run(ctx context.Context) error {
 	// What the service may do to this device once it is linked: an allow-list
 	// of the management interface, served over the tunnel and nowhere else.
 	self.reporter = service.New(self.store, self.photograph, self.describe).
+		WithMedia(self.uploads).
 		WithManagement(self.web.FromService()).
 		WithScreen(self.screenForService)
 	self.reporter.Start(ctx)
@@ -724,13 +726,35 @@ func (self *Daemon) sweepUploads() {
 		}
 	}
 
+	// What each file is called, read before the sweep, because afterwards
+	// there is nothing left to ask. A line saying "removed 1 upload(s)" is no
+	// help at all to somebody wondering where their video went; the name they
+	// gave it is the only part of this they would recognise.
+	names := map[string]string{}
+	if held, err := self.uploads.List(); err == nil {
+		for _, one := range held {
+			names[one.File] = one.Name
+		}
+	}
+
 	removed, err := self.uploads.Sweep(wanted)
 	if err != nil {
 		log.Warningf("cannot tidy up unused uploads: %s", err)
 		return
 	}
 	if len(removed) > 0 {
-		log.Noticef("removed %d upload(s) nothing refers to any more", len(removed))
+		// Named, and at warning rather than notice. Deleting a file somebody
+		// uploaded is not routine tidying: the bytes are gone, this device is
+		// where they lived, and it happens within a second of the playlist
+		// changing -- which on a screen given a playlist by a service is
+		// before anybody could look at it and change their mind.
+		for _, file := range removed {
+			if name := names[file]; name != "" {
+				log.Warningf("deleted the upload %q (%s); no playlist item refers to it any more", name, file)
+			} else {
+				log.Warningf("deleted the upload %s; no playlist item refers to it any more", file)
+			}
+		}
 	}
 }
 
@@ -993,6 +1017,18 @@ func (self *Daemon) describe(ctx context.Context) (any, error) {
 			"since": showing.CurrentSince,
 			"ready": showing.Ready,
 		},
+		// The names of the sign-ins this device holds, and nothing else about
+		// them. A playlist's item refers to a credential by name, so the
+		// service can tell before anybody assigns anything which screens are
+		// missing one -- which turns "this screen will sit on a login page and
+		// say so" from a state to recover from into one to avoid.
+		//
+		// Names only. No username, no password, not even whether a password is
+		// set: a name is chosen by whoever typed it in and is already in the
+		// playlist documents the service holds, so it discloses nothing that
+		// is not there. Sorted, so a report is the same twice and a reader
+		// diffing two of them sees only real changes.
+		"credentials": credentialNames(configuration),
 	}
 	// The screen's shape, when the X server will say. Opening a connection for
 	// it is cheap next to the photograph that goes with this report.
@@ -1030,4 +1066,16 @@ func (self *Daemon) photograph(ctx context.Context) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return body.Bytes(), "image/jpeg", nil
+}
+
+// credentialNames is the sorted names of the sign-ins this device holds.
+func credentialNames(configuration *config.Configuration) []string {
+	names := make([]string, 0, len(configuration.Credentials))
+	for _, credential := range configuration.Credentials {
+		if credential.Name != "" {
+			names = append(names, credential.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

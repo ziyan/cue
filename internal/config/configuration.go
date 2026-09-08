@@ -23,6 +23,12 @@ type Configuration struct {
 	Service  Service  `yaml:"service" json:"service"`
 	Upgrade  Upgrade  `yaml:"upgrade" json:"upgrade"`
 
+	// Credentials this device holds, named and referred to from a playlist
+	// item's login. Kept here rather than beside the thing that uses one so
+	// that a secret has a single home: a playlist can then be lifted off a
+	// screen and applied to forty without a password travelling with it.
+	Credentials []Credential `yaml:"credentials,omitempty" json:"credentials"`
+
 	// IgnoredSettings are the names in the file that this version has no
 	// setting for. They are not fatal — a device already in service has the
 	// settings of the version that wrote its file, and refusing to start over
@@ -128,6 +134,32 @@ type Service struct {
 	// 2". The service's name is the one that matches the two systems up, so it
 	// is kept and shown rather than assuming the local name carried.
 	Name string `yaml:"name,omitempty" json:"name"`
+
+	// PollInterval is how often this device asks the service for the profile
+	// and playlist it should have. A setting rather than a constant because
+	// every other interval here is one and operators do tune them; on the
+	// refusal list below because a profile that set it badly would stop a
+	// fleet polling, and the only fix would be per-screen by hand -- which is
+	// the situation profiles exist to abolish. Clamped when it is read.
+	PollInterval Duration `yaml:"pollInterval,omitempty" json:"pollInterval"`
+
+	// ProfileKeys are the configuration keys this device last took from a
+	// profile, as sorted dotted paths.
+	//
+	// Provenance rather than a setting, and it lives in this file rather than
+	// beside it for two reasons. It has to be written in the same atomic write
+	// as the values it describes, or a crash between two files leaves a device
+	// that can never release what a profile gave it. And it has to survive
+	// what the file survives: /etc/cue and /var/lib/cue are different mounts,
+	// so a configuration restored from a backup against provenance kept
+	// elsewhere would freeze a profile's values for ever.
+	//
+	// Sorted, and that is a requirement rather than tidiness: versionOf hashes
+	// the marshalled file to make the configuration's ETag, so a list that
+	// reordered between writes would move the version on every poll and make
+	// conditional writes from the web interface fail against a document nobody
+	// edited.
+	ProfileKeys []string `yaml:"profileKeys,omitempty" json:"-"`
 }
 
 // DefaultServiceAddress is where a device reports to unless its file says
@@ -520,6 +552,29 @@ type Dismiss struct {
 	Hide bool `yaml:"hide,omitempty" json:"hide"`
 }
 
+// Credential is a username and password this device holds, referred to by name
+// from wherever it is needed.
+//
+// It exists so that a secret does not have to travel. A playlist naming a
+// credential can be lifted off one screen and applied to forty without
+// carrying a dashboard password through the service, and the same store is
+// where a wireless key would live when a profile is allowed to name an SSID.
+// One answer to "where do secrets live" and one place in the interface to type
+// them, rather than one of each per feature.
+//
+// The whole list is refused in a profile automatically, because it holds a
+// Secret and a list holding a secret is refused entire.
+type Credential struct {
+	// Name is what a playlist item or a network refers to it by. It is chosen
+	// by whoever types it in and travels in documents that may be seen by
+	// other people, so it should say what the credential is for and nothing
+	// about what it is.
+	Name string `yaml:"name" json:"name"`
+
+	Username string `yaml:"username,omitempty" json:"username"`
+	Password Secret `yaml:"password,omitempty" json:"password"`
+}
+
 // Login describes how to get a page past a login form, and — more
 // importantly — how to notice that it has been thrown back to one.
 //
@@ -559,8 +614,24 @@ type Login struct {
 	// every few hours and every few weeks.
 	AlsoClick []string `yaml:"alsoClick,omitempty" json:"alsoClick"`
 
-	Username string `yaml:"username" json:"username"`
-	Password Secret `yaml:"password" json:"password"`
+	// Credential names an entry in the device's own credentials list, and is
+	// how a playlist that came from the service signs in without the service
+	// ever holding the password. It wins over the username and password
+	// below when both are set.
+	//
+	// A slide naming a credential this device does not hold is not signed in
+	// at all, loudly. It must never fall back to trying an empty password:
+	// that is an authentication attempt with a wrong credential, repeated on
+	// every rotation, which is how an account gets locked out -- the same
+	// reason MinimumInterval exists.
+	Credential string `yaml:"credential,omitempty" json:"credential"`
+
+	// Username and Password are the older form, kept because devices in
+	// service have playlists with passwords written into them and a version
+	// that stopped honouring those would take working screens off their
+	// dashboards. A playlist extracted for the service never carries them.
+	Username string `yaml:"username,omitempty" json:"username"`
+	Password Secret `yaml:"password,omitempty" json:"password"`
 
 	// ExpectURLMatches, when set, is a regular expression the address must
 	// match for the attempt to be counted as a success. Without it the daemon

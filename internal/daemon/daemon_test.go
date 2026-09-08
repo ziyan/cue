@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"encoding/json"
+	"github.com/op/go-logging"
 	"github.com/ziyan/cue/internal/media"
 	"os"
 	"path/filepath"
@@ -408,5 +410,89 @@ func TestEveryDisplaySettingIsClassified(t *testing.T) {
 					"Add it to one or the other.", field.Name)
 			}
 		})
+	}
+}
+
+// The service is told which sign-ins this device holds, by name and by name
+// only, so that it can say which screens are missing one before a playlist is
+// assigned rather than after.
+func TestTheReportNamesTheCredentialsHeldAndNothingElse(t *testing.T) {
+	configuration := config.Default()
+	configuration.Credentials = []config.Credential{
+		{Name: "the-dashboard", Username: "screen", Password: config.Secret("a-test-password")},
+		{Name: "another", Username: "someone", Password: config.Secret("another-test-password")},
+		{Name: "", Username: "nameless"},
+	}
+
+	names := credentialNames(configuration)
+
+	if len(names) != 2 {
+		t.Fatalf("reported %v; the nameless one cannot be referred to and should not be listed", names)
+	}
+	if names[0] != "another" || names[1] != "the-dashboard" {
+		t.Errorf("reported %v; sorted, so two reports of the same device are the same bytes", names)
+	}
+
+	// Nothing but names. A username is not a secret but it is not the
+	// service's business either, and sending it would be a thing to have to
+	// justify later.
+	encoded, err := json.Marshal(names)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"screen", "someone", "a-test-password", "another-test-password"} {
+		if strings.Contains(string(encoded), leaked) {
+			t.Errorf("the report carries %q", leaked)
+		}
+	}
+}
+
+// Deleting an upload is not routine tidying, so it says which file went and
+// what somebody called it.
+//
+// The line used to read "removed 1 upload(s) nothing refers to any more",
+// which is no help to whoever is trying to work out where their video went --
+// the name they gave it is the only part of this they would recognise. A real
+// screen lost a real video to this sweep, three hundred milliseconds after a
+// service assigned it a playlist, and the log said nothing that would have
+// identified it.
+func TestSweepingSaysWhichUploadItDeletedAndWhatItWasCalled(t *testing.T) {
+	directory := t.TempDir()
+	uploads, err := media.Open(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := uploads.Add("promo.mp4", "video/mp4", strings.NewReader("not really a video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Aged past the settle time, because the store deliberately leaves a file
+	// alone for a while after it is written -- a guard against sweeping an
+	// upload that is still arriving, and no help at all to the case here,
+	// which is an old file that stops being referenced.
+	old := time.Now().Add(-2 * time.Hour)
+	for _, suffix := range []string{".media", ".json"} {
+		_ = os.Chtimes(filepath.Join(directory, stored.File+suffix), old, old)
+	}
+
+	var written strings.Builder
+	backend := logging.AddModuleLevel(logging.NewLogBackend(&written, "", 0))
+	backend.SetLevel(logging.DEBUG, "")
+	logging.SetBackend(backend)
+
+	configuration := config.Default()
+	configuration.Playlist.Items = nil
+	daemon := &Daemon{
+		uploads: uploads,
+		store:   config.OpenWith(filepath.Join(t.TempDir(), "cue.yaml"), configuration),
+	}
+	daemon.sweepUploads()
+
+	if !strings.Contains(written.String(), "promo.mp4") {
+		t.Errorf("the log does not name the file somebody uploaded: %s", written.String())
+	}
+	if !strings.Contains(written.String(), stored.File) {
+		t.Errorf("the log does not say which stored file went: %s", written.String())
 	}
 }

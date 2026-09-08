@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ziyan/cue/internal/config"
+	"github.com/ziyan/cue/internal/media"
 	"github.com/ziyan/cue/internal/util/deferutil"
 )
 
@@ -67,12 +68,28 @@ type Reporter struct {
 	// How the service reaches this device's screen, when it is allowed to.
 	screen Screen
 
+	// Where the files a playlist refers to are kept. Nil is a build with no
+	// store: playlists still arrive and pages still show, and only uploaded
+	// pictures and videos are missing.
+	media *media.Store
+
 	mutex     sync.Mutex
 	attached  bool
 	lastSent  time.Time
 	trouble   string
 	cancel    context.CancelFunc
 	waitGroup sync.WaitGroup
+
+	// lastProfileTag is the ETag of the profile last applied, and
+	// lastPlaylistTag the same for the playlist.
+	lastProfileTag  string
+	lastPlaylistTag string
+
+	// pollNow carries the service's nudge. Buffered by one and written to
+	// without blocking, so a nudge is either "there is one waiting" or
+	// nothing: two nudges arriving together are one poll, which is all they
+	// could usefully be.
+	pollNow chan struct{}
 }
 
 // State is what the interface shows about reporting.
@@ -89,7 +106,12 @@ type State struct {
 }
 
 func New(store *config.Store, picture Picture, describe Describe) *Reporter {
-	return &Reporter{store: store, picture: picture, describe: describe}
+	return &Reporter{
+		store:    store,
+		picture:  picture,
+		describe: describe,
+		pollNow:  make(chan struct{}, 1),
+	}
 }
 
 // WithManagement gives the reporter what to serve when the service opens a
@@ -270,7 +292,32 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 		return fmt.Errorf("service: this credential is for %v, not %s", who["id"], expected)
 	}
 
+	// Polled as soon as the tunnel is up rather than an interval later: a
+	// device that has just attached is one that may have been away, and what
+	// it should be showing is the first thing worth finding out.
+	nextPoll := time.Now()
+
 	for {
+		// Asked before the screen is photographed, and the order is the whole
+		// of what a nudge is worth. Reporting first means a nudge waits out a
+		// photograph -- a 2560x1440 screen encoded to JPEG and sent over the
+		// tunnel -- before the device asks what it should be showing. Measured
+		// against the real service that put sixteen seconds between somebody
+		// clicking and the device asking, for a request that takes
+		// milliseconds. It is also the sensible order on a fresh connection:
+		// find out what to show, then photograph what is being shown.
+		if !time.Now().Before(nextPoll) {
+			// A profile that will not fetch or will not apply is not a reason
+			// to drop a connection that is otherwise working: the screen goes
+			// on being watched and reported, and the next poll tries again.
+			if err := self.pollProfileOnce(ctx, client); err != nil {
+				log.Debugf("%s", err)
+			}
+			if err := self.pollPlaylistOnce(ctx, client); err != nil {
+				log.Debugf("%s", err)
+			}
+			nextPoll = time.Now().Add(pollInterval(self.store.Current()))
+		}
 		if err := self.reportOnce(ctx, client); err != nil {
 			return err
 		}
@@ -288,6 +335,11 @@ func (self *Reporter) attach(ctx context.Context, configuration *config.Configur
 			return nil
 		case <-connection.Gone():
 			return fmt.Errorf("service: the connection went away")
+		case <-self.pollNow:
+			// The service says something has changed. Ask at once rather than
+			// at the next interval, so a change lands while whoever made it is
+			// still looking at the screen.
+			nextPoll = time.Time{}
 		case <-time.After(reportInterval):
 		}
 	}

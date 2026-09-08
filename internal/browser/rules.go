@@ -148,9 +148,14 @@ func (self *Browser) loginNeeded(ctx context.Context, session *pageSession, logi
 // an account gets locked out, and the account being locked out is much worse
 // than the screen showing a login page.
 func (self *Browser) attemptLogin(ctx context.Context, identifier string, item config.Item) {
-	login := item.Login
-
-	minimum := login.MinimumInterval.Duration()
+	// The interval is applied before anything else, including working out
+	// which credential to use. Every visible page is checked against its rules
+	// every five seconds, so a login that cannot be attempted -- because it
+	// names a credential this device does not hold -- would otherwise say so
+	// twelve times a minute for ever, on a screen nobody visits, burying
+	// everything else in the log. MinimumInterval exists to stop a login being
+	// retried too often, and not being able to try at all is a kind of trying.
+	minimum := item.Login.MinimumInterval.Duration()
 	if minimum <= 0 {
 		minimum = 30 * time.Second
 	}
@@ -163,6 +168,16 @@ func (self *Browser) attemptLogin(ctx context.Context, identifier string, item c
 	}
 	self.lastLogin[identifier] = time.Now()
 	self.mutex.Unlock()
+
+	login, err := self.resolveLogin(item.Login)
+	if err != nil {
+		// Said on every attempt rather than once, and at warning: the screen
+		// is sitting on a login page and will go on sitting there, and the
+		// remedy is somebody adding the credential to this device. A line once
+		// at startup would have scrolled away by the time anybody looked.
+		log.Warningf("cannot sign in to %s: %s", describeItem(item, identifier), err)
+		return
+	}
 
 	target := self.targetFor(identifier)
 	session, err := self.session(ctx, target)
@@ -452,4 +467,31 @@ func (self *Browser) DismissCount(identifier string) int {
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
 	return self.dismissCount[identifier]
+}
+
+// resolveLogin fills in a login that names a credential this device holds.
+//
+// A named credential wins over an inline username and password, so a playlist
+// that has been converted keeps working while one written before credentials
+// existed goes on working untouched. A name that is not held is an error
+// rather than a fallback to the inline pair or to nothing: signing in with the
+// wrong thing repeatedly is how an account gets locked out, and a screen that
+// silently shows a login page for ever is the failure this whole file is about.
+func (self *Browser) resolveLogin(login *config.Login) (*config.Login, error) {
+	if login == nil || login.Credential == "" {
+		return login, nil
+	}
+
+	held := self.configuration.FindCredential(login.Credential)
+	if held == nil {
+		return nil, fmt.Errorf("it asks for the credential %q, which this device does not hold; "+
+			"add it under credentials in the configuration", login.Credential)
+	}
+
+	// Copied rather than written through: the configuration is shared, and a
+	// login is read on every rotation.
+	resolved := *login
+	resolved.Username = held.Username
+	resolved.Password = held.Password
+	return &resolved, nil
 }

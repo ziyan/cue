@@ -1,0 +1,52 @@
+name: Vulnerabilities
+
+# govulncheck against the current database, on a schedule rather than on every
+# push. A vulnerability is found when somebody publishes it, not when somebody
+# pushes a commit, and a check that only runs on a change would first report a
+# month-old problem on an unrelated pull request.
+
+on:
+  schedule:
+    # Monday morning, off the hour: everything scheduled on the hour queues
+    # behind everything else scheduled on the hour.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: Known vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # From go.mod, deliberately, so this scan judges the module against
+          # the version the module itself declares.
+          #
+          # That declaration is load-bearing here. govulncheck decides which
+          # standard-library advisories apply from it, so a go directive left
+          # at the oldest patch in a series reports every fix released since
+          # -- which is what happened: `go 1.25.0` produced 32 reachable
+          # findings against a binary that ships on a far newer toolchain,
+          # because the image and the workflows float and the directive did
+          # not. Pinning this to a bare '1.25' instead would make the scan
+          # disagree with what a developer sees locally, and the argument
+          # about whose number is right is not one worth having.
+          go-version-file: go.mod
+          cache: false # dependencies are vendored
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      # Reachability, not presence: govulncheck reports a vulnerability only
+      # when this program actually calls the affected code, which is the
+      # difference between a list worth reading and a list nobody reads.
+      - name: Check
+        env:
+          GOFLAGS: -mod=vendor
+        run: govulncheck ./...
