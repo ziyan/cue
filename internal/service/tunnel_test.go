@@ -291,12 +291,22 @@ func TestAPictureThatCannotBeTakenKeepsTheConnection(t *testing.T) {
 	defer func() { _ = reporter.Close() }()
 
 	reporter.Start(context.Background())
-	waitFor(t, 10*time.Second, "the reporter to attach", func() bool {
-		return reporter.State().Attached
+
+	// Waited for the thing being asserted, rather than for attaching.
+	//
+	// Attaching and photographing are two different events, and the gap
+	// between them is three round trips over the tunnel -- asking who this
+	// device is, then the profile, then the playlist -- before the first
+	// picture is taken. Waiting for Attached and then reading tries asserts
+	// the second event at the moment the first one happens, which passes on a
+	// quiet machine and fails on a busy one. It failed twice on a CI runner
+	// and never once locally, which is exactly the shape of that mistake.
+	waitFor(t, 10*time.Second, "a picture to be attempted", func() bool {
+		return tries.Load() >= 1
 	})
-	if tries.Load() < 1 {
-		t.Error("no picture was attempted")
-	}
+
+	// Which is the subject: the photograph failed, and the connection is
+	// still up.
 	if state := reporter.State(); !state.Attached {
 		t.Error("a failed photograph dropped the connection")
 	}
