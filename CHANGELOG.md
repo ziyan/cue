@@ -6,6 +6,25 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-08
+
+### Added
+
+Screens can be managed from cue.sh. A screen collects its settings and the content it shows from the service and applies them itself, so a change made once reaches every screen it was assigned to, whether or not each one is awake at that moment. (#6)
+A screen holds its own sign-ins, stored under a name. A playlist item says *which* sign-in to use rather than carrying a password, so the same playlist can go to screens that each hold their own credentials and the password never travels or appears in the service. (#6)
+Pictures and videos in a playlist are fetched through the screen's existing connection and kept, so a screen needs no route to the file store and no credentials for it, and a file already held is not fetched twice. (#6)
+
+### Fixed
+
+A playlist now appears on the wall only once every file it needs has arrived. Previously a screen could start showing a new playlist while its pictures were still downloading. (#6)
+A page that is already the right one is no longer reloaded, so a dashboard stops flickering when the playlist is reapplied unchanged. (#6)
+The message about a screen not holding a named sign-in is rate-limited rather than repeated on every attempt. (#6)
+When the cleanup deletes an uploaded file nothing refers to any more, it now says which file it was and what somebody called it. Deleting an upload is not routine tidying and the log had been silent about it. (#6)
+
+### Security
+
+A profile can no longer carry anything the screen's own schema calls a secret, a screen's own name and location, or its network interface list. The interface list in particular would have replaced the list on every screen it reached, taking their wireless passphrases with it. (#6)
+The build now requires a Go with the current standard-library fixes. Nothing shipped was affected — the image already built with a newer Go — but the version the module declared was old enough that a build from source could have used a vulnerable one. (#6)
 ## [0.4.0] - 2026-09-01
 
 ### Added
