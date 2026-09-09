@@ -42,7 +42,7 @@ jobs:
           # of the tag this creates is to start release.yml.
           token: ${{ secrets.RELEASE_TOKEN }}
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
           cache: false

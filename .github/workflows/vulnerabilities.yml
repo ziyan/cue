@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # From go.mod, deliberately, so this scan judges the module against
           # the version the module itself declares.
