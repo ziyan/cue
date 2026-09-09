@@ -6,6 +6,11 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-09
+
+### Changed
+
+Built with Go 1.26, which the linter and `golang.org/x/crypto` now require. (#18)
 ## [0.6.0] - 2026-09-09
 
 ### Added
