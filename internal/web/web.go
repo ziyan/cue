@@ -214,7 +214,7 @@ func (self *Server) Start(ctx context.Context) error {
 	self.listener = listener
 
 	self.server = &http.Server{
-		Handler: self.router,
+		Handler: withSecurityHeaders(self.router),
 		// A screenshot of a 4K screen takes a moment to encode, and a VNC
 		// connection lasts as long as somebody is watching, so the write
 		// timeout is left off and the read one is generous.

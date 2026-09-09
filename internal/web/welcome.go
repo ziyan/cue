@@ -68,6 +68,7 @@ func (self *Server) welcome(response http.ResponseWriter, request *http.Request)
 	}
 
 	err = welcomeTemplate.Execute(response, map[string]interface{}{
+		"Nonce":      nonceOf(request),
 		"Device":     configuration.Device.Name,
 		"Identifier": configuration.Device.Identifier,
 		"Addresses":  addresses,
@@ -275,7 +276,7 @@ var welcomeTemplate = template.Must(template.New("welcome").Parse(`<!doctype htm
     {{ end }}
     <div class="identifier">{{ .Identifier }}</div>
   </main>
-<script>{{ .WayBack }}</script>
+<script nonce="{{ .Nonce }}">{{ .WayBack }}</script>
 </body>
 </html>
 `))

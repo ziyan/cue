@@ -27,6 +27,7 @@ func (self *Server) play(response http.ResponseWriter, request *http.Request) {
 			continue
 		}
 		found = &shownItem{
+			Nonce:   nonceOf(request),
 			WayBack: self.wayBack(),
 			Source:  "/media/" + item.Media.File,
 			Name:    item.Media.Name,
@@ -51,6 +52,10 @@ type shownItem struct {
 	Source string
 	Name   string
 	Muted  bool
+
+	// Nonce marks this page's inline scripts as ours, so the content security
+	// policy can refuse every other one.
+	Nonce string
 
 	// WayBack is the control that puts this device back into setup, which
 	// every page on the screen carries.
@@ -106,7 +111,7 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
 <img id="picture" src="{{ .Source }}" alt="">
 {{ end }}
 <div id="trouble">This could not be shown.<br>Moving on.</div>
-<script>
+<script nonce="{{ .Nonce }}">
   // The playlist keeps one tab open per item and switches between them, so
   // this page exists long before its turn comes and goes on existing
   // afterwards. That shapes everything below.
@@ -210,7 +215,7 @@ var playerTemplate = template.Must(template.New("player").Parse(`<!doctype html>
     if (onScreen()) start();
   }
 </script>
-<script>{{ .WayBack }}</script>
+<script nonce="{{ .Nonce }}">{{ .WayBack }}</script>
 </body>
 </html>
 `))
