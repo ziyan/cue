@@ -6,6 +6,11 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-09
+
+### Added
+
+A security policy, `SECURITY.md`, saying how to report a vulnerability privately, what is in scope, and which release a fix lands in. (#17)
 ## [0.5.0] - 2026-09-08
 
 ### Added
