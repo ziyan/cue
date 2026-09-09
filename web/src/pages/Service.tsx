@@ -187,7 +187,7 @@ export function Service() {
         </Section>
       ) : state.pending && state.checking ? (
         <Section title="Checking">
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
             <CircularProgress size={18} />
             <Typography>Authorised. Checking the credential works.</Typography>
           </Stack>
@@ -239,7 +239,7 @@ export function Service() {
         </Section>
       ) : (
         <Section title="Not linked">
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
             <CircularProgress size={18} />
             <Typography color="text.secondary">Getting a code…</Typography>
           </Stack>

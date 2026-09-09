@@ -135,7 +135,7 @@ export function Screen() {
 
   return (
     <>
-      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", mb: 1.5 }}>
         <Chip
           size="small"
           variant="outlined"

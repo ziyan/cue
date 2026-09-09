@@ -56,7 +56,7 @@ export function Logs() {
         since the machine booted; these are the real times.
       </Typography>
 
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center", mb: 2 }}>
         <Button variant="outlined" size="small" onClick={() => void load()}>Refresh</Button>
         <FormControlLabel
           control={<Switch size="small" checked={onlyProblems}
