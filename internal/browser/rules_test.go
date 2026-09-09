@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ziyan/cue/internal/config"
 )
@@ -103,5 +104,57 @@ func TestAQuotedValueCannotEndTheStatement(t *testing.T) {
 				t.Errorf("became %q, want %q", back, value)
 			}
 		})
+	}
+}
+
+// reloadEvery reaches the case item.Reload cannot: a screen showing one thing,
+// where nothing ever comes round and the page is loaded once and never again.
+//
+// The wall this was written for ran six days without a reload, and six of its
+// seven camera streams were black. The page was alive the whole time -- it
+// answered, it drew, the watchdog was satisfied -- and what it showed was
+// nothing.
+func TestReloadEveryIsDueOnItsOwnClock(t *testing.T) {
+	browser := &Browser{
+		configuration: config.Default(),
+		lastReload:    map[string]time.Time{},
+	}
+	item := config.Item{Identifier: "one", URL: "https://example.com/", ReloadEvery: config.Duration(30 * time.Minute)}
+
+	// The first sighting starts the clock rather than reloading: a device that
+	// has just started must not reload the page it has only just loaded.
+	if browser.reloadDue("one", item) {
+		t.Error("it reloaded a page it had only just loaded")
+	}
+	if _, started := browser.lastReload["one"]; !started {
+		t.Fatal("the clock did not start")
+	}
+
+	// Not yet.
+	browser.lastReload["one"] = time.Now().Add(-29 * time.Minute)
+	if browser.reloadDue("one", item) {
+		t.Error("it reloaded after 29 minutes of a 30 minute period")
+	}
+
+	// Now.
+	browser.lastReload["one"] = time.Now().Add(-31 * time.Minute)
+	if !browser.reloadDue("one", item) {
+		t.Error("it did not reload after 31 minutes of a 30 minute period")
+	}
+
+	// And the clock restarts, so it does not reload again immediately.
+	if browser.reloadDue("one", item) {
+		t.Error("it reloaded twice in a row")
+	}
+}
+
+// An item that does not ask for it is never reloaded on a timer.
+func TestAnItemWithoutReloadEveryIsLeftAlone(t *testing.T) {
+	browser := &Browser{configuration: config.Default(), lastReload: map[string]time.Time{}}
+	item := config.Item{Identifier: "one", URL: "https://example.com/"}
+
+	browser.lastReload["one"] = time.Now().Add(-100 * time.Hour)
+	if browser.reloadDue("one", item) {
+		t.Error("an item with no reloadEvery was reloaded anyway")
 	}
 }

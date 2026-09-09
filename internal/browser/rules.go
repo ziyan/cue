@@ -78,6 +78,12 @@ func (self *Browser) enforceRules(ctx context.Context) {
 			if !found {
 				continue
 			}
+
+			// Before the skip below, because an item with no login and no
+			// dismiss rule is exactly the one this is for: a dashboard that
+			// needs nothing done to it except being loaded again.
+			self.reloadIfDue(ctx, identifier, target, item)
+
 			if item.Login == nil && len(item.Dismiss) == 0 {
 				continue
 			}
@@ -516,4 +522,57 @@ func (self *Browser) resolveLogin(login *config.Login) (*config.Login, error) {
 	resolved.Username = held.Username
 	resolved.Password = held.Password
 	return &resolved, nil
+}
+
+// reloadIfDue fetches a page again when its item asks to be reloaded on a
+// timer and enough time has passed.
+//
+// Independent of the rotation on purpose. item.Reload fires when an item comes
+// round, which never happens on a screen showing one thing -- and a screen
+// showing one thing is the commonest kind. This is the setting that reaches it.
+//
+// The clock starts when the tab is first seen rather than at zero, so a device
+// that has just started does not reload the page it has only just loaded.
+func (self *Browser) reloadIfDue(ctx context.Context, identifier, target string, item config.Item) {
+	if !self.reloadDue(identifier, item) {
+		return
+	}
+
+	session, err := self.session(ctx, target)
+	if err != nil {
+		log.Debugf("cannot reach the tab for %s to reload it: %s", describeItem(item, identifier), err)
+		return
+	}
+	if err := session.Reload(ctx, false); err != nil {
+		log.Warningf("cannot reload %s: %s", describeItem(item, identifier), err)
+		return
+	}
+	log.Noticef("reloaded %s, as reloadEvery asks", describeItem(item, identifier))
+}
+
+// reloadDue reports whether this item's timer has come round, and restarts it
+// when it has. Separated from the reloading so that the decision can be tested
+// without a browser, which is the half that has the clock in it.
+func (self *Browser) reloadDue(identifier string, item config.Item) bool {
+	every := item.ReloadEvery.Duration()
+	if every <= 0 {
+		return false
+	}
+
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
+	last, seen := self.lastReload[identifier]
+	if !seen {
+		// The clock starts when the tab is first seen rather than at zero, so
+		// a device that has just started does not reload a page it has only
+		// just loaded.
+		self.lastReload[identifier] = time.Now()
+		return false
+	}
+	if time.Since(last) < every {
+		return false
+	}
+	self.lastReload[identifier] = time.Now()
+	return true
 }

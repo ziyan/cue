@@ -87,6 +87,7 @@ type Browser struct {
 	current      string
 	currentSince time.Time
 	lastLogin    map[string]time.Time
+	lastReload   map[string]time.Time
 	loginCount   map[string]int
 	dismissCount map[string]int
 	ready        bool
@@ -102,6 +103,7 @@ func New(configuration *config.Configuration, displayName, authorityFilename str
 		sessions:          map[string]*cdp.Session{},
 		tabs:              map[string]string{},
 		lastLogin:         map[string]time.Time{},
+		lastReload:        map[string]time.Time{},
 		loginCount:        map[string]int{},
 		dismissCount:      map[string]int{},
 	}

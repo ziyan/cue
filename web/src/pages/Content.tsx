@@ -46,6 +46,7 @@ interface Item {
   duration?: string;
   disabled?: boolean;
   reload?: boolean;
+  reloadEvery?: string;
   media?: Media;
   login?: Login;
   dismiss?: Dismiss[];
@@ -279,8 +280,11 @@ function ItemCard({ item, index, total, set }: {
                 hint="Empty uses the rotation setting above"
                 onChange={(value) => change((draft) => { draft.duration = asSeconds(value, 0); })} />
               <Toggle label="Reload each time it comes round" checked={!!item.reload}
-                hint="For a dashboard that stops refreshing itself after a few hours"
+                hint="For a dashboard that stops refreshing itself after a few hours. Does nothing on a screen showing one thing, because nothing comes round — use the setting beside it."
                 onChange={(value) => change((draft) => { draft.reload = value; })} />
+              <Text label="Reload every" type="number" value={secondsOf(item.reloadEvery)}
+                hint="Seconds. Empty never reloads. For a page whose live content dies after a few hours — camera streams that go black one by one — on a screen nobody is there to refresh."
+                onChange={(value) => change((draft) => { draft.reloadEvery = asSeconds(value, 0); })} />
             </Row>
 
             <Advanced item={item} change={change} />
