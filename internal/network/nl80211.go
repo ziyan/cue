@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -162,6 +163,14 @@ func phyIndexOf(interfaceName string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("network: %s reports an unreadable radio number %q",
 			interfaceName, strings.TrimSpace(string(content)))
+	}
+	// The radio number goes to the kernel as a uint32. Checked rather than
+	// converted: a negative or oversized one would wrap and ask about a
+	// different radio, and asking the wrong radio returns an answer rather
+	// than an error, which is the kind of wrong that is hard to see.
+	if index < 0 || index > math.MaxUint32 {
+		return 0, fmt.Errorf("network: %s reports the radio number %d, which is out of range",
+			interfaceName, index)
 	}
 	return index, nil
 }

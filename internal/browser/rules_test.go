@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -66,5 +67,41 @@ func TestAnInlineLoginStillWorks(t *testing.T) {
 	}
 	if resolved.Password.Reveal() != "an-inline-test-password" {
 		t.Error("an inline password stopped working")
+	}
+}
+
+// A value spliced into one of these scripts cannot end the statement it is in.
+//
+// json.Marshal handles the quote and the backslash. What it does not handle is
+// that JSON is not JavaScript: U+2028 and U+2029 sit happily inside a JSON
+// string and were line terminators in JavaScript before ES2019, so a value
+// carrying one used to close the statement and let what followed run as code.
+// These values used to be typed by whoever owned the screen; a playlist can now
+// bring them from a service.
+func TestAQuotedValueCannotEndTheStatement(t *testing.T) {
+	for what, value := range map[string]string{
+		"a double quote":   `"; alert(1); "`,
+		"a backslash":      `\"; alert(1)`,
+		"a line separator": "a b",
+		"a paragraph mark": "a b",
+		"a newline":        "a\nb",
+		"a closing brace":  `"}); alert(1); ({"`,
+	} {
+		t.Run(what, func(t *testing.T) {
+			quoted := quote(value)
+
+			if strings.ContainsAny(quoted[1:len(quoted)-1], "  \n\r") {
+				t.Errorf("%s survived into the literal: %q", what, quoted)
+			}
+			// It still has to mean the same thing, or the rule silently stops
+			// matching what somebody wrote.
+			var back string
+			if err := json.Unmarshal([]byte(quoted), &back); err != nil {
+				t.Fatalf("the literal is not readable: %s", err)
+			}
+			if back != value {
+				t.Errorf("became %q, want %q", back, value)
+			}
+		})
 	}
 }

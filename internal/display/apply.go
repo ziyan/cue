@@ -2,6 +2,7 @@ package display
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -299,6 +300,18 @@ func (self *Display) execute(plan layout, resources *randr.GetScreenResourcesCur
 		}
 	}
 
+	// Checked before converting. The screen is a uint16 to the X server, and a
+	// framebuffer or an output position out of that range would wrap into a
+	// number nobody asked for -- a 70000-pixel screen becoming 4464 and the
+	// wall showing a corner of itself, with the configuration still saying
+	// 70000. Both come from the configuration, where somebody can type
+	// anything.
+	if plan.screenWidth < 0 || plan.screenWidth > math.MaxUint16 ||
+		plan.screenHeight < 0 || plan.screenHeight > math.MaxUint16 {
+		return fmt.Errorf("display: a screen of %dx%d is outside what the X server can address (0 to %d)",
+			plan.screenWidth, plan.screenHeight, math.MaxUint16)
+	}
+
 	millimetreWidth, millimetreHeight := physicalSize(plan.screenWidth, plan.screenHeight)
 	if err := randr.SetScreenSizeChecked(self.connection, self.root,
 		uint16(plan.screenWidth), uint16(plan.screenHeight), millimetreWidth, millimetreHeight).Check(); err != nil {
@@ -306,6 +319,11 @@ func (self *Display) execute(plan layout, resources *randr.GetScreenResourcesCur
 	}
 
 	for _, placement := range plan.placements {
+		if placement.x < math.MinInt16 || placement.x > math.MaxInt16 ||
+			placement.y < math.MinInt16 || placement.y > math.MaxInt16 {
+			return fmt.Errorf("display: %s at %d,%d is outside what the X server can address (%d to %d)",
+				placement.outputName, placement.x, placement.y, math.MinInt16, math.MaxInt16)
+		}
 		reply, err := randr.SetCrtcConfig(self.connection, placement.crtc, timestamp, configTimestamp,
 			int16(placement.x), int16(placement.y), placement.mode, placement.rotation,
 			[]randr.Output{placement.output}).Reply()
@@ -505,24 +523,35 @@ func parseModeline(modeline string) (randr.ModeInfo, error) {
 		return randr.ModeInfo{}, fmt.Errorf("display: %q is not a pixel clock", fields[0])
 	}
 
-	numbers := make([]int, 8)
+	// Range-checked rather than converted. A modeline is eight numbers typed
+	// into the configuration by somebody reading them off a monitor's
+	// datasheet, and every one of them is a uint16 to the X server. Converting
+	// without checking turns 70000 into 4464 silently -- a timing nobody asked
+	// for, on a screen that then shows nothing, with the configuration still
+	// saying 70000.
+	numbers := make([]uint16, 8)
 	for index := 0; index < 8; index++ {
-		numbers[index], err = strconv.Atoi(fields[index+1])
+		value, err := strconv.Atoi(fields[index+1])
 		if err != nil {
 			return randr.ModeInfo{}, fmt.Errorf("display: %q is not a number", fields[index+1])
 		}
+		if value < 0 || value > math.MaxUint16 {
+			return randr.ModeInfo{}, fmt.Errorf("display: %q is out of range for a modeline; it must be between 0 and %d",
+				fields[index+1], math.MaxUint16)
+		}
+		numbers[index] = uint16(value)
 	}
 
 	information := randr.ModeInfo{
 		DotClock:   uint32(clock * 1000000),
-		Width:      uint16(numbers[0]),
-		HsyncStart: uint16(numbers[1]),
-		HsyncEnd:   uint16(numbers[2]),
-		Htotal:     uint16(numbers[3]),
-		Height:     uint16(numbers[4]),
-		VsyncStart: uint16(numbers[5]),
-		VsyncEnd:   uint16(numbers[6]),
-		Vtotal:     uint16(numbers[7]),
+		Width:      numbers[0],
+		HsyncStart: numbers[1],
+		HsyncEnd:   numbers[2],
+		Htotal:     numbers[3],
+		Height:     numbers[4],
+		VsyncStart: numbers[5],
+		VsyncEnd:   numbers[6],
+		Vtotal:     numbers[7],
 	}
 
 	const (

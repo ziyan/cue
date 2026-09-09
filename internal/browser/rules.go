@@ -444,6 +444,28 @@ func quoteList(values []string) string {
 // quote renders a Go string as a JavaScript string literal. encoding/json
 // produces exactly that, and it escapes the characters — quotes, backslashes,
 // line separators — that a credential or a selector might contain.
+// quote turns a value into a JavaScript string literal for splicing into the
+// scripts in this file.
+//
+// json.Marshal is most of the answer: it escapes the quote and the backslash,
+// so a selector or a password containing either cannot close the literal it is
+// in. What it does not do is make its output safe as JAVASCRIPT, and the two
+// are not the same language.
+//
+// The gap it would leave in another language is U+2028 and U+2029: ordinary
+// characters inside a JSON string, and line terminators in JavaScript before
+// ES2019, so a value carrying one could end the statement and let what followed
+// run as code. Go closes it. encoding/json escapes both, along with <, > and &,
+// precisely so its output can be embedded in a page -- so quoting with it is
+// safe here and would not be with a marshaller that did not.
+//
+// That is worth knowing rather than assuming, because it is the whole reason
+// this is one line. It matters more than it did: these values were once only
+// typed into a device's own configuration by whoever owned the screen, and a
+// playlist can now bring them from a service into a script that runs in the
+// page of whatever dashboard is on the wall. TestAQuotedValueCannotEndThe
+// Statement pins the property, so a change of encoder fails a test rather than
+// quietly opening it.
 func quote(value string) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {

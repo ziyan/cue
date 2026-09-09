@@ -36,11 +36,16 @@ func (self *Server) issueSession(response http.ResponseWriter, request *http.Req
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		// Secure would stop the cookie working entirely: these devices are
-		// reached over plain HTTP on a local network, and there is no
-		// certificate anybody could issue for an address on it. Anyone in a
-		// position to read the traffic is already on the network the screen
-		// is on.
+		// Secure when the connection is, and not otherwise. Setting it
+		// unconditionally would stop the cookie working at all on the ordinary
+		// device: these are reached over plain HTTP on a local network, and
+		// there is no certificate anybody could issue for an address on it, so
+		// a Secure cookie would simply never be sent and nobody could sign in.
+		//
+		// Behind a reverse proxy that terminates TLS -- which is what
+		// web.trustedOrigins exists for -- request.TLS is set and so is this.
+		// Anyone able to read the traffic in the other case is already on the
+		// network the screen is on, where they can also read the screen.
 		Secure:  request.TLS != nil,
 		Expires: time.Now().Add(configuration.Web.SessionLifetime.Duration()),
 		MaxAge:  int(configuration.Web.SessionLifetime.Duration().Seconds()),
