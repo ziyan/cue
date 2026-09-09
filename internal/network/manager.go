@@ -272,6 +272,10 @@ func (self *Manager) ensureSupplicant(ctx context.Context, interfaceName string)
 }
 
 func supplicantReady(interfaceName string) error {
+	interfaceName, err := checkedInterfaceName(interfaceName)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(filepath.Join(controlDirectory, interfaceName)); err != nil {
 		return fmt.Errorf("network: wpa_supplicant has not opened its control socket for %s yet", interfaceName)
 	}

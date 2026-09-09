@@ -34,6 +34,11 @@ type control struct {
 // the address it was sent from — so one is made in a directory that is
 // certainly writable and removed afterwards.
 func openControl(interfaceName string) (*control, error) {
+	interfaceName, err := checkedInterfaceName(interfaceName)
+	if err != nil {
+		return nil, err
+	}
+
 	socket := filepath.Join(controlDirectory, interfaceName)
 	if _, err := os.Stat(socket); err != nil {
 		return nil, fmt.Errorf("network: wpa_supplicant is not running for %s: %w", interfaceName, err)
