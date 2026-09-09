@@ -6,6 +6,17 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-09
+
+### Added
+
+`playlist.items[].reloadEvery`, which fetches a page again on a timer whether or not the playlist rotates — for a screen showing one thing, where nothing ever comes round and a dashboard whose live content dies has no way back. (#20)
+
+### Security
+
+The management interface and every page the device serves now carry a content security policy, with a per-response nonce for the device's own inline scripts, along with `nosniff` and `no-referrer`. (#20)
+Numbers read from the configuration and from the system are range-checked before they are narrowed, so a value too large to fit becomes an error rather than a different number. (#20)
+An interface name is checked against what the kernel would accept before it is used to build a file path. (#20)
 ## [0.6.2] - 2026-09-09
 
 ### Changed
