@@ -103,6 +103,7 @@ func (self *Server) menu(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
 	if err := menuTemplate.Execute(response, map[string]interface{}{
+		"Nonce":      nonceOf(request),
 		"Device":     configuration.Device.Name,
 		"Identifier": configuration.Device.Identifier,
 		"Version":    version.String(),
@@ -504,7 +505,7 @@ var menuTemplate = template.Must(template.New("menu").Parse(`<!doctype html>
 
   <p id="working" hidden></p>
 </div>
-<script>
+<script nonce="{{ .Nonce }}">
   // The authority this page carries, minted when the daemon served it and
   // forgotten when the page says it is closing. Every request below sends it.
   // Nothing else identifies this page: there is no cookie, on purpose, because

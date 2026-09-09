@@ -119,6 +119,7 @@ func (self *Server) portal(response http.ResponseWriter, request *http.Request) 
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-store")
 	if err := portalTemplate.Execute(response, map[string]interface{}{
+		"Nonce":     nonceOf(request),
 		"Device":    self.store.Current().Device.Name,
 		"Networks":  networks,
 		"Trouble":   self.device.SetupTrouble(),
@@ -303,7 +304,7 @@ var portalTemplate = template.Must(template.New("portal").Parse(`<!doctype html>
 
   <div id="working" class="working hidden"></div>
 </main>
-<script>
+<script nonce="{{ .Nonce }}">
   var chosen = null, secured = false;
 
   // The authority this page carries, minted when the daemon served it. It is
@@ -470,7 +471,7 @@ func (self *Server) ServeSetupPort(ctx context.Context, address string) error {
 	}
 
 	server := &http.Server{
-		Handler:           self.router,
+		Handler:           withSecurityHeaders(self.router),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}

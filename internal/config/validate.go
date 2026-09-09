@@ -256,6 +256,8 @@ func (self *Configuration) Validate() error {
 			path := fmt.Sprintf("network.interfaces[%d]", index)
 			if netInterface.Name == "" {
 				add(path+".name", "must name an interface, for example eth0 or wlan0")
+			} else if !isInterfaceName(netInterface.Name) {
+				add(path+".name", "%q is not an interface name", netInterface.Name)
 			}
 			if seenInterfaces[netInterface.Name] {
 				add(path+".name", "%q appears more than once", netInterface.Name)
@@ -350,6 +352,21 @@ func validateLogin(login *Login, path string, add func(string, string, ...interf
 	if login.MinimumInterval < 0 {
 		add(path+".minimumInterval", "must not be negative")
 	}
+}
+
+// interfaceName is what the kernel will accept as one: up to fifteen
+// characters, and none of them a slash, a dot on its own, or whitespace.
+//
+// Checked here because these names are joined into file paths -- the
+// wpa_supplicant control socket, its configuration, the scan file -- and a name
+// containing a slash or "\u002e\u002e" would put those somewhere else
+// entirely. The kernel would refuse such a name anyway, which is what makes
+// this a validation rather than a restriction: nothing that works is being
+// forbidden.
+var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,15}$`)
+
+func isInterfaceName(name string) bool {
+	return interfaceNamePattern.MatchString(name)
 }
 
 func validateListen(address string) error {

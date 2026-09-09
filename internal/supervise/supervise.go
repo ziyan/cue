@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"os/user"
@@ -809,27 +810,50 @@ func lookupCredential(name string) (*syscall.Credential, error) {
 	if err != nil {
 		return nil, fmt.Errorf("no account named %q on this system: %w", name, err)
 	}
-	userId, err := strconv.Atoi(account.Uid)
+	// Range-checked as well as parsed. A user or group id is a uint32 to the
+	// kernel, and converting a negative or oversized one wraps it into a
+	// DIFFERENT account -- -1 becoming 4294967295, which is nobody, or a large
+	// number becoming a small one, which might be root. Whatever produced a
+	// number like that is broken, and running as the wrong user because of it
+	// is a worse outcome than refusing to start.
+	userId, err := accountNumber(account.Uid)
 	if err != nil {
-		return nil, fmt.Errorf("account %q has a user id that is not a number: %w", name, err)
+		return nil, fmt.Errorf("account %q has a user id that is not usable: %w", name, err)
 	}
-	groupId, err := strconv.Atoi(account.Gid)
+	groupId, err := accountNumber(account.Gid)
 	if err != nil {
-		return nil, fmt.Errorf("account %q has a group id that is not a number: %w", name, err)
+		return nil, fmt.Errorf("account %q has a group id that is not usable: %w", name, err)
 	}
 
 	groups := []uint32{}
 	if names, err := account.GroupIds(); err == nil {
 		for _, group := range names {
-			number, err := strconv.Atoi(group)
+			number, err := accountNumber(group)
 			if err != nil {
+				// One unusable supplementary group is not a reason to refuse
+				// to start: the important ones are the user and the primary
+				// group, which are checked above.
+				log.Debugf("ignoring the group %q of %q: %s", group, name, err)
 				continue
 			}
-			groups = append(groups, uint32(number))
+			groups = append(groups, number)
 		}
 	}
 
-	return &syscall.Credential{Uid: uint32(userId), Gid: uint32(groupId), Groups: groups}, nil
+	return &syscall.Credential{Uid: userId, Gid: groupId, Groups: groups}, nil
+}
+
+// accountNumber parses a user or group id and refuses one the kernel could not
+// mean.
+func accountNumber(value string) (uint32, error) {
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a number", value)
+	}
+	if number < 0 || number > math.MaxUint32 {
+		return 0, fmt.Errorf("%q is outside the range of an account id", value)
+	}
+	return uint32(number), nil
 }
 
 // mergeGroups combines two lists of group numbers without duplicates. The

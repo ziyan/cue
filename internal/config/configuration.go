@@ -508,7 +508,28 @@ type Item struct {
 	// Reload fetches the page again each time the item comes round.
 	// Dashboards that poll for themselves do not need it; ones that quietly
 	// stop updating after a few hours do.
+	//
+	// It does nothing on a screen showing ONE thing, because nothing ever
+	// comes round: the item is shown at startup and never again. That is the
+	// commonest way to run one of these, so ReloadEvery is the setting that
+	// covers it.
 	Reload bool `yaml:"reload,omitempty" json:"reload"`
+
+	// ReloadEvery fetches the page again on a timer, whether or not the
+	// playlist rotates. Zero, the default, never does.
+	//
+	// The case it exists for, found on a real wall: a camera dashboard whose
+	// video streams die one by one over hours until most of the tiles are
+	// black, and which comes back the moment somebody presses refresh. The
+	// page is alive -- it answers, it draws, the watchdog is satisfied -- and
+	// what it is showing is nothing. Nobody is standing there to press
+	// refresh, which is the entire point of the device.
+	//
+	// Reloading on a timer is blunt and it is the fix that works without
+	// knowing why a particular page rots. Use the longest period that keeps
+	// the screen honest: a reload costs whatever the page costs to load, and
+	// anything watching it sees the flicker.
+	ReloadEvery Duration `yaml:"reloadEvery,omitempty" json:"reloadEvery"`
 
 	// Disabled keeps the item in the configuration but out of the rotation,
 	// which is what an operator wants while a site is down for maintenance.

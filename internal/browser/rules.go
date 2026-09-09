@@ -78,6 +78,12 @@ func (self *Browser) enforceRules(ctx context.Context) {
 			if !found {
 				continue
 			}
+
+			// Before the skip below, because an item with no login and no
+			// dismiss rule is exactly the one this is for: a dashboard that
+			// needs nothing done to it except being loaded again.
+			self.reloadIfDue(ctx, identifier, target, item)
+
 			if item.Login == nil && len(item.Dismiss) == 0 {
 				continue
 			}
@@ -444,6 +450,28 @@ func quoteList(values []string) string {
 // quote renders a Go string as a JavaScript string literal. encoding/json
 // produces exactly that, and it escapes the characters — quotes, backslashes,
 // line separators — that a credential or a selector might contain.
+// quote turns a value into a JavaScript string literal for splicing into the
+// scripts in this file.
+//
+// json.Marshal is most of the answer: it escapes the quote and the backslash,
+// so a selector or a password containing either cannot close the literal it is
+// in. What it does not do is make its output safe as JAVASCRIPT, and the two
+// are not the same language.
+//
+// The gap it would leave in another language is U+2028 and U+2029: ordinary
+// characters inside a JSON string, and line terminators in JavaScript before
+// ES2019, so a value carrying one could end the statement and let what followed
+// run as code. Go closes it. encoding/json escapes both, along with <, > and &,
+// precisely so its output can be embedded in a page -- so quoting with it is
+// safe here and would not be with a marshaller that did not.
+//
+// That is worth knowing rather than assuming, because it is the whole reason
+// this is one line. It matters more than it did: these values were once only
+// typed into a device's own configuration by whoever owned the screen, and a
+// playlist can now bring them from a service into a script that runs in the
+// page of whatever dashboard is on the wall. TestAQuotedValueCannotEndThe
+// Statement pins the property, so a change of encoder fails a test rather than
+// quietly opening it.
 func quote(value string) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -494,4 +522,57 @@ func (self *Browser) resolveLogin(login *config.Login) (*config.Login, error) {
 	resolved.Username = held.Username
 	resolved.Password = held.Password
 	return &resolved, nil
+}
+
+// reloadIfDue fetches a page again when its item asks to be reloaded on a
+// timer and enough time has passed.
+//
+// Independent of the rotation on purpose. item.Reload fires when an item comes
+// round, which never happens on a screen showing one thing -- and a screen
+// showing one thing is the commonest kind. This is the setting that reaches it.
+//
+// The clock starts when the tab is first seen rather than at zero, so a device
+// that has just started does not reload the page it has only just loaded.
+func (self *Browser) reloadIfDue(ctx context.Context, identifier, target string, item config.Item) {
+	if !self.reloadDue(identifier, item) {
+		return
+	}
+
+	session, err := self.session(ctx, target)
+	if err != nil {
+		log.Debugf("cannot reach the tab for %s to reload it: %s", describeItem(item, identifier), err)
+		return
+	}
+	if err := session.Reload(ctx, false); err != nil {
+		log.Warningf("cannot reload %s: %s", describeItem(item, identifier), err)
+		return
+	}
+	log.Noticef("reloaded %s, as reloadEvery asks", describeItem(item, identifier))
+}
+
+// reloadDue reports whether this item's timer has come round, and restarts it
+// when it has. Separated from the reloading so that the decision can be tested
+// without a browser, which is the half that has the clock in it.
+func (self *Browser) reloadDue(identifier string, item config.Item) bool {
+	every := item.ReloadEvery.Duration()
+	if every <= 0 {
+		return false
+	}
+
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+
+	last, seen := self.lastReload[identifier]
+	if !seen {
+		// The clock starts when the tab is first seen rather than at zero, so
+		// a device that has just started does not reload a page it has only
+		// just loaded.
+		self.lastReload[identifier] = time.Now()
+		return false
+	}
+	if time.Since(last) < every {
+		return false
+	}
+	self.lastReload[identifier] = time.Now()
+	return true
 }
