@@ -6,6 +6,11 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-09-09
+
+### Security
+
+An interface name is checked where it is used to build a file path, as well as where it is read from the configuration. (#21)
 ## [0.7.0] - 2026-09-09
 
 ### Added
