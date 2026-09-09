@@ -107,7 +107,7 @@ function RestartSomething() {
     <Section title="Restart something">
       {said && <Alert severity="success" sx={{ mb: 2 }}>{said}</Alert>}
       {problem && <Alert severity="error" sx={{ mb: 2 }}>{problem}</Alert>}
-      <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+      <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap", mb: 2 }}>
         <Button variant="outlined" onClick={() => void restart("chromium", "the browser")}>Restart the browser</Button>
         <Button variant="outlined" onClick={() => void restart("display", "the X server")}>Restart the X server</Button>
         <Button variant="outlined" onClick={() => void restart("vnc", "the VNC server")}>Restart the VNC server</Button>

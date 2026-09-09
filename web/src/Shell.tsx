@@ -181,7 +181,7 @@ export function Shell({ state, appearance, mode, onAppearance, onSignedOut }: {
               </IconButton>
             </Tooltip>
 
-            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0, mr: "auto" }}>
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", minWidth: 0, mr: "auto" }}>
               {wide && (
                 <>
                   <Typography noWrap color="text.secondary">{state.device.name || "Cue"}</Typography>
