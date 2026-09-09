@@ -6,6 +6,11 @@ All notable changes to this project are recorded here, in the categories of
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-09
+
+### Changed
+
+The management interface is built with MUI 9. (#19)
 ## [0.6.1] - 2026-09-09
 
 ### Changed
