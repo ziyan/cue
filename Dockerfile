@@ -32,7 +32,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---------------------------------------------------------------------------
-FROM golang:1.25-trixie AS daemon
+FROM golang:1.26-trixie AS daemon
 
 # Passed by the release workflow so the binary can say what it is. Without
 # them "cue version" reports 0.0.0-dev, which is useless in a bug report.
