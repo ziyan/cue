@@ -7,7 +7,7 @@ require (
 	github.com/jezek/xgb v1.3.1
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/urfave/cli/v3 v3.11.0
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.57.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -29,6 +29,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
 	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
 	github.com/vishvananda/netns v0.0.5 // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
 )
