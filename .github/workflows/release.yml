@@ -51,7 +51,7 @@ jobs:
       - name: Build the binaries
         run: go run ./tools/release "${{ steps.version.outputs.version }}" dist
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
       - name: Sign in to the GitHub registry
