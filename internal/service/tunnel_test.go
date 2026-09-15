@@ -225,7 +225,7 @@ func waitFor(t *testing.T, within time.Duration, why string, condition func() bo
 // net/http on both ends of a connection this package framed itself.
 func TestAPictureReachesTheServiceOverTheTunnel(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("not really a jpeg, but bytes"), "image/jpeg", nil
@@ -279,7 +279,7 @@ func TestAnUnlinkedDeviceDoesNotReport(t *testing.T) {
 // A screen that cannot be photographed is not a reason to drop the connection.
 func TestAPictureThatCannotBeTakenKeepsTheConnection(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	var tries atomic.Int64
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
@@ -315,7 +315,7 @@ func TestAPictureThatCannotBeTakenKeepsTheConnection(t *testing.T) {
 // The device must ask for the one thing the service allows, and nothing else.
 func TestTheDeviceOnlyOpensTheServiceItself(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
@@ -335,7 +335,7 @@ func TestTheDeviceOnlyOpensTheServiceItself(t *testing.T) {
 func TestARefusedStreamIsRecoveredFrom(t *testing.T) {
 	stub := newStubService(t)
 	stub.Refuse.Store(true)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
@@ -355,7 +355,7 @@ func TestARefusedStreamIsRecoveredFrom(t *testing.T) {
 // read it without looking at one.
 func TestWhatTheScreenIsShowingIsReported(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store,
 		func(context.Context) ([]byte, string, error) {
@@ -390,7 +390,7 @@ func TestWhatTheScreenIsShowingIsReported(t *testing.T) {
 // A device that cannot say what it is showing still sends pictures.
 func TestADescriptionThatCannotBeMadeDoesNotStopPictures(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store,
 		func(context.Context) ([]byte, string, error) {
@@ -443,7 +443,7 @@ func TestARefusedCredentialIsToldApartFromAnUnreachableService(t *testing.T) {
 // retrying for ever, and says why.
 func TestARevokedDeviceStopsReporting(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
@@ -459,7 +459,7 @@ func TestARevokedDeviceStopsReporting(t *testing.T) {
 	// handshake, so an attached device goes on reporting until its connection
 	// ends -- which is worth knowing and is true of the real service too. The
 	// connection is dropped here to get to the part this test is about.
-	stub.Credential = "something-else-entirely"
+	stub.SetCredential("something-else-entirely")
 	sent := stub.screenshots.Load()
 	stub.Disconnect()
 
@@ -475,7 +475,7 @@ func TestARevokedDeviceStopsReporting(t *testing.T) {
 // The service can reach this device's management interface, and nothing else.
 func TestTheServiceReachesOnlyTheManagementInterface(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	// What this device offers: one route, so the test is about which streams
 	// are opened rather than about routing.
@@ -531,7 +531,7 @@ func TestTheServiceReachesOnlyTheManagementInterface(t *testing.T) {
 // A device that has been given nothing to offer refuses rather than hangs.
 func TestADeviceOfferingNothingSaysSo(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
@@ -580,7 +580,7 @@ func TestTheServiceCanBeSplicedToTheScreen(t *testing.T) {
 	}()
 
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
@@ -626,7 +626,7 @@ func TestTheServiceCanBeSplicedToTheScreen(t *testing.T) {
 // will immediately close.
 func TestADeviceWithNoScreenSaysSo(t *testing.T) {
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	offered := http.NewServeMux()
 	offered.HandleFunc("/healthz", func(response http.ResponseWriter, request *http.Request) {
@@ -698,7 +698,7 @@ func TestAFullSizedFrameFromTheServiceDoesNotCloseTheConnection(t *testing.T) {
 	}()
 
 	stub := newStubService(t)
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("a picture"), "image/jpeg", nil
@@ -772,7 +772,7 @@ func TestLinkingIsNoticedAtOnce(t *testing.T) {
 	// completes: it writes the credential to the configuration.
 	linkedAt := time.Now()
 	if err := store.Update(func(updated *config.Configuration) error {
-		updated.Service.Secret = config.Secret(stub.Credential)
+		updated.Service.Secret = config.Secret(stub.Credential())
 		updated.Service.Account = "somebody@example.com"
 		return nil
 	}); err != nil {
@@ -799,7 +799,7 @@ func TestAProfileFromTheServiceReachesTheConfiguration(t *testing.T) {
 	stub := newStubService(t)
 	stub.serves(`{"browser":{"darkMode":true}}`, `"one"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	store.Current().Browser.DarkMode = false
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
@@ -825,7 +825,7 @@ func TestTheDeviceAsksWithTheVersionItAlreadyHas(t *testing.T) {
 	stub := newStubService(t)
 	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	store.Current().Service.PollInterval = config.Duration(shortestPoll)
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
@@ -864,7 +864,7 @@ func TestARefusedProfileReleasesNothing(t *testing.T) {
 	// pass before anything had happened.
 	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil)
@@ -897,7 +897,7 @@ func TestAnEmptyDocumentReleasesWhatTheProfileGave(t *testing.T) {
 	stub := newStubService(t)
 	stub.serves(`{"browser":{"darkMode":false}}`, `"one"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil)
@@ -926,7 +926,7 @@ func TestNoPlaylistAssignedLeavesTheDevicesOwnItemsAlone(t *testing.T) {
 	stub := newStubService(t)
 	// The stub answers 204 by default, which is what an unassigned device gets.
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	mine := []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
 	store.Current().Playlist.Items = mine
 
@@ -954,7 +954,7 @@ func TestAnAssignedPlaylistReplacesTheItems(t *testing.T) {
 		{"identifier":"01bbb","url":"https://example.com/two","duration":20}
 	]}`, `"p1"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	store.Current().Playlist.Items = []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
@@ -988,7 +988,7 @@ func TestMediaIsCarriedByItsDigest(t *testing.T) {
 	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
 		"file":"0123456789abcdef0123456789abcdef","mediaId":"01m1zzz","name":"promo.mp4","kind":"video","sound":true}}]}`, `"p1"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil)
@@ -1020,7 +1020,7 @@ func TestALoginTravelsWithItsCredentialName(t *testing.T) {
 		"login":{"whenUrlMatches":"/login","passwordSelector":"#password",
 		"credential":"the-dashboard"}}]}`, `"p1"`)
 
-	store := newStore(t, stub.Server.URL, stub.Credential)
+	store := newStore(t, stub.Server.URL, stub.Credential())
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil)
@@ -1064,7 +1064,7 @@ func TestMediaIsFetchedOnceAndThenHeld(t *testing.T) {
 	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
 		"file":"`+file+`","mediaId":"01m1media","name":"promo.mp4","kind":"video"}}]}`, `"p1"`)
 
-	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential())
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil).WithMedia(uploads)
@@ -1113,7 +1113,7 @@ func TestMediaThatArrivesWrongIsNotKept(t *testing.T) {
 	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
 		"file":"`+wanted+`","mediaId":"01m1media","kind":"video"}}]}`, `"p1"`)
 
-	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential())
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
 		return []byte("bytes"), "image/jpeg", nil
 	}, nil).WithMedia(uploads)
@@ -1154,7 +1154,7 @@ func TestAPlaylistIsNotSwappedInUntilEveryFileHasArrived(t *testing.T) {
 		{"identifier":"01bbb","media":{"file":"0123456789abcdef0123456789abcdef",
 		 "mediaId":"01m1gone","kind":"video"}}]}`, `"p1"`)
 
-	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential())
 	mine := []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
 	store.Current().Playlist.Items = mine
 
@@ -1189,7 +1189,7 @@ func TestThePlaylistGoesInOnceItsFilesArrive(t *testing.T) {
 	stub.showsPlaylist(`{"items":[{"identifier":"01aaa","media":{
 		"file":"`+file+`","mediaId":"01m1media","kind":"video"}}]}`, `"p1"`)
 
-	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential)
+	store, uploads := newStoreWithMedia(t, stub.Server.URL, stub.Credential())
 	store.Current().Playlist.Items = []config.Item{{Identifier: "mine", URL: "https://example.com/local"}}
 
 	reporter := New(store, func(context.Context) ([]byte, string, error) {
@@ -1224,7 +1224,7 @@ func TestADurationOnTheWireMayBeSecondsOrAString(t *testing.T) {
 			stub := newStubService(t)
 			stub.showsPlaylist(document, `"p-`+what+`"`)
 
-			store := newStore(t, stub.Server.URL, stub.Credential)
+			store := newStore(t, stub.Server.URL, stub.Credential())
 			reporter := New(store, func(context.Context) ([]byte, string, error) {
 				return []byte("bytes"), "image/jpeg", nil
 			}, nil)
