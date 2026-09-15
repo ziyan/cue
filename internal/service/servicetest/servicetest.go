@@ -34,8 +34,14 @@ import (
 type Stub struct {
 	Server *httptest.Server
 
-	// Credential is what a device must present to attach.
-	Credential string
+	// What a device must present to attach.
+	//
+	// Behind a mutex rather than a plain field because a test changes it while
+	// the stub is serving -- revoking a device mid-flight is the point of it --
+	// and httptest runs handlers on goroutines of its own, so the handler's
+	// read and the test's write have nothing between them.
+	credentialMutex sync.Mutex
+	credential      string
 
 	// Opens counts the streams devices have asked for.
 	Opens atomic.Int64
@@ -208,12 +214,27 @@ func (self *Stub) Disconnect() {
 	}
 }
 
+// Credential is what a device must present to attach.
+func (self *Stub) Credential() string {
+	self.credentialMutex.Lock()
+	defer self.credentialMutex.Unlock()
+	return self.credential
+}
+
+// SetCredential changes what the stub accepts, and may be called while it is
+// serving: that is how a test revokes a device that is already attached.
+func (self *Stub) SetCredential(credential string) {
+	self.credentialMutex.Lock()
+	defer self.credentialMutex.Unlock()
+	self.credential = credential
+}
+
 // New returns a stub serving routes over the tunnel. The websocket lives at
 // /api/v1/device/websocket, and anything else on the listener is served
 // directly, so a test can offer public endpoints as well.
 func New(t *testing.T, routes http.Handler, public http.Handler) *Stub {
 	t.Helper()
-	stub := &Stub{Credential: "an-example-credential"}
+	stub := &Stub{credential: "an-example-credential"}
 
 	upgrader := websocket.Upgrader{}
 	stub.Server = httptest.NewServer(http.HandlerFunc(
@@ -226,7 +247,7 @@ func New(t *testing.T, routes http.Handler, public http.Handler) *Stub {
 				http.NotFound(response, request)
 				return
 			}
-			if request.Header.Get("Authorization") != "Bearer "+stub.Credential {
+			if request.Header.Get("Authorization") != "Bearer "+stub.Credential() {
 				response.WriteHeader(http.StatusUnauthorized)
 				return
 			}
