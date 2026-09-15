@@ -102,7 +102,7 @@ func newStubService(t *testing.T) *stubService {
 		})
 
 	tunnel := servicetest.New(t, overTheTunnel, public)
-	tunnel.Credential = "an example secret"
+	tunnel.SetCredential("an example secret")
 	stub.server = tunnel.Server
 	return stub
 }

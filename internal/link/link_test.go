@@ -55,7 +55,13 @@ type stubService struct {
 	registeredIdentifier string
 	redeemed             atomic.Bool
 
-	// What /self answers with. Defaults are set in newStubService.
+	// What /self answers with. Defaults are set in newStubService, and the
+	// mutex above covers them: the handler reads them from net/http's
+	// goroutine, so a test that changes one after the stub is serving is
+	// writing what another goroutine reads. Nothing does that today -- both
+	// writes below happen before the first request, which is what orders them
+	// -- and that is precisely the accident that stopped holding for the
+	// stub's credential and cost a day of looking at the wrong commit.
 	identityId   string
 	identityName string
 	// How many times the device asked, over the tunnel.
@@ -156,16 +162,17 @@ func newStubService(t *testing.T) *stubService {
 			<-stub.holdIdentity
 		}
 		stub.identityAsks.Add(1)
+		identityId, identityName := stub.identity()
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(Identity{
-			ID: stub.identityId, Name: stub.identityName,
+			ID: identityId, Name: identityName,
 			Description: "an-example-identifier", UserID: "user-1",
 		})
 	})
 
 	tunnel := servicetest.New(t, overTheTunnel, http.HandlerFunc(handler))
 	// The credential this stub issues is the one it will accept back.
-	tunnel.Credential = "an-example-secret"
+	tunnel.SetCredential("an-example-secret")
 	stub.tunnel = tunnel
 	stub.server = tunnel.Server
 	t.Cleanup(stub.release)
@@ -206,6 +213,24 @@ func (self *stubService) timesTheVerifierWasSent(verifier string) int {
 		}
 	}
 	return count
+}
+
+func (self *stubService) identity() (string, string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.identityId, self.identityName
+}
+
+func (self *stubService) setIdentityId(identityId string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.identityId = identityId
+}
+
+func (self *stubService) setIdentityName(identityName string) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.identityName = identityName
 }
 
 func (self *stubService) registered() (string, string) {
@@ -753,7 +778,7 @@ func TestACredentialThatDoesNotWorkIsNotALink(t *testing.T) {
 	stub := newStubService(t)
 	// A credential the service will not honour: the tunnel turns it away at
 	// the handshake, which is what a revoked device meets in practice.
-	stub.tunnel.Credential = "some-other-credential"
+	stub.tunnel.SetCredential("some-other-credential")
 	stub.authorised.Store(true)
 
 	store := newStore(t, stub.server.URL)
@@ -867,7 +892,7 @@ func TestOnlyTheFirstPollSaysWhatThisDeviceIs(t *testing.T) {
 // says rather than assuming its own name carried.
 func TestTheNameTheServiceUsesIsKept(t *testing.T) {
 	stub := newStubService(t)
-	stub.identityName = "carbon 2"
+	stub.setIdentityName("carbon 2")
 	stub.authorised.Store(true)
 
 	store := newStore(t, stub.server.URL)
@@ -894,7 +919,7 @@ func TestTheNameTheServiceUsesIsKept(t *testing.T) {
 // that is not about it.
 func TestACredentialForADifferentDeviceIsRefused(t *testing.T) {
 	stub := newStubService(t)
-	stub.identityId = "somebody-elses-device"
+	stub.setIdentityId("somebody-elses-device")
 	stub.authorised.Store(true)
 
 	store := newStore(t, stub.server.URL)
