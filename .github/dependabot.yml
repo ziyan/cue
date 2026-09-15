@@ -9,6 +9,18 @@
 # break on every one of these.
 version: 2
 
+# Every proposal here is labelled skip-changelog. The changelog guard reads a
+# pull request's description for a "## Changelog" block, and Dependabot does not
+# write one -- so the guard failed on every dependency pull request, five times
+# over on some of them. A check that is always red on a whole category of pull
+# request is a check people stop reading.
+#
+# The label is the guard's own escape hatch rather than something invented here:
+# changelog-guard.yml skips when it is present. And it is the right answer on
+# the merits, since a dependency bump is not something an operator reading the
+# release notes can act on. One that IS -- a fix they should hurry to take --
+# gets the label removed and a Security entry written by hand.
+
 updates:
   - package-ecosystem: gomod
     directory: /
@@ -16,6 +28,7 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    labels: ["dependencies", "skip-changelog"]
     groups:
       golang-x:
         patterns: ['golang.org/x/*']
@@ -26,7 +39,16 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    labels: ["dependencies", "skip-changelog"]
     groups:
+      # react and react-dom are one runtime and have to move together. Taking
+      # one without the other leaves a mismatched pair, which the image check
+      # caught by starting the application -- tsc and the build had both passed
+      # on it. Listed before the build group, which claims every dev dependency
+      # and would otherwise take the two @types packages away from here.
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+
       # Build tooling, which changes together and is not shipped to anybody.
       build:
         dependency-type: development
@@ -35,3 +57,4 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    labels: ["dependencies", "skip-changelog"]
