@@ -13,7 +13,7 @@ require (
 
 require (
 	github.com/gorilla/mux v1.8.1
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 )
 
 require (
